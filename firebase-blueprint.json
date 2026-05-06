@@ -1,0 +1,45 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User account and role information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string", "enum": ["superadmin", "storekeeper"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Material": {
+      "title": "Raw Material",
+      "description": "Inventory item tracking raw materials",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "batch_id": { "type": "string" },
+        "category": { "type": "string" },
+        "quantity": { "type": "number" },
+        "unit": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending_approval", "approved", "rejected"] },
+        "importedAt": { "type": "string", "format": "date-time" },
+        "importedBy": { "type": "string" },
+        "approvedBy": { "type": "string" },
+        "approvedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "status"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "raw_materials/{materialId}": {
+      "schema": "Material",
+      "description": "Raw material inventory"
+    }
+  }
+}

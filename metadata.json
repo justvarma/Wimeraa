@@ -1,0 +1,7 @@
+{
+  "name": "Wimera Systems Inventory",
+  "description": "Industrial Inventory & Asset Management System for Wimera Systems",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

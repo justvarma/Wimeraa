@@ -1,0 +1,276 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 0. DEFAULT DENY
+    // ═══════════════════════════════════════════════════════════════════════════
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // HELPERS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function getUserIndex() {
+      return get(/databases/$(database)/documents/user_index/$(request.auth.uid)).data;
+    }
+
+    function getSystemProfile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function getClientProfile(clientId) {
+      return get(/databases/$(database)/documents/clients/$(clientId)/users/$(request.auth.uid)).data;
+    }
+
+    function isSystemAdmin() {
+      return isSignedIn() && getSystemProfile().role == "system_admin";
+    }
+
+    function hasRole(clientId, role) {
+      return isSignedIn() && getClientProfile(clientId).role == role;
+    }
+
+    function hasAnyRole(clientId, roles) {
+      return isSignedIn() && getClientProfile(clientId).role in roles;
+    }
+
+    function isAdmin(clientId) {
+      return hasRole(clientId, "admin");
+    }
+
+    function isAdminOrAbove(clientId) {
+      return isAdmin(clientId) || isSystemAdmin();
+    }
+
+    function isStorekeeper(clientId) {
+      return hasRole(clientId, "storekeeper");
+    }
+
+    function isPTCManager(clientId) {
+      return hasRole(clientId, "ptc_manager");
+    }
+
+    function isAnyPTC(clientId) {
+      return hasAnyRole(clientId, [
+        "ptc_manager", "ptc_die_casting", "ptc_coating", "ptc_cnc_vmc"
+      ]);
+    }
+
+    function isAnyQI(clientId) {
+      return hasAnyRole(clientId, [
+        "quality_inspector",
+        "qi_die_casting", "qi_coating", "qi_machining",
+        "inventory_qi"
+      ]);
+    }
+
+    function isFQI(clientId) {
+      return hasRole(clientId, "fqi");
+    }
+
+    function isInventoryQI(clientId) {
+      return hasRole(clientId, "inventory_qi");
+    }
+
+    // Returns true if the caller belongs to this client (any role).
+    function belongsToClient(clientId) {
+      return isSignedIn() && (
+        isAdminOrAbove(clientId) ||
+        isStorekeeper(clientId)  ||
+        isAnyPTC(clientId)       ||
+        isAnyQI(clientId)        ||
+        isFQI(clientId)
+      );
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SYSTEM-LEVEL COLLECTIONS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    // /users/{uid} — System Admin profiles only
+    match /users/{uid} {
+      allow read:   if isSignedIn() && (request.auth.uid == uid || isSystemAdmin());
+      allow create: if isSystemAdmin();
+      allow update: if isSystemAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(["role", "name", "plant", "department"]);
+      allow delete: if isSystemAdmin();
+    }
+
+    // /user_index/{uid} — clientId lookup; written by server/admin, read by auth flow
+    match /user_index/{uid} {
+      allow read:   if isSignedIn() && request.auth.uid == uid;
+      allow write:  if isSystemAdmin();
+    }
+
+    // /clients/{clientId} — client registry; system admin only
+    match /clients/{clientId} {
+      allow read:   if isSystemAdmin() || belongsToClient(clientId);
+      allow create: if isSystemAdmin();
+      allow update: if isSystemAdmin();
+      allow delete: if isSystemAdmin();
+
+      // ─────────────────────────────────────────────────────────────────────
+      // CLIENT-SCOPED SUB-COLLECTIONS
+      // ─────────────────────────────────────────────────────────────────────
+
+      // ── Users ────────────────────────────────────────────────────────────
+      match /users/{uid} {
+        // Any member can read users within their own client
+        allow read, list: if isSignedIn() &&
+          get(/databases/$(database)/documents/user_index/$(request.auth.uid)).data.clientId == clientId;
+
+        allow create: if isAdminOrAbove(clientId)
+          && request.resource.data.keys().hasAll(["name","email","role"])
+          && request.resource.data.role in [
+               "admin","storekeeper","ptc_manager",
+               "ptc_die_casting","ptc_coating","ptc_cnc_vmc",
+               "qi_die_casting","qi_coating","qi_machining",
+               "inventory_qi","quality_inspector","fqi"
+             ];
+
+        allow update: if isAdminOrAbove(clientId)
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(["role","name","plant","department"]);
+
+        allow delete: if isAdminOrAbove(clientId);
+      }
+
+      // ── Raw Materials ─────────────────────────────────────────────────────
+      match /raw_materials/{materialId} {
+        allow read: if belongsToClient(clientId);
+
+        function validMaterial(d) {
+          return d.rawMaterialId is string && d.rawMaterialId.size() > 0
+            && d.rawMaterialGrade is string
+            && d.receivedQuantity is number && d.receivedQuantity > 0
+            && d.status in ["pending", "approved", "rejected"];
+        }
+
+        allow create: if isStorekeeper(clientId)
+          && validMaterial(request.resource.data)
+          && request.resource.data.status == "pending"
+          && request.resource.data.submittedById == request.auth.uid;
+
+        allow update: if (
+          isStorekeeper(clientId)
+          && resource.data.status == "pending"
+          && request.resource.data.status == "pending"
+          && resource.data.submittedById == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(["rawMaterialId","rawMaterialGrade","receivedQuantity",
+                         "batchNumber","numberOfRequiredComponents",
+                         "weightPerComponent","notes","date"])
+        ) || (
+          isAdminOrAbove(clientId)
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(["status","approvedBy","rejectedReason"])
+        ) || (
+          isAnyPTC(clientId)
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(["usedQuantity"])
+          && request.resource.data.usedQuantity >= resource.data.usedQuantity
+        );
+
+        allow delete: if isAdminOrAbove(clientId);
+      }
+
+      // ── Monthly Schedules ─────────────────────────────────────────────────
+      match /schedules/{scheduleId} {
+        allow read:   if belongsToClient(clientId);
+        allow create: if isAdminOrAbove(clientId);
+        allow update: if isAdminOrAbove(clientId);
+        allow delete: if isAdminOrAbove(clientId);
+      }
+
+      // ── PTCs ──────────────────────────────────────────────────────────────
+      match /ptcs/{ptcId} {
+        allow read:   if belongsToClient(clientId);
+        allow create: if isAdminOrAbove(clientId) || isPTCManager(clientId);
+        allow delete: if isAdminOrAbove(clientId) || isPTCManager(clientId);
+      }
+
+      // ── Work Orders ───────────────────────────────────────────────────────
+      match /work_orders/{woId} {
+        allow read: if belongsToClient(clientId);
+        allow create: if isPTCManager(clientId) || isAdminOrAbove(clientId);
+        allow update: if isAdminOrAbove(clientId) || isAnyPTC(clientId);
+        allow delete: if isAdminOrAbove(clientId);
+      }
+
+      // ── Daily Production Entries ──────────────────────────────────────────
+      match /daily_entries/{entryId} {
+        allow read:   if belongsToClient(clientId);
+        allow create: if isAnyPTC(clientId) || isAdminOrAbove(clientId);
+        allow update: if isAnyPTC(clientId) || isAdminOrAbove(clientId);
+        allow delete: if isAdminOrAbove(clientId);
+      }
+
+      // ── Process Records ───────────────────────────────────────────────────
+      match /process_records/{recordId} {
+        allow read:   if belongsToClient(clientId);
+        allow create: if isAnyPTC(clientId)   ||
+                         isAnyQI(clientId)    ||
+                         isAdminOrAbove(clientId);
+        allow update: if isAnyPTC(clientId)   ||
+                         isAnyQI(clientId)    ||
+                         isAdminOrAbove(clientId);
+        allow delete: if isAdminOrAbove(clientId);
+      }
+
+      // ── Downtime Events ───────────────────────────────────────────────────
+      match /downtime_events/{eventId} {
+        allow read:   if belongsToClient(clientId);
+        allow create: if isAnyPTC(clientId) || isAdminOrAbove(clientId);
+        allow delete: if isAdminOrAbove(clientId);
+      }
+
+      // ── QI Inspections ────────────────────────────────────────────────────
+      match /qi_inspections/{inspectionId} {
+        allow read:   if belongsToClient(clientId);
+        allow create: if isAnyQI(clientId) || isAdminOrAbove(clientId);
+        allow update: if isAnyQI(clientId) || isAdminOrAbove(clientId);
+        allow delete: if isAdminOrAbove(clientId);
+      }
+
+      // ── FQI Inspections ───────────────────────────────────────────────────
+      match /fqi_inspections/{inspectionId} {
+        allow read:   if belongsToClient(clientId);
+        allow create: if isFQI(clientId) || isAdminOrAbove(clientId);
+        allow update: if isFQI(clientId) || isAdminOrAbove(clientId);
+        allow delete: if isAdminOrAbove(clientId);
+      }
+
+      // ── Roles Config ──────────────────────────────────────────────────────
+      // Stored at clients/{clientId}/roles/{id}
+      // All client members can read; only admin can write.
+      match /roles/{roleId} {
+        allow read:   if belongsToClient(clientId);
+        allow create: if isAdminOrAbove(clientId);
+        allow update: if isAdminOrAbove(clientId);
+        allow delete: if isAdminOrAbove(clientId);
+      }
+
+      // ── Shifts Config ─────────────────────────────────────────────────────
+      // Stored at clients/{clientId}/shifts/{id}
+      // Exactly 2 docs: shift_1, shift_2.
+      // All client members can read; only admin can write.
+      match /shifts/{shiftId} {
+        allow read:   if belongsToClient(clientId);
+        allow create: if isAdminOrAbove(clientId);
+        allow update: if isAdminOrAbove(clientId);
+        allow delete: if isAdminOrAbove(clientId);
+      }
+
+    } // end /clients/{clientId}
+
+  } // end /databases/{database}/documents
+}
