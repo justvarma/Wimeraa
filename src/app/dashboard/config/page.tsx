@@ -136,15 +136,10 @@ function UsersTab() {
   const [form, setForm] = useState(blankForm)
 
   // Active roles from config (fallback to enum if config not loaded yet)
-  const availableRoles: { key: string; label: string }[] =
-      roles.filter(r => r.isActive && r.permissionKey !== UserRole.SYSTEM_ADMIN).length > 0
-          ? roles
-              .filter(r => r.isActive && r.permissionKey !== UserRole.SYSTEM_ADMIN)
-              .sort((a, b) => a.name.localeCompare(b.name))
-              .map(r => ({ key: r.permissionKey, label: r.name }))
-          : Object.values(UserRole)
-              .filter(r => r !== UserRole.SYSTEM_ADMIN)
-              .map(r => ({ key: r, label: ROLE_LABELS[r] }))
+  const availableRoles: { key: string; label: string }[] = roles
+    .filter(r => r.isActive && r.permissionKey !== UserRole.SYSTEM_ADMIN)
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(r => ({ key: r.permissionKey, label: r.name }))
 
   const openAdd = () => {
     setForm(blankForm)
@@ -211,7 +206,7 @@ function UsersTab() {
             <table className="w-full text-sm">
               <thead>
               <tr className="border-b border-slate-100 bg-slate-50/50">
-                {["Name", "Email", "Role", "Plant", "Department", "Actions"].map(h => (
+                {["Name", "Email", "Role", "DOJ", "Actions"].map(h => (
                     <th key={h} className="text-left px-5 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">{h}</th>
                 ))}
               </tr>
@@ -229,8 +224,7 @@ function UsersTab() {
                           ?? u.role}
                     </span>
                     </td>
-                    <td className="px-5 py-3 text-slate-500 text-xs">{u.plant || "—"}</td>
-                    <td className="px-5 py-3 text-slate-500 text-xs">{u.department || "—"}</td>
+                    <td className="px-5 py-3 text-slate-500 text-xs">{u.createdAt || "—"}</td>
                     <td className="px-5 py-3">
                       <div className="flex gap-2">
                         <button onClick={() => openEdit(u)}
@@ -249,6 +243,18 @@ function UsersTab() {
               ))}
               </tbody>
             </table>
+          </div>
+        </div>
+        <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
+          <p className="text-xs font-black text-blue-700 uppercase tracking-widest mb-2">Available Roles</p>
+          <div className="flex flex-wrap gap-2">
+            {availableRoles.length > 0 ? availableRoles.map(r => (
+              <span key={r.key} className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-white border border-blue-200 text-blue-800">
+                {r.label}
+              </span>
+            )) : (
+              <span className="text-sm text-blue-700">No active roles found. Add one in the Roles tab.</span>
+            )}
           </div>
         </div>
 
@@ -278,20 +284,13 @@ function UsersTab() {
                   <Field label="Role">
                     <select value={form.role}
                             onChange={e => setForm(p => ({ ...p, role: e.target.value as UserRole }))}
+                            disabled={availableRoles.length === 0}
                             className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
                       {availableRoles.map(r => (
                           <option key={r.key} value={r.key}>{r.label}</option>
                       ))}
                     </select>
                   </Field>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="Plant">
-                      <Input value={form.plant} onChange={v => setForm(p => ({ ...p, plant: v }))} placeholder="e.g. Plant A" />
-                    </Field>
-                    <Field label="Department">
-                      <Input value={form.department} onChange={v => setForm(p => ({ ...p, department: v }))} placeholder="e.g. Quality" />
-                    </Field>
-                  </div>
                   {saveError && (
                       <div className="flex items-center gap-2 text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5 text-sm">
                         <AlertCircle size={14} /> {saveError}
