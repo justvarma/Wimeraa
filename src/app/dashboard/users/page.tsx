@@ -23,18 +23,11 @@ export default function UsersPage() {
   const isAdmin = currentUser?.role === UserRole.ADMIN
   if (!isAdmin) return <div className="p-8 text-slate-500">Access restricted to Admin.</div>
 
-  const configuredRoles = roles
+  // Roles available for user assignment — active roles only, no SYSTEM_ADMIN
+  const availableRoles: { key: string; label: string }[] = roles
     .filter(r => r.isActive && r.permissionKey !== UserRole.SYSTEM_ADMIN)
     .sort((a, b) => a.name.localeCompare(b.name))
     .map(r => ({ key: r.permissionKey, label: r.name }))
-
-  const fallbackSystemRoles = Object.values(UserRole)
-    .filter(r => r !== UserRole.SYSTEM_ADMIN)
-    .map(r => ({ key: r, label: ROLE_LABELS[r] }))
-
-  // Keep roles visible even before DB role config is created.
-  const availableRoles: { key: string; label: string }[] =
-    configuredRoles.length > 0 ? configuredRoles : fallbackSystemRoles
 
   const openAdd = () => {
     setEditItem(null)
@@ -150,6 +143,11 @@ export default function UsersPage() {
                 </div>
             )
           })}
+          {availableRoles.length === 0 && (
+            <div className="col-span-full bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
+              No active roles available. Add roles from Config → Roles.
+            </div>
+          )}
         </div>
 
         {/* Users table */}
@@ -269,6 +267,7 @@ export default function UsersPage() {
                     <select
                         value={form.role}
                         onChange={e => setForm(p => ({ ...p, role: e.target.value as UserRole }))}
+                        disabled={availableRoles.length === 0}
                         className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none bg-white"
                     >
                       {availableRoles.map(r => (

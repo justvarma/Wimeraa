@@ -135,18 +135,11 @@ function UsersTab() {
   }
   const [form, setForm] = useState(blankForm)
 
-  const configuredRoles = roles
+  // Active roles from config (fallback to enum if config not loaded yet)
+  const availableRoles: { key: string; label: string }[] = roles
     .filter(r => r.isActive && r.permissionKey !== UserRole.SYSTEM_ADMIN)
     .sort((a, b) => a.name.localeCompare(b.name))
     .map(r => ({ key: r.permissionKey, label: r.name }))
-
-  const fallbackSystemRoles = Object.values(UserRole)
-    .filter(r => r !== UserRole.SYSTEM_ADMIN)
-    .map(r => ({ key: r, label: ROLE_LABELS[r] }))
-
-  // If no roles are configured in DB yet, fall back to built-in roles so roles remain visible/assignable.
-  const availableRoles: { key: string; label: string }[] =
-    configuredRoles.length > 0 ? configuredRoles : fallbackSystemRoles
 
   const openAdd = () => {
     setForm(blankForm)
@@ -255,11 +248,13 @@ function UsersTab() {
         <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
           <p className="text-xs font-black text-blue-700 uppercase tracking-widest mb-2">Available Roles</p>
           <div className="flex flex-wrap gap-2">
-            {availableRoles.map(r => (
+            {availableRoles.length > 0 ? availableRoles.map(r => (
               <span key={r.key} className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-white border border-blue-200 text-blue-800">
                 {r.label}
               </span>
-            ))}
+            )) : (
+              <span className="text-sm text-blue-700">No active roles found. Add one in the Roles tab.</span>
+            )}
           </div>
         </div>
 
@@ -289,6 +284,7 @@ function UsersTab() {
                   <Field label="Role">
                     <select value={form.role}
                             onChange={e => setForm(p => ({ ...p, role: e.target.value as UserRole }))}
+                            disabled={availableRoles.length === 0}
                             className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
                       {availableRoles.map(r => (
                           <option key={r.key} value={r.key}>{r.label}</option>
