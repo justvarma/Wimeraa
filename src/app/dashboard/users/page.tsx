@@ -24,15 +24,10 @@ export default function UsersPage() {
   if (!isAdmin) return <div className="p-8 text-slate-500">Access restricted to Admin.</div>
 
   // Roles available for user assignment — active roles only, no SYSTEM_ADMIN
-  const availableRoles: { key: string; label: string }[] =
-      roles.filter(r => r.isActive && r.permissionKey !== UserRole.SYSTEM_ADMIN).length > 0
-          ? roles
-              .filter(r => r.isActive && r.permissionKey !== UserRole.SYSTEM_ADMIN)
-              .sort((a, b) => a.name.localeCompare(b.name))
-              .map(r => ({ key: r.permissionKey, label: r.name }))
-          : Object.values(UserRole)
-              .filter(r => r !== UserRole.SYSTEM_ADMIN)
-              .map(r => ({ key: r, label: ROLE_LABELS[r] }))
+  const availableRoles: { key: string; label: string }[] = roles
+    .filter(r => r.isActive && r.permissionKey !== UserRole.SYSTEM_ADMIN)
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(r => ({ key: r.permissionKey, label: r.name }))
 
   const openAdd = () => {
     setEditItem(null)
@@ -139,15 +134,20 @@ export default function UsersPage() {
 
         {/* Role summary cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {Object.values(UserRole).map(role => {
-            const count = users.filter(u => u.role === role).length
+          {availableRoles.map(role => {
+            const count = users.filter(u => u.role === role.key).length
             return (
-                <div key={role} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm text-center">
+                <div key={role.key} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm text-center">
                   <p className="text-2xl font-black text-slate-900">{count}</p>
-                  <p className="text-xs font-bold text-slate-400 mt-1">{ROLE_LABELS[role]}</p>
+                  <p className="text-xs font-bold text-slate-400 mt-1">{role.label}</p>
                 </div>
             )
           })}
+          {availableRoles.length === 0 && (
+            <div className="col-span-full bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
+              No active roles available. Add roles from Config → Roles.
+            </div>
+          )}
         </div>
 
         {/* Users table */}
@@ -267,6 +267,7 @@ export default function UsersPage() {
                     <select
                         value={form.role}
                         onChange={e => setForm(p => ({ ...p, role: e.target.value as UserRole }))}
+                        disabled={availableRoles.length === 0}
                         className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none bg-white"
                     >
                       {availableRoles.map(r => (
