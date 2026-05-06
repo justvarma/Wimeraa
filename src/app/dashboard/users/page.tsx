@@ -5,9 +5,6 @@ import { useApp } from "@/components/providers/AppProvider"
 import { UserRole, ROLE_LABELS, type User } from "@/lib/store"
 import { Users, Plus, X, Edit2, Trash2, AlertCircle } from "lucide-react"
 
-const PLANTS      = ["Plant A", "Plant B", "Plant C"]
-const DEPARTMENTS = ["Management", "Stores", "Quality", "Production", "Die Casting", "Coating", "CNC Machining", "Engineering", "HR"]
-
 const blankForm = {
   name: "", email: "", password: "",
   role: UserRole.STOREKEEPER, plant: "Plant A", department: "Stores",
@@ -162,8 +159,7 @@ export default function UsersPage() {
                 <th className="px-6 py-4">Name</th>
                 <th className="px-6 py-4">Email</th>
                 <th className="px-6 py-4">Role</th>
-                <th className="px-6 py-4">Plant</th>
-                <th className="px-6 py-4">Department</th>
+                <th className="px-6 py-4">DOJ</th>
                 <th className="px-6 py-4">Actions</th>
               </tr>
               </thead>
@@ -180,8 +176,7 @@ export default function UsersPage() {
                           ?? user.role}
                     </span>
                     </td>
-                    <td className="px-6 py-4 text-sm text-slate-600">{user.plant || "—"}</td>
-                    <td className="px-6 py-4 text-sm text-slate-600">{user.department || "—"}</td>
+                    <td className="px-6 py-4 text-sm text-slate-600">{user.createdAt || "—"}</td>
                     <td className="px-6 py-4">
                       <div className="flex gap-3">
                         <button
@@ -204,7 +199,7 @@ export default function UsersPage() {
               ))}
               {users.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-6 py-12 text-center text-sm text-slate-400">No users found.</td>
+                    <td colSpan={5} className="px-6 py-12 text-center text-sm text-slate-400">No users found.</td>
                   </tr>
               )}
               </tbody>
@@ -280,29 +275,6 @@ export default function UsersPage() {
                     </select>
                   </div>
 
-                  {/* Plant + Department */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Plant</label>
-                      <select
-                          value={form.plant}
-                          onChange={e => setForm(p => ({ ...p, plant: e.target.value }))}
-                          className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-                      >
-                        {PLANTS.map(pl => <option key={pl}>{pl}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Department</label>
-                      <select
-                          value={form.department}
-                          onChange={e => setForm(p => ({ ...p, department: e.target.value }))}
-                          className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-                      >
-                        {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
-                      </select>
-                    </div>
-                  </div>
 
                   {saveError && (
                       <div className="flex items-center gap-2 text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5 text-sm">

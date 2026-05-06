@@ -211,7 +211,7 @@ function UsersTab() {
             <table className="w-full text-sm">
               <thead>
               <tr className="border-b border-slate-100 bg-slate-50/50">
-                {["Name", "Email", "Role", "Plant", "Department", "Actions"].map(h => (
+                {["Name", "Email", "Role", "DOJ", "Actions"].map(h => (
                     <th key={h} className="text-left px-5 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">{h}</th>
                 ))}
               </tr>
@@ -229,8 +229,7 @@ function UsersTab() {
                           ?? u.role}
                     </span>
                     </td>
-                    <td className="px-5 py-3 text-slate-500 text-xs">{u.plant || "—"}</td>
-                    <td className="px-5 py-3 text-slate-500 text-xs">{u.department || "—"}</td>
+                    <td className="px-5 py-3 text-slate-500 text-xs">{u.createdAt || "—"}</td>
                     <td className="px-5 py-3">
                       <div className="flex gap-2">
                         <button onClick={() => openEdit(u)}
@@ -284,14 +283,6 @@ function UsersTab() {
                       ))}
                     </select>
                   </Field>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="Plant">
-                      <Input value={form.plant} onChange={v => setForm(p => ({ ...p, plant: v }))} placeholder="e.g. Plant A" />
-                    </Field>
-                    <Field label="Department">
-                      <Input value={form.department} onChange={v => setForm(p => ({ ...p, department: v }))} placeholder="e.g. Quality" />
-                    </Field>
-                  </div>
                   {saveError && (
                       <div className="flex items-center gap-2 text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5 text-sm">
                         <AlertCircle size={14} /> {saveError}
