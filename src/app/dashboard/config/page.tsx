@@ -455,10 +455,7 @@ function RolesTab() {
               <h2 className="text-base font-black text-slate-800">Role Definitions</h2>
               <p className="text-xs text-slate-400">{displayedRoles.filter(r => r.isActive).length} active · {displayedRoles.length} total</p>
             </div>
-            <button onClick={openAdd}
-                    className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm transition-colors">
-              <Plus size={15} /> Add Role
-            </button>
+            <div />
           </div>
 
           <div className="overflow-x-auto">
@@ -490,10 +487,6 @@ function RolesTab() {
                     </td>
                     <td className="px-5 py-3">
                       <div className="flex gap-2">
-                        <button onClick={() => openEdit(r)}
-                                className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-blue-600 transition-colors">
-                          <Edit2 size={13} />
-                        </button>
                         {!r.isSystem && (
                             <button onClick={() => setConfirmDelete(r.id)}
                                     className="p-1.5 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors">
