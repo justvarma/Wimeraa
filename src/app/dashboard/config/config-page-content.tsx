@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { useSearchParams } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useApp } from "@/components/providers/AppProvider"
 import { UserRole, ROLE_LABELS, DEFAULT_SHIFT_CONFIGS, type RoleConfig, type ShiftConfig } from "@/lib/store"
 import {
@@ -67,12 +67,24 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
     shifts, updateShift,
   } = useApp()
 
+  const router = useRouter()
+  const pathname = usePathname()
   const searchParams = useSearchParams()
   const tabParam = searchParams.get("tab")
   const queryTab: Tab = tabParam === "roles" || tabParam === "shifts" || tabParam === "users" ? tabParam : "users"
   const initialTab: Tab = forcedTab ?? queryTab
   const [activeTab, setActiveTab] = useState<Tab>(initialTab)
   const isSystemAdmin = currentUser?.role === UserRole.SYSTEM_ADMIN
+
+  const handleTabChange = (tab: Tab) => {
+    setActiveTab(tab)
+    if (pathname === "/dashboard/config/shifts" && tab === "shifts") return
+    if (tab === "shifts") {
+      router.replace("/dashboard/config/shifts")
+      return
+    }
+    router.replace(`/dashboard/config?tab=${tab}`)
+  }
 
   if (currentUser?.role !== UserRole.ADMIN && currentUser?.role !== UserRole.SYSTEM_ADMIN) {
     return (
@@ -106,7 +118,7 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
           ] as const)
             .filter(([tab]) => !isSystemAdmin || tab === "users")
             .map(([tab, Icon, label]) => (
-              <button key={tab} onClick={() => setActiveTab(tab)}
+              <button key={tab} onClick={() => handleTabChange(tab)}
                       className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-colors ${
                           activeTab === tab
                               ? "bg-white text-slate-900 shadow-sm"
