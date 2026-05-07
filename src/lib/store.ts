@@ -85,16 +85,26 @@ export const SHIFT_LABELS: Record<string, string> = {
  * Stored at: clients/{clientId}/shifts/{id}
  * Use doc IDs "shift_1" and "shift_2" for the two shifts.
  */
+export interface ShiftBreak {
+  id: string
+  startTime: string
+  endTime: string
+  name?: string
+}
+
 export interface ShiftConfig {
-  id: string         // "shift_1" | "shift_2"
-  name: string       // e.g. "Morning Shift"
-  startTime: string  // "HH:MM" 24-hour
-  endTime: string    // "HH:MM" 24-hour
-  breakStart: string // "HH:MM" break start
-  breakEnd: string   // "HH:MM" break end
+  id: string
+  name: string
+  startTime: string
+  endTime: string
+  breaks: ShiftBreak[]
+  /** @deprecated legacy compatibility */
+  breakStart?: string
+  /** @deprecated legacy compatibility */
+  breakEnd?: string
   startNextDay?: boolean
   endNextDay?: boolean
-  order: number      // 1 or 2 — display order
+  order: number
   isActive: boolean
 }
 
@@ -104,8 +114,7 @@ export const DEFAULT_SHIFT_CONFIGS: ShiftConfig[] = [
     name: "Morning Shift",
     startTime: "06:00",
     endTime: "14:00",
-    breakStart: "10:00",
-    breakEnd: "10:15",
+    breaks: [{ id: "break_1", startTime: "10:00", endTime: "10:15", name: "Break 1" }],
     order: 1,
     isActive: true,
   },
@@ -114,8 +123,7 @@ export const DEFAULT_SHIFT_CONFIGS: ShiftConfig[] = [
     name: "Evening Shift",
     startTime: "14:00",
     endTime: "22:00",
-    breakStart: "18:00",
-    breakEnd: "18:15",
+    breaks: [{ id: "break_1", startTime: "18:00", endTime: "18:15", name: "Break 1" }],
     order: 2,
     isActive: true,
   },

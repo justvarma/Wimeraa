@@ -641,8 +641,8 @@ function ShiftsTab() {
       name: s.name,
       startTime: s.startTime,
       endTime: s.endTime,
-      breakStart: s.breakStart,
-      breakEnd: s.breakEnd,
+      breakStart: s.breakStart ?? s.breaks?.[0]?.startTime ?? "12:00",
+      breakEnd: s.breakEnd ?? s.breaks?.[0]?.endTime ?? "12:15",
       isActive: s.isActive,
     })
     setEditId(s.id)
@@ -685,6 +685,7 @@ function ShiftsTab() {
         name: form.name,
         startTime: form.startTime,
         endTime: form.endTime,
+        breaks: [{ id: "break_1", startTime: form.breakStart, endTime: form.breakEnd, name: "Break 1" }],
         breakStart: form.breakStart,
         breakEnd: form.breakEnd,
         startNextDay: start < end && start !== end,
@@ -716,6 +717,7 @@ function ShiftsTab() {
       order: nextOrder,
       startTime: "09:00",
       endTime: "17:00",
+      breaks: [{ id: "break_1", startTime: "13:00", endTime: "13:30", name: "Break 1" }],
       breakStart: "13:00",
       breakEnd: "13:30",
       isActive: true,
@@ -870,9 +872,9 @@ function ShiftCard({
                     <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Break</span>
                   </div>
                   <p className="text-sm font-semibold text-slate-700">
-                    {shift.breakStart} – {shift.breakEnd}
+                    {shift.breakStart ?? shift.breaks?.[0]?.startTime ?? "--:--"} – {shift.breakEnd ?? shift.breaks?.[0]?.endTime ?? "--:--"}
                     <span className="ml-2 text-xs text-slate-400">
-                  ({calcBreakMinutes(shift.breakStart, shift.breakEnd)} min)
+                  ({calcBreakMinutes(shift.breakStart ?? shift.breaks?.[0]?.startTime ?? "00:00", shift.breakEnd ?? shift.breaks?.[0]?.endTime ?? "00:00")} min)
                 </span>
                   </p>
                 </div>
@@ -884,7 +886,7 @@ function ShiftCard({
                   </div>
                   <div className="text-center">
                     <p className="text-xs text-slate-400 font-medium">Break</p>
-                    <p className="text-sm font-black text-slate-700">{calcBreakMinutes(shift.breakStart, shift.breakEnd)}m</p>
+                    <p className="text-sm font-black text-slate-700">{calcBreakMinutes(shift.breakStart ?? shift.breaks?.[0]?.startTime ?? "00:00", shift.breakEnd ?? shift.breaks?.[0]?.endTime ?? "00:00")}m</p>
                   </div>
                   <div className="text-center">
                     <p className="text-xs text-slate-400 font-medium">Net</p>
@@ -928,7 +930,7 @@ function calcBreakMinutes(start: string, end: string): number {
 function calcNetHours(s: ShiftConfig): string {
   let total = timeToMinutes(s.endTime) - timeToMinutes(s.startTime)
   if (total < 0) total += 24 * 60
-  const breakMins = calcBreakMinutes(s.breakStart, s.breakEnd)
+  const breakMins = calcBreakMinutes(s.breakStart ?? s.breaks?.[0]?.startTime ?? "00:00", s.breakEnd ?? s.breaks?.[0]?.endTime ?? "00:00")
   const net = (total - breakMins) / 60
   return net.toFixed(1).replace(".0", "")
 }
