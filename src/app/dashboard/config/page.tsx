@@ -462,18 +462,18 @@ function RolesTab() {
             <table className="w-full text-sm">
               <thead>
               <tr className="border-b border-slate-100 bg-slate-50/50">
-                {["Role Name", "Status", "Actions"].map(h => (
-                    <th key={h} className="text-left px-5 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">{h}</th>
-                ))}
+                <th className="text-left px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Role Name</th>
+                <th className="text-left px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Status</th>
+                <th className="text-right px-4 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest"> </th>
               </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
               {displayedRoles.map(r => (
                   <tr key={r.id} className={`transition-colors ${r.isActive ? "hover:bg-slate-50/60" : "opacity-50 bg-slate-50/30"}`}>
-                    <td className="px-5 py-3">
+                    <td className="px-4 py-3">
                       <span className="font-bold text-slate-800">{r.name}</span>
                     </td>
-                    <td className="px-5 py-3">
+                    <td className="px-4 py-3">
                       <button onClick={() => handleToggleActive(r)}
                               className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold transition-colors ${
                                   r.isActive
@@ -485,8 +485,8 @@ function RolesTab() {
                             : <><XCircle size={11} /> Inactive</>}
                       </button>
                     </td>
-                    <td className="px-5 py-3">
-                      <div className="flex gap-2">
+                    <td className="px-4 py-3">
+                      <div className="flex gap-2 justify-end">
                         {!r.isSystem && (
                             <button onClick={() => setConfirmDelete(r.id)}
                                     className="p-1.5 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors">
