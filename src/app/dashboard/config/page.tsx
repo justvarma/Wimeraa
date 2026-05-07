@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useApp } from "@/components/providers/AppProvider"
-import { UserRole, ROLE_LABELS, type RoleConfig, type ShiftConfig } from "@/lib/store"
+import { UserRole, ROLE_LABELS, DEFAULT_SHIFT_CONFIGS, type RoleConfig, type ShiftConfig } from "@/lib/store"
 import {
   Settings, Users, Plus, Edit2, Trash2, X, ShieldAlert,
   ShieldCheck, Clock, CheckCircle, XCircle, AlertCircle,
@@ -614,8 +614,9 @@ function ShiftsTab() {
   const [saving,  setSaving]  = useState(false)
   const [error,   setError]   = useState("")
 
-  // Sort by order; fill in defaults if shifts not yet loaded from Firestore
-  const displayShifts = [...shifts].sort((a, b) => a.order - b.order)
+  // Always show 2 shift cards in UI; fall back to defaults when Firestore has no docs yet.
+  const displayShifts = (shifts.length > 0 ? [...shifts] : DEFAULT_SHIFT_CONFIGS)
+    .sort((a, b) => a.order - b.order)
 
   const openEdit = (s: ShiftConfig) => {
     setForm({
@@ -701,12 +702,6 @@ function ShiftsTab() {
               />
           ))}
 
-          {displayShifts.length === 0 && (
-              <div className="col-span-2 flex flex-col items-center justify-center py-16 text-slate-400 gap-3">
-                <Clock size={40} />
-                <p className="text-sm font-medium">Loading shift configuration…</p>
-              </div>
-          )}
         </div>
       </div>
   )
