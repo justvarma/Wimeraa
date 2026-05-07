@@ -673,6 +673,13 @@ function ShiftsTab() {
       })
       setEditId(null)
       setForm(null)
+    } catch (err: any) {
+      const msg = err?.message ?? "Unable to save shift configuration."
+      if (String(msg).toLowerCase().includes("permission")) {
+        setError("Permission denied while saving shifts. Please deploy latest firestore.rules and re-login.")
+      } else {
+        setError(msg)
+      }
     } finally {
       setSaving(false)
     }
@@ -706,7 +713,19 @@ function ShiftsTab() {
                   onCancel={cancelEdit}
                   onSave={handleSave}
                   onFormChange={setForm}
-                  onToggleActive={() => updateShift(s.id, { isActive: !s.isActive })}
+                  onToggleActive={async () => {
+                    try {
+                      setError("")
+                      await updateShift(s.id, { isActive: !s.isActive })
+                    } catch (err: any) {
+                      const msg = err?.message ?? "Unable to update shift status."
+                      if (String(msg).toLowerCase().includes("permission")) {
+                        setError("Permission denied while updating shifts. Please deploy latest firestore.rules and re-login.")
+                      } else {
+                        setError(msg)
+                      }
+                    }
+                  }}
               />
           ))}
 
