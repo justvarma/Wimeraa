@@ -5,12 +5,11 @@ import { UserRole, ROLE_LABELS, PROCESS_STAGE_LABELS, type ProcessStage, type Sh
 import { Fingerprint, Plus, Trash2, X, AlertTriangle, CheckCircle2 } from "lucide-react"
 
 const PROCESSES: ProcessStage[] = ["die_casting", "coating", "cnc_vmc"]
-const SHIFTS: Shift[] = ["morning", "evening", "night"]
+const SHIFTS: Shift[] = ["shift_1", "shift_2", "shift_2"]
 
 const SHIFT_COLORS: Record<Shift,string> = {
-  morning: "bg-amber-100 text-amber-800",
-  evening: "bg-purple-100 text-purple-800",
-  night:   "bg-slate-200 text-slate-700",
+  shift_1: "bg-amber-100 text-amber-800",
+  shift_2: "bg-purple-100 text-purple-800",
 }
 const PROCESS_COLORS: Record<ProcessStage,string> = {
   die_casting: "bg-orange-100 text-orange-800",
@@ -32,7 +31,7 @@ export default function PTCPage() {
   const role = currentUser?.role as UserRole
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<{ process: ProcessStage; shift: Shift; date: string }>({
-    process: "die_casting", shift: "morning", date: new Date().toISOString().split("T")[0],
+    process: "die_casting", shift: "shift_1", date: new Date().toISOString().split("T")[0],
   })
   const [error, setError] = useState("")
 

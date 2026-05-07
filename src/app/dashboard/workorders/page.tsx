@@ -9,7 +9,7 @@ import { ClipboardList, Plus, X, Edit2, Trash2, Lock, AlertTriangle, ChevronDown
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const PROCESSES: ProcessStage[] = ["die_casting", "coating", "cnc_vmc"]
-const SHIFTS: Shift[] = ["morning", "evening", "night"]
+const SHIFTS: Shift[] = ["shift_1", "shift_2", "shift_2"]
 
 const cls = "w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none text-slate-900"
 const selectCls = `${cls} bg-white`
@@ -185,7 +185,7 @@ function Phase2Form({ wo, onClose, onSave }: {
   const [form, setForm] = useState({
     materialGrade:  wo.materialGrade  || "",
     rawMaterialId:  wo.rawMaterialId  || "",
-    shift:          wo.shift          || "morning" as Shift,
+    shift:          wo.shift          || "shift_1" as Shift,
     machine:        wo.machine        || (processMachines[0]?.name || ""),
     operator:       wo.operator       || "",
     actualTarget:   wo.actualTarget   || wo.targetPartNos,

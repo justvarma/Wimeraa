@@ -71,12 +71,11 @@ export const PROCESS_PTC_ROLE_MAP: Record<ProcessStage, UserRole> = {
   cnc_vmc:     UserRole.PTC_CNC_VMC,
 }
 
-export type Shift = "morning" | "evening" | "night"
+export type Shift = "shift_1" | "shift_2"
 
 export const SHIFT_LABELS: Record<Shift, string> = {
-  morning: "Morning  (06:00 – 14:00)",
-  evening: "Afternoon (14:00 – 22:00)",
-  night:   "Night    (22:00 – 06:00)",
+  shift_1: "Shift 1",
+  shift_2: "Shift 2",
 }
 
 // ─── CONFIG TYPES (stored in Firestore, admin-configurable) ───────────────────
@@ -325,7 +324,7 @@ export const INITIAL_DOWNTIME_EVENTS: DowntimeEvent[] = [
   {
     id: "dt-001", workOrderId: "wo-001", process: "die_casting",
     machineId: "m-dc-01", machineName: "DC-01 — Cold Chamber Press (250T)",
-    shift: "morning", date: "2026-04-15",
+    shift: "shift_1", date: "2026-04-15",
     startTime: "09:15", endTime: "10:00", durationMinutes: 45,
     reasonCode: "DT-01 — Machine Breakdown",
     notes: "Hydraulic seal failure on clamping unit. Replaced seal, production resumed.",
@@ -381,9 +380,9 @@ export const INITIAL_SCHEDULES: MonthlySchedule[] = [
 ]
 
 export const INITIAL_PTCS: PTC[] = [
-  { id:"ptc-001", process:"die_casting", shift:"morning", date:"2026-04-15", createdBy:"Suresh Babu", createdById:"u-003", createdAt:"2026-04-15" },
-  { id:"ptc-002", process:"coating",     shift:"evening", date:"2026-04-20", createdBy:"Suresh Babu", createdById:"u-003", createdAt:"2026-04-20" },
-  { id:"ptc-003", process:"cnc_vmc",     shift:"morning", date:"2026-04-01", createdBy:"Suresh Babu", createdById:"u-003", createdAt:"2026-04-01" },
+  { id:"ptc-001", process:"die_casting", shift:"shift_1", date:"2026-04-15", createdBy:"Suresh Babu", createdById:"u-003", createdAt:"2026-04-15" },
+  { id:"ptc-002", process:"coating",     shift:"shift_2", date:"2026-04-20", createdBy:"Suresh Babu", createdById:"u-003", createdAt:"2026-04-20" },
+  { id:"ptc-003", process:"cnc_vmc",     shift:"shift_1", date:"2026-04-01", createdBy:"Suresh Babu", createdById:"u-003", createdAt:"2026-04-01" },
 ]
 
 export const INITIAL_WORK_ORDERS: WorkOrder[] = [
@@ -393,7 +392,7 @@ export const INITIAL_WORK_ORDERS: WorkOrder[] = [
     targetPartNos:100, requiredQuantityKg:120, workOrderStartDate:"2026-04-15", dueDate:"2026-05-10",
     // Phase 2 filled
     materialGrade:"A", rawMaterialId:"rm-001", rawMaterialGrade:"A",
-    shift:"morning", machine:"DC-01 — Cold Chamber Press (250T)", operator:"Kiran Raj",
+    shift:"shift_1", machine:"DC-01 — Cold Chamber Press (250T)", operator:"Kiran Raj",
     actualTarget:100, partPerCycle:2, weightPerPart:1.2, actualOutputKg:120,
     acceptancePoints:"Visual inspection, dimensional check ±0.2mm, no cold shut, no porosity",
     cycleTimeMinutes:4, isExternal:false,
@@ -408,7 +407,7 @@ export const INITIAL_WORK_ORDERS: WorkOrder[] = [
     targetPartNos:50, requiredQuantityKg:65, workOrderStartDate:"2026-04-20", dueDate:"2026-05-20",
     // Phase 2 filled
     materialGrade:"B", rawMaterialId:"rm-002", rawMaterialGrade:"B",
-    shift:"evening", machine:"CT-02 — Powder Coat Line B", operator:"Muthu Selvam",
+    shift:"shift_2", machine:"CT-02 — Powder Coat Line B", operator:"Muthu Selvam",
     actualTarget:50, partPerCycle:1, weightPerPart:1.3, actualOutputKg:65,
     acceptancePoints:"Coating thickness 80–100 microns, adhesion test cross-cut class 0-1",
     cycleTimeMinutes:6, isExternal:false,
@@ -423,7 +422,7 @@ export const INITIAL_WORK_ORDERS: WorkOrder[] = [
     targetPartNos:30, requiredQuantityKg:39, workOrderStartDate:"2026-04-01", dueDate:"2026-04-25",
     // Phase 2 filled
     materialGrade:"A", rawMaterialId:"rm-001", rawMaterialGrade:"A",
-    shift:"morning", machine:"VMC-03 — 5-Axis Precision Center", operator:"Arjun Das",
+    shift:"shift_1", machine:"VMC-03 — 5-Axis Precision Center", operator:"Arjun Das",
     actualTarget:30, partPerCycle:1, weightPerPart:1.3, actualOutputKg:39,
     acceptancePoints:"Surface finish Ra 1.6, dimensional ±0.05mm, thread M12×1.75 6H",
     cycleTimeMinutes:12, isExternal:true, vendorId:"VND-001", vendorName:"Precision Parts Ltd",
@@ -450,13 +449,13 @@ export const INITIAL_WORK_ORDERS: WorkOrder[] = [
 ]
 
 export const INITIAL_DAILY_ENTRIES: DailyProductionEntry[] = [
-  { id:"dpe-001", workOrderId:"wo-001", date:"2026-04-15", shift:"morning", machine:"DC-01 — Cold Chamber Press (250T)", operator:"Kiran Raj", partId:"RE-PT-0021", partName:"Cylinder Head Cover — RE Meteor 350", requiredInputKg:60, requiredOutputNos:50, acceptancePoints:"Visual inspection, dimensional check ±0.2mm", isExternal:false, createdBy:"Kiran Raj", createdAt:"2026-04-15" },
-  { id:"dpe-002", workOrderId:"wo-001", date:"2026-04-16", shift:"morning", machine:"DC-01 — Cold Chamber Press (250T)", operator:"Kiran Raj", partId:"RE-PT-0021", partName:"Cylinder Head Cover — RE Meteor 350", requiredInputKg:60, requiredOutputNos:50, acceptancePoints:"Visual inspection, dimensional check ±0.2mm", isExternal:false, createdBy:"Kiran Raj", createdAt:"2026-04-16" },
+  { id:"dpe-001", workOrderId:"wo-001", date:"2026-04-15", shift:"shift_1", machine:"DC-01 — Cold Chamber Press (250T)", operator:"Kiran Raj", partId:"RE-PT-0021", partName:"Cylinder Head Cover — RE Meteor 350", requiredInputKg:60, requiredOutputNos:50, acceptancePoints:"Visual inspection, dimensional check ±0.2mm", isExternal:false, createdBy:"Kiran Raj", createdAt:"2026-04-15" },
+  { id:"dpe-002", workOrderId:"wo-001", date:"2026-04-16", shift:"shift_1", machine:"DC-01 — Cold Chamber Press (250T)", operator:"Kiran Raj", partId:"RE-PT-0021", partName:"Cylinder Head Cover — RE Meteor 350", requiredInputKg:60, requiredOutputNos:50, acceptancePoints:"Visual inspection, dimensional check ±0.2mm", isExternal:false, createdBy:"Kiran Raj", createdAt:"2026-04-16" },
 ]
 
 export const INITIAL_PROCESS_RECORDS: ProcessRecord[] = [
   {
-    id:"pr-001", workOrderId:"wo-001", process:"die_casting", date:"2026-04-15", shift:"morning",
+    id:"pr-001", workOrderId:"wo-001", process:"die_casting", date:"2026-04-15", shift:"shift_1",
     inputAcceptanceChecked:true, ptcApprovalGiven:true, ptcApprovedBy:"Suresh Babu",
     isVendorProduction:false,
     inputWeightKg:120, outputQuantity:95, outputWeightKg:108.5,
@@ -467,7 +466,7 @@ export const INITIAL_PROCESS_RECORDS: ProcessRecord[] = [
     createdBy:"Kiran Raj", createdAt:"2026-04-15",
   },
   {
-    id:"pr-002", workOrderId:"wo-003", process:"cnc_vmc", date:"2026-04-01", shift:"morning",
+    id:"pr-002", workOrderId:"wo-003", process:"cnc_vmc", date:"2026-04-01", shift:"shift_1",
     inputAcceptanceChecked:true, ptcApprovalGiven:true, ptcApprovedBy:"Suresh Babu",
     isVendorProduction:true, vendorName:"Precision Parts Ltd",
     inputWeightKg:39, outputQuantity:30, outputWeightKg:35.8,
@@ -510,7 +509,7 @@ export const INITIAL_QI_INSPECTIONS: QIInspection[] = [
     masterId: "sch-001",
     partId: "RE-PT-0021",
     partName: "Cylinder Head Cover — RE Meteor 350",
-    shift: "morning",
+    shift: "shift_1",
     machine: "DC-01 — Cold Chamber Press (250T)",
     producedPartCount: 95,
     goodPartCount: 88,
@@ -574,7 +573,7 @@ export const INITIAL_FQI_INSPECTIONS: FQIInspection[] = [
     masterId: "sch-001",
     partId: "RE-PT-0021",
     partName: "Cylinder Head Cover — RE Meteor 350",
-    shift: "morning",
+    shift: "shift_1",
     machine: "DC-01 — Cold Chamber Press (250T)",
     process: "die_casting",
     workOrderId: "wo-001",

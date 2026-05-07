@@ -612,6 +612,7 @@ function ShiftsTab() {
   const [editId,  setEditId]  = useState<string | null>(null)
   const [form,    setForm]    = useState<ShiftForm | null>(null)
   const [saving,  setSaving]  = useState(false)
+  const [error,   setError]   = useState("")
 
   // Sort by order; fill in defaults if shifts not yet loaded from Firestore
   const displayShifts = [...shifts].sort((a, b) => a.order - b.order)
@@ -631,6 +632,26 @@ function ShiftsTab() {
   const handleSave = async () => {
     if (!editId || !form) return
     if (!form.name.trim() || !form.startTime || !form.endTime) return
+    setError("")
+    const start = timeToMinutes(form.startTime)
+    const end = timeToMinutes(form.endTime)
+    const breakStart = timeToMinutes(form.breakStart)
+    const breakEnd = timeToMinutes(form.breakEnd)
+    if (!(start < end)) { setError("Shift end time must be after start time."); return }
+    if (!(breakStart >= start && breakEnd <= end && breakStart < breakEnd)) {
+      setError("Break window must be inside shift start/end time."); return
+    }
+    const otherShift = displayShifts.find(s => s.id !== editId)
+    if (otherShift) {
+      if (editId === "shift_1" && form.endTime !== otherShift.startTime) {
+        setError("Shift 1 end time must exactly match Shift 2 start time.")
+        return
+      }
+      if (editId === "shift_2" && form.startTime !== otherShift.endTime) {
+        setError("Shift 2 start time must exactly match Shift 1 end time.")
+        return
+      }
+    }
     setSaving(true)
     try {
       await updateShift(editId, {
@@ -660,6 +681,9 @@ function ShiftsTab() {
             These shift definitions are used across all production tracking, work orders, and reports.
           </p>
         </div>
+        {error && (
+          <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-4 py-3">{error}</div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {displayShifts.map(s => (

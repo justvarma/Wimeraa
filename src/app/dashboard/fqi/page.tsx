@@ -370,7 +370,7 @@ export default function FQIPage() {
       dueDate:              parentWo.dueDate,
       // Phase 2 fields — left blank for process PTC to fill
       materialGrade: "", rawMaterialId: "", rawMaterialGrade: "",
-      shift: "" as "morning" | "evening" | "night" | "",
+      shift: "" as "shift_1" | "shift_2" | "shift_2" | "",
       machine: "", operator: "",
       actualTarget: reworkCount, partPerCycle: parentWo.partPerCycle,
       weightPerPart: parentWo.weightPerPart, actualOutputKg: 0,
