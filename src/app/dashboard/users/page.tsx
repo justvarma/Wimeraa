@@ -5,9 +5,6 @@ import { useApp } from "@/components/providers/AppProvider"
 import { UserRole, ROLE_LABELS, type User } from "@/lib/store"
 import { Users, Plus, X, Edit2, Trash2, AlertCircle } from "lucide-react"
 
-const PLANTS      = ["Plant A", "Plant B", "Plant C"]
-const DEPARTMENTS = ["Management", "Stores", "Quality", "Production", "Die Casting", "Coating", "CNC Machining", "Engineering", "HR"]
-
 const blankForm = {
   name: "", email: "", password: "",
   role: UserRole.STOREKEEPER, plant: "Plant A", department: "Stores",
@@ -23,19 +20,24 @@ export default function UsersPage() {
   const [saveError,     setSaveError]     = useState("")
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
 
-  const isAdmin = currentUser?.role === UserRole.ADMIN
+  const isAdmin = currentUser?.role === UserRole.ADMIN || currentUser?.role === UserRole.SYSTEM_ADMIN
+  const isSystemAdmin = currentUser?.role === UserRole.SYSTEM_ADMIN
   if (!isAdmin) return <div className="p-8 text-slate-500">Access restricted to Admin.</div>
+  const visibleUsers = users.filter(u => u.role !== UserRole.SYSTEM_ADMIN)
 
-  // Roles available for user assignment — active roles only, no SYSTEM_ADMIN
-  const availableRoles: { key: string; label: string }[] =
-      roles.filter(r => r.isActive && r.permissionKey !== UserRole.SYSTEM_ADMIN).length > 0
-          ? roles
-              .filter(r => r.isActive && r.permissionKey !== UserRole.SYSTEM_ADMIN)
-              .sort((a, b) => a.name.localeCompare(b.name))
-              .map(r => ({ key: r.permissionKey, label: r.name }))
-          : Object.values(UserRole)
-              .filter(r => r !== UserRole.SYSTEM_ADMIN)
-              .map(r => ({ key: r, label: ROLE_LABELS[r] }))
+  const configuredRoles = roles
+    .filter(r => r.isActive && r.permissionKey !== UserRole.SYSTEM_ADMIN)
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(r => ({ key: r.permissionKey, label: r.name }))
+
+  const fallbackSystemRoles = Object.values(UserRole)
+    .filter(r => r !== UserRole.SYSTEM_ADMIN)
+    .map(r => ({ key: r, label: ROLE_LABELS[r] }))
+
+  // Keep roles visible even before DB role config is created.
+  const availableRoles: { key: string; label: string }[] = (
+    configuredRoles.length > 0 ? configuredRoles : fallbackSystemRoles
+  ).filter(r => !isSystemAdmin || r.key === UserRole.ADMIN)
 
   const openAdd = () => {
     setEditItem(null)
@@ -142,12 +144,12 @@ export default function UsersPage() {
 
         {/* Role summary cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {Object.values(UserRole).map(role => {
-            const count = users.filter(u => u.role === role).length
+          {availableRoles.map(role => {
+            const count = visibleUsers.filter(u => u.role === role.key).length
             return (
-                <div key={role} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm text-center">
+                <div key={role.key} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm text-center">
                   <p className="text-2xl font-black text-slate-900">{count}</p>
-                  <p className="text-xs font-bold text-slate-400 mt-1">{ROLE_LABELS[role]}</p>
+                  <p className="text-xs font-bold text-slate-400 mt-1">{role.label}</p>
                 </div>
             )
           })}
@@ -162,13 +164,12 @@ export default function UsersPage() {
                 <th className="px-6 py-4">Name</th>
                 <th className="px-6 py-4">Email</th>
                 <th className="px-6 py-4">Role</th>
-                <th className="px-6 py-4">Plant</th>
-                <th className="px-6 py-4">Department</th>
+                <th className="px-6 py-4">DOJ</th>
                 <th className="px-6 py-4">Actions</th>
               </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-              {users.map(user => (
+              {visibleUsers.map(user => (
                   <tr key={user.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-6 py-4 font-bold text-slate-900 text-sm">{user.name}</td>
                     <td className="px-6 py-4 text-sm text-slate-600">{user.email}</td>
@@ -180,8 +181,7 @@ export default function UsersPage() {
                           ?? user.role}
                     </span>
                     </td>
-                    <td className="px-6 py-4 text-sm text-slate-600">{user.plant || "—"}</td>
-                    <td className="px-6 py-4 text-sm text-slate-600">{user.department || "—"}</td>
+                    <td className="px-6 py-4 text-sm text-slate-600">{user.createdAt || "—"}</td>
                     <td className="px-6 py-4">
                       <div className="flex gap-3">
                         <button
@@ -204,7 +204,7 @@ export default function UsersPage() {
               ))}
               {users.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-6 py-12 text-center text-sm text-slate-400">No users found.</td>
+                    <td colSpan={5} className="px-6 py-12 text-center text-sm text-slate-400">No users found.</td>
                   </tr>
               )}
               </tbody>
@@ -280,29 +280,6 @@ export default function UsersPage() {
                     </select>
                   </div>
 
-                  {/* Plant + Department */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Plant</label>
-                      <select
-                          value={form.plant}
-                          onChange={e => setForm(p => ({ ...p, plant: e.target.value }))}
-                          className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-                      >
-                        {PLANTS.map(pl => <option key={pl}>{pl}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Department</label>
-                      <select
-                          value={form.department}
-                          onChange={e => setForm(p => ({ ...p, department: e.target.value }))}
-                          className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-                      >
-                        {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
-                      </select>
-                    </div>
-                  </div>
 
                   {saveError && (
                       <div className="flex items-center gap-2 text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5 text-sm">
