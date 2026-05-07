@@ -894,3 +894,5 @@ function calcNetHours(s: ShiftConfig): string {
   const net = (total - breakMins) / 60
   return net.toFixed(1).replace(".0", "")
 }
+
+export default ConfigPageContent
