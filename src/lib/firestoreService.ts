@@ -568,6 +568,21 @@ export async function seedDefaultShifts(
 /**
  * Update a shift config. Use doc IDs "shift_1" or "shift_2".
  */
+
+export async function createShiftConfig(
+    clientId: string,
+    shift: ShiftConfig,
+): Promise<void> {
+  await setDoc(clientDoc(clientId, "shifts", shift.id), shift)
+}
+
+export async function deleteShiftConfig(
+    clientId: string,
+    id: string,
+): Promise<void> {
+  await deleteDoc(clientDoc(clientId, "shifts", id))
+}
+
 export async function updateShiftConfig(
     clientId: string,
     id: string,

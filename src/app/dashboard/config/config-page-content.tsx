@@ -625,7 +625,7 @@ type ShiftForm = {
 }
 
 function ShiftsTab() {
-  const { shifts, updateShift } = useApp()
+  const { shifts, updateShift, addShift, deleteShift } = useApp()
 
   const [editId,  setEditId]  = useState<string | null>(null)
   const [form,    setForm]    = useState<ShiftForm | null>(null)
@@ -707,6 +707,23 @@ function ShiftsTab() {
 
   const cancelEdit = () => { setEditId(null); setForm(null) }
 
+  const createShift = async () => {
+    const nextOrder = (displayShifts.at(-1)?.order ?? 0) + 1
+    const id = `shift_${nextOrder}`
+    await addShift({
+      id,
+      name: `Shift ${nextOrder}`,
+      order: nextOrder,
+      startTime: "09:00",
+      endTime: "17:00",
+      breakStart: "13:00",
+      breakEnd: "13:30",
+      isActive: true,
+      startNextDay: false,
+      endNextDay: false,
+    })
+  }
+
   return (
       <div className="space-y-4">
         {/* Info banner */}
@@ -721,6 +738,10 @@ function ShiftsTab() {
           <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-4 py-3">{error}</div>
         )}
 
+        <div className="flex justify-end">
+          <button onClick={createShift} className="px-3 py-2 rounded-xl bg-blue-600 text-white text-sm font-bold">Add Shift</button>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {displayShifts.map(s => (
               <ShiftCard
@@ -733,6 +754,7 @@ function ShiftsTab() {
                   onCancel={cancelEdit}
                   onSave={handleSave}
                   onFormChange={setForm}
+                  onDelete={async () => { await deleteShift(s.id) }}
                   onToggleActive={async () => {
                     try {
                       setError("")
@@ -755,7 +777,7 @@ function ShiftsTab() {
 }
 
 function ShiftCard({
-                     shift, isEditing, form, saving, onEdit, onCancel, onSave, onFormChange, onToggleActive,
+                     shift, isEditing, form, saving, onEdit, onCancel, onSave, onFormChange, onToggleActive, onDelete,
                    }: {
   shift: ShiftConfig
   isEditing: boolean
@@ -766,6 +788,7 @@ function ShiftCard({
   onSave: () => void
   onFormChange: (f: ShiftForm) => void
   onToggleActive: () => void
+  onDelete: () => void
 }) {
   const accent = shift.order === 1 ? "blue" : "indigo"
   const accentClasses = {
@@ -872,6 +895,9 @@ function ShiftCard({
                 <button onClick={onEdit}
                         className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-bold hover:bg-slate-50 transition-colors">
                   <Edit2 size={13} /> Edit Shift
+                </button>
+                <button onClick={onDelete} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 rounded-xl border border-red-200 text-red-600 text-sm font-bold hover:bg-red-50 transition-colors">
+                  <Trash2 size={13} /> Delete Shift
                 </button>
               </>
           )}
