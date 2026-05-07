@@ -92,6 +92,8 @@ export interface ShiftConfig {
   endTime: string    // "HH:MM" 24-hour
   breakStart: string // "HH:MM" break start
   breakEnd: string   // "HH:MM" break end
+  startNextDay?: boolean
+  endNextDay?: boolean
   order: number      // 1 or 2 — display order
   isActive: boolean
 }

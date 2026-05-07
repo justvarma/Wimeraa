@@ -669,6 +669,8 @@ function ShiftsTab() {
         endTime: form.endTime,
         breakStart: form.breakStart,
         breakEnd: form.breakEnd,
+        startNextDay: start < end && start !== end,
+        endNextDay: end < start && start !== end,
         isActive: form.isActive,
       })
       setEditId(null)
