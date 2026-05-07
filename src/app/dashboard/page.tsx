@@ -100,13 +100,6 @@ export default function DashboardPage() {
           { title:"Rejected",           value:totalRejected,      icon:AlertTriangle, color:"text-red-600",     bg:"bg-red-50" },
           { title:"Rejection Rate",     value:`${rejRate}%`,      icon:TrendingUp,    color:"text-orange-600",  bg:"bg-orange-50" },
         ]
-      case UserRole.INVENTORY_QI:
-        return [
-          { title:"Pending Review",  value:pendingMaterials,  icon:AlertTriangle, color:"text-amber-600",   bg:"bg-amber-50",   href:"/dashboard/inventory-qi" },
-          { title:"Approved",        value:approvedMaterials, icon:CheckCircle,   color:"text-emerald-600", bg:"bg-emerald-50" },
-          { title:"Total Stock",     value:materials.length,  icon:Package,       color:"text-blue-600",    bg:"bg-blue-50",    href:"/dashboard/inventory-qi" },
-          { title:"Rejected",        value:materials.filter(m=>m.status==="rejected").length, icon:Clock, color:"text-red-600", bg:"bg-red-50" },
-        ]
       default: return []
     }
   }

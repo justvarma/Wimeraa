@@ -67,8 +67,9 @@ export default function ConfigPage() {
   } = useApp()
 
   const [activeTab, setActiveTab] = useState<Tab>("users")
+  const isSystemAdmin = currentUser?.role === UserRole.SYSTEM_ADMIN
 
-  if (currentUser?.role !== UserRole.ADMIN) {
+  if (currentUser?.role !== UserRole.ADMIN && currentUser?.role !== UserRole.SYSTEM_ADMIN) {
     return (
         <div className="flex flex-col items-center justify-center h-80 gap-4">
           <ShieldAlert size={48} className="text-red-400" />
@@ -97,7 +98,9 @@ export default function ConfigPage() {
             ["users",  Users,       "Users"],
             ["roles",  ShieldCheck, "Roles"],
             ["shifts", Clock,       "Shifts"],
-          ] as const).map(([tab, Icon, label]) => (
+          ] as const)
+            .filter(([tab]) => !isSystemAdmin || tab === "users")
+            .map(([tab, Icon, label]) => (
               <button key={tab} onClick={() => setActiveTab(tab)}
                       className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-colors ${
                           activeTab === tab
@@ -122,6 +125,8 @@ export default function ConfigPage() {
 
 function UsersTab() {
   const { currentUser, users, addUser, updateUser, deleteUser, roles } = useApp()
+  const isSystemAdmin = currentUser?.role === UserRole.SYSTEM_ADMIN
+  const visibleUsers = users.filter(u => u.role !== UserRole.SYSTEM_ADMIN)
 
   const [showForm,       setShowForm]       = useState(false)
   const [editId,         setEditId]         = useState<string | null>(null)
@@ -135,16 +140,19 @@ function UsersTab() {
   }
   const [form, setForm] = useState(blankForm)
 
-  // Active roles from config (fallback to enum if config not loaded yet)
-  const availableRoles: { key: string; label: string }[] =
-      roles.filter(r => r.isActive && r.permissionKey !== UserRole.SYSTEM_ADMIN).length > 0
-          ? roles
-              .filter(r => r.isActive && r.permissionKey !== UserRole.SYSTEM_ADMIN)
-              .sort((a, b) => a.name.localeCompare(b.name))
-              .map(r => ({ key: r.permissionKey, label: r.name }))
-          : Object.values(UserRole)
-              .filter(r => r !== UserRole.SYSTEM_ADMIN)
-              .map(r => ({ key: r, label: ROLE_LABELS[r] }))
+  const configuredRoles = roles
+    .filter(r => r.isActive && r.permissionKey !== UserRole.SYSTEM_ADMIN)
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(r => ({ key: r.permissionKey, label: r.name }))
+
+  const fallbackSystemRoles = Object.values(UserRole)
+    .filter(r => r !== UserRole.SYSTEM_ADMIN)
+    .map(r => ({ key: r, label: ROLE_LABELS[r] }))
+
+  // If no roles are configured in DB yet, fall back to built-in roles so roles remain visible/assignable.
+  const availableRoles: { key: string; label: string }[] = (
+    configuredRoles.length > 0 ? configuredRoles : fallbackSystemRoles
+  ).filter(r => !isSystemAdmin || r.key === UserRole.ADMIN)
 
   const openAdd = () => {
     setForm(blankForm)
@@ -200,7 +208,7 @@ function UsersTab() {
           <div className="p-5 border-b border-slate-100 flex items-center justify-between">
             <div>
               <h2 className="text-base font-black text-slate-800">System Users</h2>
-              <p className="text-xs text-slate-400">{users.length} users registered</p>
+              <p className="text-xs text-slate-400">{visibleUsers.length} users registered</p>
             </div>
             <button onClick={openAdd}
                     className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm transition-colors">
@@ -211,13 +219,13 @@ function UsersTab() {
             <table className="w-full text-sm">
               <thead>
               <tr className="border-b border-slate-100 bg-slate-50/50">
-                {["Name", "Email", "Role", "Plant", "Department", "Actions"].map(h => (
+                {["Name", "Email", "Role", "DOJ", "Actions"].map(h => (
                     <th key={h} className="text-left px-5 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">{h}</th>
                 ))}
               </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-              {users.map(u => (
+              {visibleUsers.map(u => (
                   <tr key={u.id} className="hover:bg-slate-50/60 transition-colors">
                     <td className="px-5 py-3 font-bold text-slate-800">{u.name}</td>
                     <td className="px-5 py-3 text-slate-500 text-xs">{u.email}</td>
@@ -229,8 +237,7 @@ function UsersTab() {
                           ?? u.role}
                     </span>
                     </td>
-                    <td className="px-5 py-3 text-slate-500 text-xs">{u.plant || "—"}</td>
-                    <td className="px-5 py-3 text-slate-500 text-xs">{u.department || "—"}</td>
+                    <td className="px-5 py-3 text-slate-500 text-xs">{u.createdAt || "—"}</td>
                     <td className="px-5 py-3">
                       <div className="flex gap-2">
                         <button onClick={() => openEdit(u)}
@@ -249,6 +256,16 @@ function UsersTab() {
               ))}
               </tbody>
             </table>
+          </div>
+        </div>
+        <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
+          <p className="text-xs font-black text-blue-700 uppercase tracking-widest mb-2">Available Roles</p>
+          <div className="flex flex-wrap gap-2">
+            {availableRoles.map(r => (
+              <span key={r.key} className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-white border border-blue-200 text-blue-800">
+                {r.label}
+              </span>
+            ))}
           </div>
         </div>
 
@@ -284,14 +301,6 @@ function UsersTab() {
                       ))}
                     </select>
                   </Field>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="Plant">
-                      <Input value={form.plant} onChange={v => setForm(p => ({ ...p, plant: v }))} placeholder="e.g. Plant A" />
-                    </Field>
-                    <Field label="Department">
-                      <Input value={form.department} onChange={v => setForm(p => ({ ...p, department: v }))} placeholder="e.g. Quality" />
-                    </Field>
-                  </div>
                   {saveError && (
                       <div className="flex items-center gap-2 text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5 text-sm">
                         <AlertCircle size={14} /> {saveError}
@@ -354,20 +363,37 @@ function RolesTab() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [form,          setForm]          = useState<RoleForm>(BLANK_ROLE)
   const [saving,        setSaving]        = useState(false)
+  const [saveError,     setSaveError]     = useState("")
 
   const sorted = [...roles].sort((a, b) => {
     if (a.isSystem !== b.isSystem) return a.isSystem ? -1 : 1
     return a.name.localeCompare(b.name)
   })
 
+  const fallbackRoles: RoleConfig[] = Object.values(UserRole)
+    .filter(r => r !== UserRole.SYSTEM_ADMIN)
+    .map((r, idx) => ({
+      id: `builtin-${r}-${idx}`,
+      name: ROLE_LABELS[r],
+      permissionKey: r,
+      description: "Built-in role",
+      isActive: true,
+      isSystem: true,
+    }))
+
+  const isFallbackMode = sorted.length === 0
+  const displayedRoles = isFallbackMode ? fallbackRoles : sorted
+
   const openAdd = () => {
     setForm(BLANK_ROLE)
+    setSaveError("")
     setEditId(null)
     setShowForm(true)
   }
 
   const openEdit = (r: RoleConfig) => {
     setForm({ name: r.name, permissionKey: r.permissionKey, description: r.description ?? "", isActive: r.isActive })
+    setSaveError("")
     setEditId(r.id)
     setShowForm(true)
   }
@@ -375,20 +401,39 @@ function RolesTab() {
   const handleSave = async () => {
     if (!form.name.trim() || !form.permissionKey) return
     setSaving(true)
+    setSaveError("")
     try {
-      if (editId) {
+      const isFallbackEdit = !!editId && editId.startsWith("builtin-")
+      if (editId && !isFallbackEdit) {
         await updateRole(editId, { name: form.name, permissionKey: form.permissionKey, description: form.description, isActive: form.isActive })
       } else {
         await addRole({ name: form.name, permissionKey: form.permissionKey, description: form.description, isActive: form.isActive, isSystem: false })
       }
       setShowForm(false)
+    } catch (err: any) {
+      setSaveError(err?.message ?? "Unable to save role. Check permissions.")
     } finally {
       setSaving(false)
     }
   }
 
   const handleToggleActive = async (r: RoleConfig) => {
-    await updateRole(r.id, { isActive: !r.isActive })
+    setSaveError("")
+    try {
+      if (r.id.startsWith("builtin-")) {
+        await addRole({
+          name: r.name,
+          permissionKey: r.permissionKey,
+          description: r.description,
+          isActive: !r.isActive,
+          isSystem: false,
+        })
+        return
+      }
+      await updateRole(r.id, { isActive: !r.isActive })
+    } catch (err: any) {
+      setSaveError(err?.message ?? "Unable to update role status. Check permissions.")
+    }
   }
 
   return (
@@ -396,18 +441,19 @@ function RolesTab() {
         {/* Info banner */}
         <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-sm text-blue-700">
           <ShieldCheck size={16} className="shrink-0 mt-0.5" />
-          <p>
-            Roles control what each user can access. <strong>System roles</strong> are pre-built and drive access control.
-            You can rename them, add descriptions, or disable them. <strong>Custom roles</strong> map to a system permission
-            level and can be fully deleted. Users assigned to a custom role get the matching system access.
-          </p>
+          <p>Manage role names and status here. Use Add to create a role and Edit to update it.</p>
         </div>
+        {saveError && (
+          <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+            {saveError}
+          </div>
+        )}
 
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
           <div className="p-5 border-b border-slate-100 flex items-center justify-between">
             <div>
               <h2 className="text-base font-black text-slate-800">Role Definitions</h2>
-              <p className="text-xs text-slate-400">{roles.filter(r => r.isActive).length} active · {roles.length} total</p>
+              <p className="text-xs text-slate-400">{displayedRoles.filter(r => r.isActive).length} active · {displayedRoles.length} total</p>
             </div>
             <button onClick={openAdd}
                     className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm transition-colors">
@@ -419,27 +465,16 @@ function RolesTab() {
             <table className="w-full text-sm">
               <thead>
               <tr className="border-b border-slate-100 bg-slate-50/50">
-                {["Role Name", "Permission Level", "Description", "Type", "Status", "Actions"].map(h => (
+                {["Role Name", "Status", "Actions"].map(h => (
                     <th key={h} className="text-left px-5 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">{h}</th>
                 ))}
               </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-              {sorted.map(r => (
+              {displayedRoles.map(r => (
                   <tr key={r.id} className={`transition-colors ${r.isActive ? "hover:bg-slate-50/60" : "opacity-50 bg-slate-50/30"}`}>
                     <td className="px-5 py-3">
                       <span className="font-bold text-slate-800">{r.name}</span>
-                    </td>
-                    <td className="px-5 py-3">
-                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest ${ROLE_BADGE[r.permissionKey] ?? "bg-slate-100 text-slate-600"}`}>
-                      {ROLE_LABELS[r.permissionKey as UserRole] ?? r.permissionKey}
-                    </span>
-                    </td>
-                    <td className="px-5 py-3 text-slate-500 text-xs max-w-xs truncate">{r.description || "—"}</td>
-                    <td className="px-5 py-3">
-                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${r.isSystem ? "bg-violet-100 text-violet-700" : "bg-amber-100 text-amber-700"}`}>
-                      {r.isSystem ? "System" : "Custom"}
-                    </span>
                     </td>
                     <td className="px-5 py-3">
                       <button onClick={() => handleToggleActive(r)}
@@ -543,7 +578,17 @@ function RolesTab() {
                           className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-bold hover:bg-slate-50">
                     Cancel
                   </button>
-                  <button onClick={() => { if (confirmDelete) deleteRole(confirmDelete); setConfirmDelete(null) }}
+                  <button onClick={async () => {
+                    if (!confirmDelete) return
+                    setSaveError("")
+                    try {
+                      await deleteRole(confirmDelete)
+                    } catch (err: any) {
+                      setSaveError(err?.message ?? "Unable to delete role. Check permissions.")
+                    } finally {
+                      setConfirmDelete(null)
+                    }
+                  }}
                           className="flex-1 px-4 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-bold">
                     Delete
                   </button>
