@@ -638,8 +638,11 @@ function ShiftsTab() {
     const end = timeToMinutes(form.endTime)
     const breakStart = timeToMinutes(form.breakStart)
     const breakEnd = timeToMinutes(form.breakEnd)
-    if (!(start < end)) { setError("Shift end time must be after start time."); return }
-    if (!(breakStart >= start && breakEnd <= end && breakStart < breakEnd)) {
+    const shiftDuration = (end - start + 24 * 60) % (24 * 60)
+    const breakDuration = (breakEnd - breakStart + 24 * 60) % (24 * 60)
+    const isWithinShift = (t: number, s: number, e: number) => (s < e ? (t >= s && t <= e) : (t >= s || t <= e))
+    if (shiftDuration <= 0) { setError("Shift start and end time cannot be the same."); return }
+    if (!isWithinShift(breakStart, start, end) || !isWithinShift(breakEnd, start, end) || breakDuration <= 0 || breakDuration >= shiftDuration) {
       setError("Break window must be inside shift start/end time."); return
     }
     const otherShift = displayShifts.find(s => s.id !== editId)
