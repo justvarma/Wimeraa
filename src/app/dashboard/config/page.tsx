@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { useApp } from "@/components/providers/AppProvider"
 import { UserRole, ROLE_LABELS, DEFAULT_SHIFT_CONFIGS, type RoleConfig, type ShiftConfig } from "@/lib/store"
 import {
@@ -66,7 +67,10 @@ export default function ConfigPage() {
     shifts, updateShift,
   } = useApp()
 
-  const [activeTab, setActiveTab] = useState<Tab>("users")
+  const searchParams = useSearchParams()
+  const tabParam = searchParams.get("tab")
+  const initialTab: Tab = tabParam === "roles" || tabParam === "shifts" || tabParam === "users" ? tabParam : "users"
+  const [activeTab, setActiveTab] = useState<Tab>(initialTab)
   const isSystemAdmin = currentUser?.role === UserRole.SYSTEM_ADMIN
 
   if (currentUser?.role !== UserRole.ADMIN && currentUser?.role !== UserRole.SYSTEM_ADMIN) {
