@@ -168,7 +168,7 @@ function ProcessRecordForm({ wo, onClose, onSave, currentUser: cu }: {
   onSave: (r: Omit<ProcessRecord,"id"|"createdAt">) => void
   currentUser: { name: string; role: UserRole }
 }) {
-  const { users } = useApp()
+  const { users, shifts } = useApp()
   // Role flags for conditional section visibility (Issue 5 — role separation)
   const cuRole = cu.role
   const cuIsAdmin      = cuRole === UserRole.ADMIN
@@ -182,6 +182,9 @@ function ProcessRecordForm({ wo, onClose, onSave, currentUser: cu }: {
   const ptcManagerUsers = users.filter(u => u.role === UserRole.PTC_MANAGER || u.role === UserRole.ADMIN)
   const processMachines = MACHINES.filter(m => m.process === wo.process && m.status === "active")
 
+  const shiftOptions: Shift[] = shifts.length > 0
+    ? [...shifts].sort((a, b) => a.order - b.order).map(s => s.id)
+    : ["shift_1", "shift_2"]
   const needsScrap = PROCESS_RULES[wo.process].scrap
   const processRule = PROCESS_RULES[wo.process]
   const theme = PROCESS_THEME[wo.process]
@@ -489,10 +492,14 @@ function DailyEntryForm({ wo, onClose, onSave, currentUserName }: {
   onSave: (data: Omit<DailyProductionEntry,"id"|"createdAt">) => void
   currentUserName: string
 }) {
-  const { users } = useApp()
+  const { users, shifts } = useApp()
   const today = new Date().toISOString().split("T")[0]
   const processMachines = MACHINES.filter(m => m.process === wo.process && m.status === "active")
   const operators = users.filter(u => u.role === UserRole.PTC_DIE_CASTING || u.role === UserRole.PTC_COATING || u.role === UserRole.PTC_CNC_VMC || u.role === UserRole.ADMIN)
+
+  const shiftOptions: Shift[] = shifts.length > 0
+    ? [...shifts].sort((a, b) => a.order - b.order).map(s => s.id)
+    : ["shift_1", "shift_2"]
 
   const [form, setForm] = useState({
     date: today, shift: (wo.shift || "shift_1") as Shift,
@@ -524,7 +531,7 @@ function DailyEntryForm({ wo, onClose, onSave, currentUserName }: {
             <div><label className={labelCls}>Date *</label><input type="date" required value={form.date} onChange={e=>setForm(p=>({...p,date:e.target.value}))} className={inputCls}/></div>
             <div><label className={labelCls}>Shift *</label>
               <select required value={form.shift} onChange={e=>setForm(p=>({...p,shift:e.target.value as Shift}))} className={`${inputCls} bg-white`}>
-                <option value="shift_1">Shift 1</option><option value="shift_2">Shift 2</option>
+                {shiftOptions.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
           </div>
@@ -575,8 +582,12 @@ function DowntimeForm({ wo, onClose, onSave, currentUserName }: {
   onSave: (data: Omit<DowntimeEvent,"id"|"createdAt">) => void
   currentUserName: string
 }) {
+  const { shifts } = useApp()
   const today = new Date().toISOString().split("T")[0]
   const processMachines = MACHINES.filter(m => m.process === wo.process)
+  const shiftOptions: Shift[] = shifts.length > 0
+    ? [...shifts].sort((a, b) => a.order - b.order).map(s => s.id)
+    : ["shift_1", "shift_2"]
   const [form, setForm] = useState({
     date: today, shift: (wo.shift || "shift_1") as Shift,
     machineId: processMachines[0]?.id || "", machineName: processMachines[0]?.name || "",
@@ -629,7 +640,7 @@ function DowntimeForm({ wo, onClose, onSave, currentUserName }: {
             <div><label className={labelCls}>Date *</label><input type="date" required value={form.date} onChange={e=>setForm(p=>({...p,date:e.target.value}))} className={inputCls}/></div>
             <div><label className={labelCls}>Shift</label>
               <select value={form.shift} onChange={e=>setForm(p=>({...p,shift:e.target.value as Shift}))} className={`${inputCls} bg-white`}>
-                <option value="shift_1">Shift 1</option><option value="shift_2">Shift 2</option>
+                {shiftOptions.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
           </div>

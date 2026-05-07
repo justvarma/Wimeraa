@@ -219,7 +219,7 @@ function blank(): FormState {
 
 // ─── MAIN ─────────────────────────────────────────────────────────────────────
 export default function FQIPage() {
-  const { currentUser, workOrders, qiInspections, fqiInspections, addFQIInspection, updateWorkOrder, addWorkOrder } = useApp()
+  const { currentUser, workOrders, qiInspections, fqiInspections, addFQIInspection, updateWorkOrder, addWorkOrder, shifts } = useApp()
 
   const [form, setForm] = useState<FormState>(blank())
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -227,6 +227,10 @@ export default function FQIPage() {
   const [showHistory, setShowHistory] = useState(false)
   const [showPrevFQI, setShowPrevFQI] = useState(true)
   // SWO creation state — set after a rework_loop FQI is saved
+  const shiftOptions: Shift[] = shifts.length > 0
+    ? [...shifts].sort((a, b) => a.order - b.order).map(s => s.id)
+    : ["shift_1", "shift_2"]
+
   const [pendingSWO, setPendingSWO] = useState<{
     parentWo: WorkOrder
     reworkCount: number
@@ -686,8 +690,8 @@ export default function FQIPage() {
                   className={inputCls}
                 >
                   <option value="">— Select Shift —</option>
-                  {Object.entries(SHIFT_LABELS).map(([k, v]) => (
-                    <option key={k} value={k}>{v}</option>
+                  {shiftOptions.map(s => (
+                    <option key={s} value={s}>{SHIFT_LABELS[s] ?? s}</option>
                   ))}
                 </select>
               </Field>
