@@ -461,7 +461,19 @@ function RolesTab() {
                       <span className="font-bold text-slate-800">{r.name}</span>
                     </td>
                     <td className="px-5 py-3">
-                      <button onClick={() => handleToggleActive(r)}
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest ${ROLE_BADGE[r.permissionKey] ?? "bg-slate-100 text-slate-600"}`}>
+                      {ROLE_LABELS[r.permissionKey as UserRole] ?? r.permissionKey}
+                    </span>
+                    </td>
+                    <td className="px-5 py-3 text-slate-500 text-xs max-w-xs truncate">{r.description || "—"}</td>
+                    <td className="px-5 py-3">
+                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${r.isSystem ? "bg-violet-100 text-violet-700" : "bg-amber-100 text-amber-700"}`}>
+                      {r.isSystem ? "System" : "Custom"}
+                    </span>
+                    </td>
+                    <td className="px-5 py-3">
+                      <button onClick={() => !isFallbackMode && handleToggleActive(r)}
+                              disabled={isFallbackMode}
                               className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold transition-colors ${
                                   r.isActive
                                       ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
@@ -474,7 +486,8 @@ function RolesTab() {
                     </td>
                     <td className="px-5 py-3">
                       <div className="flex gap-2">
-                        <button onClick={() => openEdit(r)}
+                        <button onClick={() => !isFallbackMode && openEdit(r)}
+                                disabled={isFallbackMode}
                                 className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-blue-600 transition-colors">
                           <Edit2 size={13} />
                         </button>
