@@ -43,9 +43,9 @@ export default function LoginPage() {
     }
   }, [currentUser, loading, router])
 
-  const doLogin = (em: string, pw: string) => {
+  const doLogin = async (em: string, pw: string) => {
     setErr(null); setBusy(true)
-    const r = login(em.trim(), pw)
+    const r = await login(em.trim(), pw)
     if (r.success) {
       const isSysAdmin    = em.trim() === "sysadmin@wimera.com"
       const isInventoryQI = em.trim() === "inv.qi@wimera.com"
