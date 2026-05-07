@@ -1,4 +1,4 @@
-import { ConfigPageContent } from "../page"
+import { ConfigPageContent } from "../ConfigPageContent"
 
 export default function ConfigShiftsPage() {
   return <ConfigPageContent forcedTab="shifts" />
