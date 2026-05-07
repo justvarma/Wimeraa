@@ -645,27 +645,24 @@ function ShiftsTab() {
     if (!isWithinShift(breakStart, start, end) || !isWithinShift(breakEnd, start, end) || breakDuration <= 0 || breakDuration >= shiftDuration) {
       setError("Break window must be inside shift start/end time."); return
     }
-    const otherShift = displayShifts.find(s => s.id !== editId)
-    if (otherShift) {
-      if (editId === "shift_1" && form.endTime !== otherShift.startTime) {
-        setError("Shift 1 end time must exactly match Shift 2 start time.")
-        return
-      }
-      if (editId === "shift_2" && form.startTime !== otherShift.endTime) {
-        setError("Shift 2 start time must exactly match Shift 1 end time.")
-        return
-      }
-      if (editId === "shift_1" && form.startTime !== otherShift.endTime) {
-        setError("Shift 1 start time must exactly match Shift 2 end time (24-hour coverage).")
-        return
-      }
-      if (editId === "shift_2" && form.endTime !== otherShift.startTime) {
-        setError("Shift 2 end time must exactly match Shift 1 start time (24-hour coverage).")
-        return
-      }
-    }
     setSaving(true)
     try {
+      const otherShift = displayShifts.find(s => s.id !== editId)
+      if (otherShift) {
+        // Auto-maintain 24h continuity by syncing the counterpart shift.
+        if (editId === "shift_1") {
+          await updateShift(otherShift.id, {
+            startTime: form.endTime,
+            endTime: form.startTime,
+          })
+        }
+        if (editId === "shift_2") {
+          await updateShift(otherShift.id, {
+            endTime: form.startTime,
+            startTime: form.endTime,
+          })
+        }
+      }
       await updateShift(editId, {
         name: form.name,
         startTime: form.startTime,
