@@ -1,7 +1,7 @@
 "use client"
 import { useState } from "react"
 import { useApp } from "@/components/providers/AppProvider"
-import { UserRole, PROCESS_STAGE_LABELS, type ProcessStage, type Shift, SHIFT_LABELS } from "@/lib/store"
+import { UserRole, ROLE_LABELS, PROCESS_STAGE_LABELS, type ProcessStage, type Shift, SHIFT_LABELS } from "@/lib/store"
 import { Fingerprint, Plus, Trash2, X, AlertTriangle, CheckCircle2 } from "lucide-react"
 
 const PROCESSES: ProcessStage[] = ["die_casting", "coating", "cnc_vmc"]
@@ -18,15 +18,7 @@ const PROCESS_COLORS: Record<ProcessStage,string> = {
   cnc_vmc:     "bg-cyan-100 text-cyan-800",
 }
 function roleLabel(r: UserRole): string {
-  return {
-    [UserRole.ADMIN]:"Admin", [UserRole.STOREKEEPER]:"Storekeeper",
-    [UserRole.PTC_MANAGER]:"PTC Manager",
-    [UserRole.PTC_DIE_CASTING]:"PTC Die Casting",
-    [UserRole.PTC_COATING]:"PTC Coating",
-    [UserRole.PTC_CNC_VMC]:"PTC CNC/VMC",
-    [UserRole.QUALITY_INSPECTOR]:"Quality Inspector",
-    [UserRole.FQI]:"Final QI",
-  }[r] || r
+  return ROLE_LABELS[r] ?? r
 }
 
 const PROCESS_PTC_ROLE_OWNER: Record<ProcessStage, UserRole> = {
