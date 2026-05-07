@@ -60,7 +60,7 @@ function TimeInput({ value, onChange }: { value: string; onChange: (v: string) =
 
 type Tab = "users" | "roles" | "shifts"
 
-export default function ConfigPage() {
+export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
   const {
     currentUser, users, addUser, updateUser, deleteUser,
     roles, addRole, updateRole, deleteRole,
@@ -69,7 +69,8 @@ export default function ConfigPage() {
 
   const searchParams = useSearchParams()
   const tabParam = searchParams.get("tab")
-  const initialTab: Tab = tabParam === "roles" || tabParam === "shifts" || tabParam === "users" ? tabParam : "users"
+  const queryTab: Tab = tabParam === "roles" || tabParam === "shifts" || tabParam === "users" ? tabParam : "users"
+  const initialTab: Tab = forcedTab ?? queryTab
   const [activeTab, setActiveTab] = useState<Tab>(initialTab)
   const isSystemAdmin = currentUser?.role === UserRole.SYSTEM_ADMIN
 
@@ -121,6 +122,11 @@ export default function ConfigPage() {
         {activeTab === "shifts" && <ShiftsTab />}
       </div>
   )
+}
+
+
+export default function ConfigPage() {
+  return <ConfigPageContent />
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

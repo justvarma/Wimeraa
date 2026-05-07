@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation"
+import { ConfigPageContent } from "../page"
 
-export default function ConfigShiftsRedirectPage() {
-  redirect("/dashboard/config?tab=shifts")
+export default function ConfigShiftsPage() {
+  return <ConfigPageContent forcedTab="shifts" />
 }
