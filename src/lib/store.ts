@@ -71,9 +71,9 @@ export const PROCESS_PTC_ROLE_MAP: Record<ProcessStage, UserRole> = {
   cnc_vmc:     UserRole.PTC_CNC_VMC,
 }
 
-export type Shift = "shift_1" | "shift_2"
+export type Shift = string
 
-export const SHIFT_LABELS: Record<Shift, string> = {
+export const SHIFT_LABELS: Record<string, string> = {
   shift_1: "Shift 1",
   shift_2: "Shift 2",
 }

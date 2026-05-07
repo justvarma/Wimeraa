@@ -5,8 +5,6 @@ import { UserRole, ROLE_LABELS, PROCESS_STAGE_LABELS, type ProcessStage, type Sh
 import { Fingerprint, Plus, Trash2, X, AlertTriangle, CheckCircle2 } from "lucide-react"
 
 const PROCESSES: ProcessStage[] = ["die_casting", "coating", "cnc_vmc"]
-const SHIFTS: Shift[] = ["shift_1", "shift_2"]
-
 const SHIFT_COLORS: Record<Shift,string> = {
   shift_1: "bg-amber-100 text-amber-800",
   shift_2: "bg-purple-100 text-purple-800",
@@ -27,7 +25,10 @@ const PROCESS_PTC_ROLE_OWNER: Record<ProcessStage, UserRole> = {
 }
 
 export default function PTCPage() {
-  const { currentUser, ptcs, addPTC, deletePTC } = useApp()
+  const { currentUser, ptcs, addPTC, deletePTC, shifts } = useApp()
+  const shiftOptions: Shift[] = shifts.length > 0
+    ? [...shifts].sort((a, b) => a.order - b.order).map(s => s.id)
+    : ["shift_1", "shift_2"]
   const role = currentUser?.role as UserRole
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<{ process: ProcessStage; shift: Shift; date: string }>({
@@ -167,7 +168,7 @@ export default function PTCPage() {
                 <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">Shift *</label>
                 <select required value={form.shift} onChange={e => setForm(p=>({...p,shift:e.target.value as Shift}))}
                   className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white text-slate-900 capitalize">
-                  {SHIFTS.map(s => <option key={s} value={s}>{SHIFT_LABELS[s]}</option>)}
+                  {shiftOptions.map(s => <option key={s} value={s}>{SHIFT_LABELS[s] ?? s}</option>)}
                 </select>
               </div>
               <div>
