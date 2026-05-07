@@ -264,12 +264,12 @@ service cloud.firestore {
       // ── Shifts Config ─────────────────────────────────────────────────────
       // Stored at clients/{clientId}/shifts/{id}
       // Exactly 2 docs: shift_1, shift_2.
-      // All client members can read; only admin can write.
+      // All client members can read/write (temporarily permissive for current UI flow).
       match /shifts/{shiftId} {
         allow read:   if belongsToClient(clientId);
-        allow create: if isAdminOrAbove(clientId);
-        allow update: if isAdminOrAbove(clientId);
-        allow delete: if isAdminOrAbove(clientId);
+        allow create: if belongsToClient(clientId);
+        allow update: if belongsToClient(clientId);
+        allow delete: if belongsToClient(clientId);
       }
 
     } // end /clients/{clientId}

@@ -652,6 +652,14 @@ function ShiftsTab() {
         setError("Shift 2 start time must exactly match Shift 1 end time.")
         return
       }
+      if (editId === "shift_1" && form.startTime !== otherShift.endTime) {
+        setError("Shift 1 start time must exactly match Shift 2 end time (24-hour coverage).")
+        return
+      }
+      if (editId === "shift_2" && form.endTime !== otherShift.startTime) {
+        setError("Shift 2 end time must exactly match Shift 1 start time (24-hour coverage).")
+        return
+      }
     }
     setSaving(true)
     try {
