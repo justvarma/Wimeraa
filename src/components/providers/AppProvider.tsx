@@ -63,7 +63,7 @@ interface AppContextType {
 
   // ── Work Orders ────────────────────────────────────────────────────────────
   workOrders:     WorkOrder[]
-  addWorkOrder:   (wo: Omit<WorkOrder, "id" | "createdAt">)  => Promise<void>
+  addWorkOrder:   (wo: Omit<WorkOrder, "id" | "createdAt">)  => Promise<string>
   updateWorkOrder:(id: string, d: Partial<WorkOrder>)         => Promise<void>
   deleteWorkOrder:(id: string)                                 => Promise<void>
 
@@ -381,7 +381,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // ── Work Orders ────────────────────────────────────────────────────────────
   const addWorkOrder = useCallback(async (data: Omit<WorkOrder, "id" | "createdAt">) => {
-    await fs.addWorkOrder(cid(), data)
+    return await fs.addWorkOrder(cid(), data)
   }, [clientId])
 
   const updateWorkOrder = useCallback(async (id: string, data: Partial<WorkOrder>) => {

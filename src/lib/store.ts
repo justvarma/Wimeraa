@@ -200,7 +200,7 @@ export interface DailyProductionEntry {
 //   "not_started" → process PTC has filled all details, ready to start
 //   "in_progress" → at least one production record exists
 //   "completed"   → target met
-export type WOStatus = "draft" | "not_started" | "in_progress" | "completed"
+export type WOStatus = "draft" | "not_started" | "in_progress" | "awaiting_qi" | "completed" | "rejected" | "finished_goods"
 
 export interface WorkOrder {
   id: string
@@ -242,11 +242,15 @@ export interface WorkOrder {
   // Track who completed phase 2
   phase2CompletedBy?: string; phase2CompletedAt?: string
   // ─── SWO / Rework Traceability ─────────────────────────────────────────────
-  // woType: "standard" = normal WO; "rework" = Sub Work Order spawned from FQI rework_loop
-  woType?: "standard" | "rework"
-  parentWoId?: string          // ID of the parent WO this rework batch originated from
+  // woType: "standard" = primary WO shell; "stage" = system-generated process SWO; "rework" = SWO spawned from QI/FQI rejection
+  woType?: "standard" | "stage" | "rework"
+  parentWoId?: string          // ID of the parent/root WO this SWO originated from
+  rootWoId?: string            // stable root WO ID for the complete workflow chain
+  workflowStep?: number        // zero-based position in the process sequence
+  workflowLabel?: string       // human-readable process step label
   reworkCycleNumber?: number   // 1 = first rework loop, 2 = second, etc.
   originFqiId?: string         // ID of the FQIInspection record that triggered this SWO
+  originQiId?: string          // ID of the QIInspection record that triggered the next/rework SWO
   reworkPartCount?: number     // how many parts are in this rework batch
 }
 

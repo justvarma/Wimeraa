@@ -6,6 +6,7 @@ import {
   type ProcessStage, type Shift, type ReworkEntry, type RejectionEntry, type ShiftConfig,
 } from "@/lib/store"
 import { getSelectableShiftOptions, getShiftLabel } from "@/lib/shiftUtils"
+import { buildStageSubWorkOrder, getNextProcess } from "@/lib/workflow"
 import {
   Plus, Trash2, CheckCircle2, AlertTriangle, XCircle, ClipboardList,
   Eye, ChevronDown, ChevronRight, AlertCircle, ShieldCheck, History,
@@ -209,7 +210,7 @@ function blank(): FormState {
 
 // ─── MAIN ─────────────────────────────────────────────────────────────────────
 export function QIInspectionPage({ process }: { process: ProcessStage }) {
-  const { currentUser, workOrders, qiInspections, addQIInspection, updateWorkOrder, shifts } = useApp()
+  const { currentUser, workOrders, qiInspections, addQIInspection, updateWorkOrder, addWorkOrder, shifts } = useApp()
   const theme = THEME[process]
   const machines = MACHINES.filter(m => m.process === process && m.status !== "inactive")
 
@@ -224,7 +225,7 @@ export function QIInspectionPage({ process }: { process: ProcessStage }) {
 
   // Work orders for this process
   const eligibleWOs = useMemo(() =>
-    workOrders.filter(wo => wo.process === process && wo.status !== "draft"),
+    workOrders.filter(wo => wo.process === process && wo.status === "awaiting_qi"),
     [workOrders, process])
 
   const selectedWO = useMemo(() =>
@@ -271,7 +272,7 @@ export function QIInspectionPage({ process }: { process: ProcessStage }) {
   const handleSubmit = () => {
     if (!validate()) return
     const wo = selectedWO!
-    addQIInspection({
+    const qiRecord = {
       process,
       date: form.date,
       masterId: wo.masterId,
@@ -288,15 +289,42 @@ export function QIInspectionPage({ process }: { process: ProcessStage }) {
       inspectedBy: currentUser!.name,
       inspectedById: currentUser!.id,
       workOrderId: wo.id,
-    })
-    // Update WorkOrder with QI results so WO cards reflect accurate part counts
+    }
+    addQIInspection(qiRecord)
+
+    const rejectedOrRework = rework + rejected
+    const approved = rejectedOrRework === 0
+    const nextProcess = approved ? getNextProcess(process) : null
+    const finalApproval = approved && !nextProcess
+
     updateWorkOrder(wo.id, {
-      goodParts:     wo.goodParts     + good,
-      reworkParts:   wo.reworkParts   + rework,
-      rejectedParts: wo.rejectedParts + rejected,
+      goodParts:     good,
+      reworkParts:   rework,
+      rejectedParts: rejected,
       qiApproval:    currentUser!.name,
-      status: (wo.partsCompleted >= wo.targetPartNos) ? 'completed' : wo.status,
+      status: approved ? (finalApproval ? "finished_goods" : "completed") : "rejected",
     })
+
+    if (approved && nextProcess) {
+      addWorkOrder(buildStageSubWorkOrder({
+        source: { ...wo, goodParts: good, reworkParts: rework, rejectedParts: rejected },
+        process: nextProcess,
+        createdBy: "System Workflow",
+        targetPartNos: good,
+      }))
+    }
+
+    if (!approved && rejectedOrRework > 0) {
+      const existingReworks = workOrders.filter(w => w.parentWoId === (wo.rootWoId || wo.parentWoId || wo.id) && w.woType === "rework")
+      addWorkOrder(buildStageSubWorkOrder({
+        source: { ...wo, goodParts: good, reworkParts: rework, rejectedParts: rejected },
+        process,
+        createdBy: "System Workflow",
+        targetPartNos: rejectedOrRework,
+        parentWoId: wo.rootWoId || wo.parentWoId || wo.id,
+        reworkCycleNumber: existingReworks.length + 1,
+      }))
+    }
     setSubmitted(true)
     setTimeout(() => {
       setSubmitted(false)

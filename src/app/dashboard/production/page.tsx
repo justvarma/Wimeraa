@@ -767,7 +767,7 @@ export default function ProductionPage() {
   const [showDowntimeForm, setShowDowntimeForm] = useState<WorkOrder|null>(null)
 
   const filteredWOs = useMemo(() => workOrders.filter(wo =>
-    wo.status !== "draft" &&
+    wo.woType !== "standard" && wo.status !== "draft" && wo.status !== "awaiting_qi" && wo.status !== "rejected" && wo.status !== "finished_goods" &&
     (processFilter === "all" || wo.process === processFilter) &&
     (!myProcess || wo.process === myProcess)
   ), [workOrders, processFilter, myProcess])
@@ -777,7 +777,7 @@ export default function ProductionPage() {
     addProcessRecord({ ...data, createdBy: currentUser!.name })
     updateWorkOrder(wo.id, {
       productionStarted: true,
-      status: (wo.partsCompleted + data.outputQuantity) >= wo.targetPartNos ? "completed" : "in_progress",
+      status: (wo.partsCompleted + data.outputQuantity) >= wo.targetPartNos ? "awaiting_qi" : "in_progress",
       partsCompleted: wo.partsCompleted  + data.outputQuantity,
       goodParts:      wo.goodParts       + data.goodParts,
       reworkParts:    wo.reworkParts     + data.reworkParts,
@@ -861,7 +861,7 @@ export default function ProductionPage() {
                       wo.status==="completed"  ?"bg-emerald-100 text-emerald-800":
                       wo.status==="in_progress"?"bg-blue-100 text-blue-800":
                                                 "bg-amber-100 text-amber-800"}`}>
-                      {wo.status.replace("_"," ")}
+                      {wo.status === "awaiting_qi" ? "awaiting QI" : wo.status === "finished_goods" ? "finished goods" : wo.status.replace("_"," ")}
                     </span>
                     {wo.productionStarted && <Lock size={11} className="text-slate-300"/>}
                     {wo.isExternal && (
@@ -879,7 +879,7 @@ export default function ProductionPage() {
                   </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  {canRecord && wo.status !== "completed" && (
+                  {canRecord && wo.status !== "completed" && wo.status !== "awaiting_qi" && wo.status !== "rejected" && wo.status !== "finished_goods" && (
                     <button onClick={() => setActiveForm(wo)}
                       className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-xl text-xs font-bold shadow-sm">
                       <Plus size={14}/> Add Record
