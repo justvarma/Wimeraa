@@ -1,14 +1,11 @@
 "use client"
 import { useState } from "react"
 import { useApp } from "@/components/providers/AppProvider"
-import { UserRole, ROLE_LABELS, PROCESS_STAGE_LABELS, type ProcessStage, type Shift, SHIFT_LABELS } from "@/lib/store"
+import { UserRole, ROLE_LABELS, PROCESS_STAGE_LABELS, type ProcessStage, type Shift } from "@/lib/store"
+import { getActiveShiftOptions, getShiftLabel } from "@/lib/shiftUtils"
 import { Fingerprint, Plus, Trash2, X, AlertTriangle, CheckCircle2 } from "lucide-react"
 
 const PROCESSES: ProcessStage[] = ["die_casting", "coating", "cnc_vmc"]
-const SHIFT_COLORS: Record<Shift,string> = {
-  shift_1: "bg-amber-100 text-amber-800",
-  shift_2: "bg-purple-100 text-purple-800",
-}
 const PROCESS_COLORS: Record<ProcessStage,string> = {
   die_casting: "bg-orange-100 text-orange-800",
   coating:     "bg-purple-100 text-purple-800",
@@ -26,13 +23,11 @@ const PROCESS_PTC_ROLE_OWNER: Record<ProcessStage, UserRole> = {
 
 export default function PTCPage() {
   const { currentUser, ptcs, addPTC, deletePTC, shifts } = useApp()
-  const shiftOptions: Shift[] = shifts.length > 0
-    ? [...shifts].sort((a, b) => a.order - b.order).map(s => s.id)
-    : ["shift_1", "shift_2"]
+  const shiftOptions = getActiveShiftOptions(shifts)
   const role = currentUser?.role as UserRole
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<{ process: ProcessStage; shift: Shift; date: string }>({
-    process: "die_casting", shift: "shift_1", date: new Date().toISOString().split("T")[0],
+    process: "die_casting", shift: shiftOptions[0]?.id ?? "", date: new Date().toISOString().split("T")[0],
   })
   const [error, setError] = useState("")
 
@@ -42,7 +37,8 @@ export default function PTCPage() {
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault(); setError("")
     const clash = ptcs.find(p => p.process===form.process && p.shift===form.shift && p.date===form.date)
-    if (clash) { setError(`A PTC already exists for ${PROCESS_STAGE_LABELS[form.process]} / ${form.shift} shift on ${form.date}.`); return }
+    if (!form.shift) { setError("Select a shift before creating the PTC."); return }
+    if (clash) { setError(`A PTC already exists for ${PROCESS_STAGE_LABELS[form.process]} / ${getShiftLabel(shifts, form.shift)} on ${form.date}.`); return }
     addPTC({ ...form, createdBy: currentUser!.name, createdById: currentUser!.id })
     setShowForm(false)
   }
@@ -114,8 +110,8 @@ export default function PTCPage() {
                     </span>
                   </td>
                   <td className="px-6 py-4">
-                    <span className={`px-2.5 py-1 rounded-full text-xs font-bold capitalize ${SHIFT_COLORS[ptc.shift]}`}>
-                      {ptc.shift}
+                    <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
+                      {getShiftLabel(shifts, ptc.shift)}
                     </span>
                   </td>
                   <td className="px-6 py-4 text-sm font-semibold text-slate-800">{ptc.date}</td>
@@ -168,7 +164,8 @@ export default function PTCPage() {
                 <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">Shift *</label>
                 <select required value={form.shift} onChange={e => setForm(p=>({...p,shift:e.target.value as Shift}))}
                   className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white text-slate-900 capitalize">
-                  {shiftOptions.map(s => <option key={s} value={s}>{SHIFT_LABELS[s] ?? s}</option>)}
+                  <option value="" disabled>Select shift</option>
+                  {shiftOptions.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
                 </select>
               </div>
               <div>

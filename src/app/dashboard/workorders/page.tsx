@@ -3,8 +3,9 @@ import { useState, useMemo } from "react"
 import { useApp } from "@/components/providers/AppProvider"
 import {
   UserRole, PROCESS_STAGE_LABELS, PROCESS_PTC_ROLE_MAP, MACHINES,
-  SHIFT_LABELS, type ProcessStage, type Shift, type WorkOrder,
+  type ProcessStage, type Shift, type WorkOrder,
 } from "@/lib/store"
+import { getSelectableShiftOptions, getShiftLabel } from "@/lib/shiftUtils"
 import { ClipboardList, Plus, X, Edit2, Trash2, Lock, AlertTriangle, ChevronDown, ChevronRight, CheckCircle2, Building2, Pencil, GitBranch, ArrowUpRight } from "lucide-react"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -172,9 +173,7 @@ function Phase2Form({ wo, onClose, onSave }: {
   wo: WorkOrder; onClose: () => void; onSave: (data: Partial<WorkOrder>) => void
 }) {
   const { materials, users, ptcs, shifts } = useApp()
-  const shiftOptions: Shift[] = shifts.length > 0
-    ? [...shifts].sort((a, b) => a.order - b.order).map(s => s.id)
-    : ["shift_1", "shift_2"]
+  const shiftOptions = getSelectableShiftOptions(shifts, wo.shift)
   const approvedMats = materials.filter(m => m.status === "approved")
   const processOperators = users.filter(u =>
     u.role === PROCESS_PTC_ROLE_MAP[wo.process] || u.role === UserRole.ADMIN
@@ -187,7 +186,7 @@ function Phase2Form({ wo, onClose, onSave }: {
   const [form, setForm] = useState({
     materialGrade:  wo.materialGrade  || "",
     rawMaterialId:  wo.rawMaterialId  || "",
-    shift:          wo.shift          || "shift_1" as Shift,
+    shift:          wo.shift          || shiftOptions[0]?.id || "" as Shift,
     machine:        wo.machine        || (processMachines[0]?.name || ""),
     operator:       wo.operator       || "",
     actualTarget:   wo.actualTarget   || wo.targetPartNos,
@@ -284,13 +283,14 @@ function Phase2Form({ wo, onClose, onSave }: {
             <div className="grid grid-cols-2 gap-4">
               <Field label="Shift" req>
                 <select required value={form.shift} onChange={e => setForm(p=>({...p,shift:e.target.value as Shift}))} className={selectCls}>
-                  {shiftOptions.map(s => <option key={s} value={s}>{SHIFT_LABELS[s] ?? s}</option>)}
+                  <option value="">— Select shift —</option>
+                  {shiftOptions.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
                 </select>
               </Field>
               <Field label="PTC Code" req>
                 <select required value={form.ptcId} onChange={e => setForm(p=>({...p,ptcId:e.target.value}))} className={selectCls}>
                   <option value="">— Select PTC —</option>
-                  {validPTCs.map(p => <option key={p.id} value={p.id}>{p.id} · {p.shift} · {p.date}</option>)}
+                  {validPTCs.map(p => <option key={p.id} value={p.id}>{p.id} · {getShiftLabel(shifts, p.shift)} · {p.date}</option>)}
                 </select>
               </Field>
             </div>
@@ -392,7 +392,7 @@ function Phase2Form({ wo, onClose, onSave }: {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function WorkOrdersPage() {
-  const { currentUser, workOrders, materials, addWorkOrder, updateWorkOrder, deleteWorkOrder, deductMaterial } = useApp()
+  const { currentUser, workOrders, materials, shifts, addWorkOrder, updateWorkOrder, deleteWorkOrder, deductMaterial } = useApp()
   const role = currentUser?.role as UserRole
 
   const [showPhase1, setShowPhase1] = useState(false)
@@ -612,7 +612,7 @@ export default function WorkOrdersPage() {
                   {!isDraft ? (
                     <p className="text-xs text-slate-500 mt-1.5">
                       <span className="font-bold text-slate-700">{wo.machine}</span> ·
-                      <span className="capitalize ml-1">{wo.shift} shift</span> ·
+                      <span className="ml-1">{getShiftLabel(shifts, wo.shift)}</span> ·
                       Operator: <span className="font-bold text-slate-700">{wo.operator}</span> ·
                       Grade <span className="font-bold text-slate-700">{wo.materialGrade}</span>
                     </p>
@@ -675,7 +675,7 @@ export default function WorkOrdersPage() {
                       ...(!isDraft ? [
                         ["Machine",      wo.machine],
                         ["Operator",     wo.operator],
-                        ["Shift",        wo.shift],
+                        ["Shift",        getShiftLabel(shifts, wo.shift)],
                         ["Material Grade", wo.materialGrade],
                         ["Parts/Cycle",  String(wo.partPerCycle)],
                         ["Weight/Part",  `${wo.weightPerPart} KG`],

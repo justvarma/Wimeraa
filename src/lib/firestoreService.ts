@@ -541,7 +541,7 @@ function normalizeShiftConfig(raw: Record<string, unknown>, id: string): ShiftCo
   const legacyStart = typeof raw.breakStart === "string" ? raw.breakStart : "12:00"
   const legacyEnd = typeof raw.breakEnd === "string" ? raw.breakEnd : "12:15"
   const rawBreaks = raw.breaks
-  const breaks = Array.isArray(rawBreaks) && rawBreaks.length > 0
+  const breaks = Array.isArray(rawBreaks)
     ? rawBreaks
     : [{ id: "break_1", startTime: legacyStart, endTime: legacyEnd, name: "Break 1" }]
 
@@ -571,8 +571,7 @@ function orderedShifts<T extends ShiftValidationDraft>(shifts: T[]): T[] {
 function shiftDurationMinutes(shift: ShiftValidationDraft): number {
   const start = parseTimeToMinutes(shift.startTime, `${shift.name} start time`)
   const end = parseTimeToMinutes(shift.endTime, `${shift.name} end time`)
-  const duration = (end - start + DAY_MINUTES) % DAY_MINUTES
-  return duration === 0 ? DAY_MINUTES : duration
+  return (end - start + DAY_MINUTES) % DAY_MINUTES
 }
 
 function intervalOnShiftTimeline(
@@ -600,7 +599,8 @@ function validateBreaks(shift: ShiftValidationDraft): void {
   const parentStart = parseTimeToMinutes(shift.startTime, `${shift.name} start time`)
   parseTimeToMinutes(shift.endTime, `${shift.name} end time`)
   const parentDuration = shiftDurationMinutes(shift)
-  const parentSpansOvernight = shift.endTime <= shift.startTime
+  if (parentDuration === 0) throw new Error(`${shift.name} duration cannot be 0.`)
+  const parentSpansOvernight = shift.endTime < shift.startTime
   const intervals = (shift.breaks ?? []).map((shiftBreak, index) => {
     const label = `${shift.name} break ${shiftBreak.name || shiftBreak.id || index + 1}`
     const interval = intervalOnShiftTimeline(
@@ -638,7 +638,9 @@ export function validateShiftConfigs(shifts: ShiftValidationDraft[]): void {
   let totalActiveMinutes = 0
   for (const shift of activeShifts) {
     validateBreaks(shift)
-    totalActiveMinutes += shiftDurationMinutes(shift)
+    const duration = shiftDurationMinutes(shift)
+    if (duration === 0) throw new Error(`${shift.name} duration cannot be 0.`)
+    totalActiveMinutes += duration
   }
 
   for (let i = 0; i < activeShifts.length; i += 1) {

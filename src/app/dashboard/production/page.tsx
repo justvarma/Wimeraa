@@ -7,6 +7,7 @@ import {
   type ProcessStage, type Shift, type WorkOrder, type ProcessRecord,
   type ReworkEntry, type RejectionEntry, type DailyProductionEntry, type DowntimeEvent,
 } from "@/lib/store"
+import { getSelectableShiftOptions, getShiftLabel } from "@/lib/shiftUtils"
 import {
   Plus, X, ChevronDown, ChevronRight, CheckCircle2, AlertTriangle,
   Trash2, ClipboardList, Lock, Building2, Info, ArrowRight, Package, Clock,
@@ -182,9 +183,7 @@ function ProcessRecordForm({ wo, onClose, onSave, currentUser: cu }: {
   const ptcManagerUsers = users.filter(u => u.role === UserRole.PTC_MANAGER || u.role === UserRole.ADMIN)
   const processMachines = MACHINES.filter(m => m.process === wo.process && m.status === "active")
 
-  const shiftOptions: Shift[] = shifts.length > 0
-    ? [...shifts].sort((a, b) => a.order - b.order).map(s => s.id)
-    : ["shift_1", "shift_2"]
+  const shiftOptions = getSelectableShiftOptions(shifts, wo.shift)
   const needsScrap = PROCESS_RULES[wo.process].scrap
   const processRule = PROCESS_RULES[wo.process]
   const theme = PROCESS_THEME[wo.process]
@@ -194,7 +193,7 @@ function ProcessRecordForm({ wo, onClose, onSave, currentUser: cu }: {
     workOrderId:           wo.id,
     process:               wo.process,
     date:                  today,
-    shift:                 (wo.shift as Shift) || "shift_1",
+    shift:                 (wo.shift as Shift) || shiftOptions[0]?.id || "",
     inputAcceptanceChecked: false,
     ptcApprovalGiven:      false,
     ptcApprovedBy:         "",
@@ -316,7 +315,7 @@ function ProcessRecordForm({ wo, onClose, onSave, currentUser: cu }: {
                 <input type="date" required value={form.date} onChange={e=>setForm(p=>({...p,date:e.target.value}))} className={inputCls}/>
               </Field>
               <Field label="Shift">
-                <input readOnly value={wo.shift} className={`${inputCls} bg-slate-50 text-slate-500 capitalize cursor-not-allowed`}/>
+                <input readOnly value={getShiftLabel(shifts, wo.shift)} className={`${inputCls} bg-slate-50 text-slate-500 capitalize cursor-not-allowed`}/>
               </Field>
             </div>
 
@@ -497,12 +496,10 @@ function DailyEntryForm({ wo, onClose, onSave, currentUserName }: {
   const processMachines = MACHINES.filter(m => m.process === wo.process && m.status === "active")
   const operators = users.filter(u => u.role === UserRole.PTC_DIE_CASTING || u.role === UserRole.PTC_COATING || u.role === UserRole.PTC_CNC_VMC || u.role === UserRole.ADMIN)
 
-  const shiftOptions: Shift[] = shifts.length > 0
-    ? [...shifts].sort((a, b) => a.order - b.order).map(s => s.id)
-    : ["shift_1", "shift_2"]
+  const shiftOptions = getSelectableShiftOptions(shifts, wo.shift)
 
   const [form, setForm] = useState({
-    date: today, shift: (wo.shift || "shift_1") as Shift,
+    date: today, shift: (wo.shift || shiftOptions[0]?.id || "") as Shift,
     machine: wo.machine || processMachines[0]?.name || "",
     operator: wo.operator || "",
     requiredInputKg: wo.requiredQuantityKg,
@@ -531,7 +528,8 @@ function DailyEntryForm({ wo, onClose, onSave, currentUserName }: {
             <div><label className={labelCls}>Date *</label><input type="date" required value={form.date} onChange={e=>setForm(p=>({...p,date:e.target.value}))} className={inputCls}/></div>
             <div><label className={labelCls}>Shift *</label>
               <select required value={form.shift} onChange={e=>setForm(p=>({...p,shift:e.target.value as Shift}))} className={`${inputCls} bg-white`}>
-                {shiftOptions.map(s => <option key={s} value={s}>{s}</option>)}
+                <option value="">— Select shift —</option>
+                {shiftOptions.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
               </select>
             </div>
           </div>
@@ -585,11 +583,9 @@ function DowntimeForm({ wo, onClose, onSave, currentUserName }: {
   const { shifts } = useApp()
   const today = new Date().toISOString().split("T")[0]
   const processMachines = MACHINES.filter(m => m.process === wo.process)
-  const shiftOptions: Shift[] = shifts.length > 0
-    ? [...shifts].sort((a, b) => a.order - b.order).map(s => s.id)
-    : ["shift_1", "shift_2"]
+  const shiftOptions = getSelectableShiftOptions(shifts, wo.shift)
   const [form, setForm] = useState({
-    date: today, shift: (wo.shift || "shift_1") as Shift,
+    date: today, shift: (wo.shift || shiftOptions[0]?.id || "") as Shift,
     machineId: processMachines[0]?.id || "", machineName: processMachines[0]?.name || "",
     startTime: "08:00", endTime: "08:30",
     reasonCode: REASON_CODES.downtime[0], notes: "",
@@ -640,7 +636,8 @@ function DowntimeForm({ wo, onClose, onSave, currentUserName }: {
             <div><label className={labelCls}>Date *</label><input type="date" required value={form.date} onChange={e=>setForm(p=>({...p,date:e.target.value}))} className={inputCls}/></div>
             <div><label className={labelCls}>Shift</label>
               <select value={form.shift} onChange={e=>setForm(p=>({...p,shift:e.target.value as Shift}))} className={`${inputCls} bg-white`}>
-                {shiftOptions.map(s => <option key={s} value={s}>{s}</option>)}
+                <option value="">— Select shift —</option>
+                {shiftOptions.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
               </select>
             </div>
           </div>
@@ -678,7 +675,7 @@ function DowntimeForm({ wo, onClose, onSave, currentUserName }: {
 }
 
 // ─── Record Card ──────────────────────────────────────────────────────────────
-function RecordCard({ record, wo }: { record: ProcessRecord; wo: WorkOrder }) {
+function RecordCard({ record, wo, shifts }: { record: ProcessRecord; wo: WorkOrder; shifts: ReturnType<typeof useApp>["shifts"] }) {
   const needsScrap = PROCESS_RULES[record.process].scrap
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3">
@@ -693,7 +690,7 @@ function RecordCard({ record, wo }: { record: ProcessRecord; wo: WorkOrder }) {
             </span>
           )}
         </div>
-        <span className="text-xs text-slate-400 font-mono">{record.date} · {record.shift} shift</span>
+        <span className="text-xs text-slate-400 font-mono">{record.date} · {getShiftLabel(shifts, record.shift)}</span>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
         {[
@@ -738,7 +735,7 @@ export default function ProductionPage() {
   const {
     currentUser, workOrders, processRecords, addProcessRecord, updateWorkOrder,
     consumeMaterial, dailyEntries, addDailyEntry, deleteDailyEntry,
-    downtimeEvents, addDowntimeEvent,
+    downtimeEvents, addDowntimeEvent, shifts,
   } = useApp()
   const role = currentUser?.role as UserRole
 
@@ -876,7 +873,7 @@ export default function ProductionPage() {
                   <h3 className="font-black text-slate-900">{wo.partName}</h3>
                   <p className="text-xs text-slate-500 mt-0.5">
                     Grade <span className="font-bold text-slate-700">{wo.materialGrade}</span> ·
-                    <span className="capitalize ml-1">{wo.shift}</span> shift ·
+                    <span className="ml-1">{getShiftLabel(shifts, wo.shift)}</span> ·
                     <span className="font-bold text-slate-700 ml-1">{wo.machine}</span> ·
                     Target: {wo.targetPartNos} pcs
                   </p>
@@ -939,7 +936,7 @@ export default function ProductionPage() {
                             <div className="flex items-center justify-between mb-1.5">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className="font-bold text-slate-800">{entry.date}</span>
-                                <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full capitalize font-bold">{entry.shift}</span>
+                                <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full font-bold">{getShiftLabel(shifts, entry.shift)}</span>
                                 {entry.isExternal && <span className="px-2 py-0.5 bg-violet-100 text-violet-700 rounded-full font-bold border border-violet-200">Vendor</span>}
                               </div>
                               <button onClick={() => deleteDailyEntry(entry.id)}
@@ -970,7 +967,7 @@ export default function ProductionPage() {
                     </h4>
                     {records.length === 0
                       ? <p className="text-sm text-slate-400 italic text-center py-4">No records yet.{canRecord?" Click \"Add Record\" to begin.":""}</p>
-                      : <div className="space-y-3">{records.map(r=><RecordCard key={r.id} record={r} wo={wo}/>)}</div>}
+                      : <div className="space-y-3">{records.map(r=><RecordCard key={r.id} record={r} wo={wo} shifts={shifts}/>)}</div>}
                   </div>
 
                   {/* ── Downtime Events (§10) ── */}
