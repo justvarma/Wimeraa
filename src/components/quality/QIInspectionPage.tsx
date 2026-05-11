@@ -212,6 +212,7 @@ export function QIInspectionPage({ process }: { process: ProcessStage }) {
   const [form, setForm] = useState<FormState>(blank())
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [submitted, setSubmitted] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
   const [showPrev, setShowPrev] = useState(true)
   const [showHistory, setShowHistory] = useState(false)
   const [balanceTouched, setBalanceTouched] = useState(false)
@@ -274,9 +275,21 @@ export function QIInspectionPage({ process }: { process: ProcessStage }) {
   }
 
   const handleSubmit = async () => {
+    if (submitting) return
     setBalanceTouched(true)
     if (!validate()) return
-    const wo = selectedWO!
+
+    const selectedWorkOrderId = form.workOrderId
+    const wo = selectedWO
+    if (!wo) {
+      setErrors(e => ({
+        ...e,
+        workOrderId: "Selected work order is no longer awaiting QI. Please select it again.",
+      }))
+      return
+    }
+
+    setSubmitting(true)
     setSubmittedWorkOrderIds(ids => ids.includes(wo.id) ? ids : [...ids, wo.id])
     try {
       const token = await auth.currentUser?.getIdToken()
@@ -310,9 +323,11 @@ export function QIInspectionPage({ process }: { process: ProcessStage }) {
         setBalanceTouched(false)
       }, 3000)
     } catch (err) {
-      setSubmittedWorkOrderIds(ids => ids.filter(id => id !== wo.id))
+      setSubmittedWorkOrderIds(ids => ids.filter(id => id !== selectedWorkOrderId))
       console.error(err)
       alert("Unable to submit QI inspection. Please check permissions and try again.")
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -563,17 +578,19 @@ export function QIInspectionPage({ process }: { process: ProcessStage }) {
             <button
               type="button"
               onClick={() => { setForm(blank()); setErrors({}); setBalanceTouched(false) }}
-              className="text-sm font-bold text-slate-500 hover:text-slate-700 transition"
+              disabled={submitting}
+              className="text-sm font-bold text-slate-500 hover:text-slate-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Reset form
             </button>
             <button
               type="button"
               onClick={handleSubmit}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-black px-6 py-3 rounded-xl transition shadow-lg shadow-blue-200"
+              disabled={submitting}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-black px-6 py-3 rounded-xl transition shadow-lg shadow-blue-200 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <ShieldCheck size={18} />
-              Submit Inspection
+              {submitting ? "Submitting..." : "Submit Inspection"}
             </button>
           </div>
         </div>
