@@ -3,7 +3,8 @@
 import { useState } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useApp } from "@/components/providers/AppProvider"
-import { UserRole, ROLE_LABELS, DEFAULT_SHIFT_CONFIGS, type RoleConfig, type ShiftConfig } from "@/lib/store"
+import { orderedShiftConfigs } from "@/lib/shiftUtils"
+import { UserRole, ROLE_LABELS, type RoleConfig, type ShiftBreak, type ShiftConfig } from "@/lib/store"
 import {
   Settings, Users, Plus, Edit2, Trash2, X, ShieldAlert,
   ShieldCheck, Clock, CheckCircle, XCircle, AlertCircle,
@@ -619,81 +620,125 @@ type ShiftForm = {
   name: string
   startTime: string
   endTime: string
-  breakStart: string
-  breakEnd: string
+  breaks: ShiftBreak[]
   isActive: boolean
 }
 
+function normalizeBreaksForForm(shift: ShiftConfig): ShiftBreak[] {
+  if (shift.breaks?.length) return shift.breaks.map((b, index) => ({
+    id: b.id || `break_${index + 1}`,
+    name: b.name ?? "",
+    startTime: b.startTime,
+    endTime: b.endTime,
+  }))
+
+  if (shift.breakStart && shift.breakEnd) {
+    return [{ id: "legacy_break", name: "Break", startTime: shift.breakStart, endTime: shift.breakEnd }]
+  }
+
+  return []
+}
+
+function newBreak(): ShiftBreak {
+  return { id: `break_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, name: "", startTime: "", endTime: "" }
+}
+
+function validateShiftForm(form: ShiftForm): string | null {
+  if (!form.name.trim()) return "Shift name is required."
+  if (!form.startTime) return "Shift start time is required."
+  if (!form.endTime) return "Shift end time is required."
+
+  const start = timeToMinutes(form.startTime)
+  const end = timeToMinutes(form.endTime)
+  const shiftDuration = durationMinutes(form.startTime, form.endTime)
+  if (shiftDuration === 0) return "Shift duration cannot be 0. Use a real start/end window."
+
+  const intervals = form.breaks.map((shiftBreak, index) => {
+    const label = shiftBreak.name?.trim() || `Break ${index + 1}`
+    if (!shiftBreak.startTime) return { error: `${label} start time is required.` }
+    if (!shiftBreak.endTime) return { error: `${label} end time is required.` }
+
+    const breakDuration = durationMinutes(shiftBreak.startTime, shiftBreak.endTime)
+    if (breakDuration === 0) return { error: `${label} duration cannot be 0.` }
+
+    const interval = intervalWithinShift(shiftBreak.startTime, shiftBreak.endTime, start, end, shiftDuration)
+    if (!interval) return { error: `${label} must remain fully inside the parent shift window.` }
+
+    return { ...interval, error: null }
+  })
+
+  const error = intervals.find(interval => interval.error)?.error
+  if (error) return error
+
+  const sorted = intervals
+    .filter((interval): interval is { start: number; end: number; error: null } => interval.error === null)
+    .sort((a, b) => a.start - b.start)
+
+  for (let i = 1; i < sorted.length; i += 1) {
+    if (sorted[i - 1].end > sorted[i].start) return "Break windows inside the same shift cannot overlap."
+  }
+
+  return null
+}
+
 function ShiftsTab() {
-  const { shifts, updateShift, addShift, deleteShift } = useApp()
+  const { shifts, updateShift, addShift, deleteShift, reorderShift, confirmShifts } = useApp()
 
   const [editId,  setEditId]  = useState<string | null>(null)
   const [form,    setForm]    = useState<ShiftForm | null>(null)
   const [saving,  setSaving]  = useState(false)
   const [error,   setError]   = useState("")
+  const [success, setSuccess] = useState("")
 
-  // Always show 2 shift cards in UI; fall back to defaults when Firestore has no docs yet.
-  const displayShifts = (shifts.length > 0 ? [...shifts] : DEFAULT_SHIFT_CONFIGS)
-    .sort((a, b) => a.order - b.order)
+  const displayShifts = orderedShiftConfigs(shifts)
 
   const openEdit = (s: ShiftConfig) => {
     setForm({
       name: s.name,
       startTime: s.startTime,
       endTime: s.endTime,
-      breakStart: s.breakStart ?? s.breaks?.[0]?.startTime ?? "12:00",
-      breakEnd: s.breakEnd ?? s.breaks?.[0]?.endTime ?? "12:15",
+      breaks: normalizeBreaksForForm(s),
       isActive: s.isActive,
     })
     setEditId(s.id)
+    setError("")
+    setSuccess("")
   }
 
   const handleSave = async () => {
     if (!editId || !form) return
-    if (!form.name.trim() || !form.startTime || !form.endTime) return
     setError("")
+    setSuccess("")
+
+    const validationError = validateShiftForm(form)
+    if (validationError) { setError(validationError); return }
+
     const start = timeToMinutes(form.startTime)
     const end = timeToMinutes(form.endTime)
-    const breakStart = timeToMinutes(form.breakStart)
-    const breakEnd = timeToMinutes(form.breakEnd)
-    const shiftDuration = (end - start + 24 * 60) % (24 * 60)
-    const breakDuration = (breakEnd - breakStart + 24 * 60) % (24 * 60)
-    const isWithinShift = (t: number, s: number, e: number) => (s < e ? (t >= s && t <= e) : (t >= s || t <= e))
-    if (shiftDuration <= 0) { setError("Shift start and end time cannot be the same."); return }
-    if (!isWithinShift(breakStart, start, end) || !isWithinShift(breakEnd, start, end) || breakDuration <= 0 || breakDuration >= shiftDuration) {
-      setError("Break window must be inside shift start/end time."); return
-    }
+    const cleanedBreaks = form.breaks.map((shiftBreak, index) => ({
+      id: shiftBreak.id || `break_${index + 1}`,
+      name: shiftBreak.name?.trim() || undefined,
+      startTime: shiftBreak.startTime,
+      endTime: shiftBreak.endTime,
+    }))
+    const firstBreak = cleanedBreaks[0]
+
     setSaving(true)
     try {
-      const otherShift = displayShifts.find(s => s.id !== editId)
-      if (otherShift) {
-        // Auto-maintain 24h continuity by syncing the counterpart shift.
-        if (editId === "shift_1") {
-          await updateShift(otherShift.id, {
-            startTime: form.endTime,
-            endTime: form.startTime,
-          })
-        }
-        if (editId === "shift_2") {
-          await updateShift(otherShift.id, {
-            endTime: form.startTime,
-            startTime: form.endTime,
-          })
-        }
-      }
       await updateShift(editId, {
-        name: form.name,
+        name: form.name.trim(),
         startTime: form.startTime,
         endTime: form.endTime,
-        breaks: [{ id: "break_1", startTime: form.breakStart, endTime: form.breakEnd, name: "Break 1" }],
-        breakStart: form.breakStart,
-        breakEnd: form.breakEnd,
-        startNextDay: start < end && start !== end,
-        endNextDay: end < start && start !== end,
+        breaks: cleanedBreaks,
+        breakStart: firstBreak?.startTime ?? "",
+        breakEnd: firstBreak?.endTime ?? "",
+        startNextDay: start > end,
+        endNextDay: end < start,
         isActive: form.isActive,
       })
       setEditId(null)
       setForm(null)
+      setSuccess("Shift saved. Confirm the full schedule when all shift changes are complete.")
     } catch (err: any) {
       const msg = err?.message ?? "Unable to save shift configuration."
       if (String(msg).toLowerCase().includes("permission")) {
@@ -710,78 +755,145 @@ function ShiftsTab() {
 
   const createShift = async () => {
     const nextOrder = (displayShifts.at(-1)?.order ?? 0) + 1
-    const id = `shift_${nextOrder}`
-    await addShift({
-      id,
-      name: `Shift ${nextOrder}`,
-      order: nextOrder,
-      startTime: "09:00",
-      endTime: "17:00",
-      breaks: [{ id: "break_1", startTime: "13:00", endTime: "13:30", name: "Break 1" }],
-      breakStart: "13:00",
-      breakEnd: "13:30",
-      isActive: true,
-      startNextDay: false,
-      endNextDay: false,
-    })
+    const id = `shift_${Date.now()}`
+    setError("")
+    setSuccess("")
+    try {
+      await addShift({
+        id,
+        name: `Shift ${nextOrder}`,
+        order: nextOrder,
+        startTime: "09:00",
+        endTime: "17:00",
+        breaks: [],
+        isActive: true,
+        startNextDay: false,
+        endNextDay: false,
+      })
+      setSuccess("Shift added. Edit all shifts, then confirm the full schedule.")
+    } catch (err: any) {
+      setError(err?.message ?? "Unable to add shift.")
+    }
+  }
+
+  const confirmSchedule = async () => {
+    setError("")
+    setSuccess("")
+    const activeCount = displayShifts.filter(shift => shift.isActive).length
+    const confirmed = window.confirm(
+      `Confirm ${activeCount} active shift${activeCount === 1 ? "" : "s"}? This checks that the ordered start/end times cover one continuous 24-hour loop and that breaks stay inside their shifts.`,
+    )
+    if (!confirmed) return
+
+    try {
+      await confirmShifts()
+      setSuccess("Shift schedule confirmed: active shifts cover a continuous 24-hour loop and breaks are valid.")
+    } catch (err: any) {
+      setError(err?.message ?? "Shift schedule confirmation failed.")
+    }
+  }
+
+  const moveShift = async (index: number, direction: -1 | 1) => {
+    const nextIndex = index + direction
+    if (nextIndex < 0 || nextIndex >= displayShifts.length) return
+    setError("")
+    setSuccess("")
+    const next = [...displayShifts]
+    const [shift] = next.splice(index, 1)
+    next.splice(nextIndex, 0, shift)
+    try {
+      await reorderShift(next.map(shift => shift.id))
+      setSuccess("Shift order updated. Confirm the full schedule when ordering is final.")
+    } catch (err: any) {
+      setError(err?.message ?? "Unable to reorder shifts.")
+    }
   }
 
   return (
       <div className="space-y-4">
-        {/* Info banner */}
         <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-700">
           <Clock size={16} className="shrink-0 mt-0.5" />
           <p>
-            Configure exactly <strong>2 shifts</strong> per day with their start/end times and break windows.
-            These shift definitions are used across all production tracking, work orders, and reports.
+            Add any number of shifts, edit their ordered start/end times, then confirm the schedule when the active shifts cover one continuous 24-hour loop.
+            Break windows must remain inside their parent shifts.
           </p>
         </div>
         {error && (
           <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-4 py-3">{error}</div>
         )}
+        {success && (
+          <div className="flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+            <CheckCircle size={16} /> {success}
+          </div>
+        )}
 
-        <div className="flex justify-end">
+        <div className="flex flex-wrap justify-end gap-2">
+          <button onClick={confirmSchedule} className="px-3 py-2 rounded-xl bg-emerald-600 text-white text-sm font-bold">Confirm Shift Schedule</button>
           <button onClick={createShift} className="px-3 py-2 rounded-xl bg-blue-600 text-white text-sm font-bold">Add Shift</button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {displayShifts.map(s => (
-              <ShiftCard
-                  key={s.id}
-                  shift={s}
-                  isEditing={editId === s.id}
-                  form={editId === s.id ? form! : null}
-                  saving={saving}
-                  onEdit={() => openEdit(s)}
-                  onCancel={cancelEdit}
-                  onSave={handleSave}
-                  onFormChange={setForm}
-                  onDelete={async () => { await deleteShift(s.id) }}
-                  onToggleActive={async () => {
-                    try {
-                      setError("")
-                      await updateShift(s.id, { isActive: !s.isActive })
-                    } catch (err: any) {
-                      const msg = err?.message ?? "Unable to update shift status."
-                      if (String(msg).toLowerCase().includes("permission")) {
-                        setError("Permission denied while updating shifts. Please deploy latest firestore.rules and re-login.")
-                      } else {
-                        setError(msg)
+        {displayShifts.length === 0 ? (
+          <div className="bg-white border border-dashed border-slate-300 rounded-2xl p-8 text-center text-sm text-slate-500">
+            No shifts configured yet. Add a shift to start building the schedule.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {displayShifts.map((s, index) => (
+                <ShiftCard
+                    key={s.id}
+                    shift={s}
+                    index={index}
+                    totalShifts={displayShifts.length}
+                    isEditing={editId === s.id}
+                    form={editId === s.id ? form! : null}
+                    saving={saving}
+                    onEdit={() => openEdit(s)}
+                    onCancel={cancelEdit}
+                    onSave={handleSave}
+                    onFormChange={setForm}
+                    onMoveUp={() => moveShift(index, -1)}
+                    onMoveDown={() => moveShift(index, 1)}
+                    onDelete={async () => {
+                      const confirmed = window.confirm(`Delete ${s.name}? Existing records that reference this shift will keep their saved shift ID.`)
+                      if (!confirmed) return
+                      try {
+                        setError("")
+                        setSuccess("")
+                        await deleteShift(s.id)
+                        setSuccess("Shift deleted. Confirm the full schedule when all shift changes are complete.")
+                      } catch (err: any) {
+                        setError(err?.message ?? "Unable to delete shift.")
                       }
-                    }
-                  }}
-              />
-          ))}
-
-        </div>
+                    }}
+                    onToggleActive={async () => {
+                      try {
+                        setError("")
+                        setSuccess("")
+                        await updateShift(s.id, { isActive: !s.isActive })
+                        setSuccess("Shift status updated. Confirm the full schedule when all shift changes are complete.")
+                      } catch (err: any) {
+                        const msg = err?.message ?? "Unable to update shift status."
+                        if (String(msg).toLowerCase().includes("permission")) {
+                          setError("Permission denied while updating shifts. Please deploy latest firestore.rules and re-login.")
+                        } else {
+                          setError(msg)
+                        }
+                      }
+                    }}
+                />
+            ))}
+          </div>
+        )}
       </div>
   )
 }
 
 function ShiftCard({
-                     shift, isEditing, form, saving, onEdit, onCancel, onSave, onFormChange, onToggleActive, onDelete,
+                     shift, index, totalShifts, isEditing, form, saving, onEdit, onCancel, onSave, onFormChange, onToggleActive, onDelete, onMoveUp, onMoveDown,
                    }: {
   shift: ShiftConfig
+  index: number
+  totalShifts: number
   isEditing: boolean
   form: ShiftForm | null
   saving: boolean
@@ -791,31 +903,51 @@ function ShiftCard({
   onFormChange: (f: ShiftForm) => void
   onToggleActive: () => void
   onDelete: () => void
+  onMoveUp: () => void
+  onMoveDown: () => void
 }) {
-  const accent = shift.order === 1 ? "blue" : "indigo"
-  const accentClasses = {
-    header: shift.order === 1 ? "bg-blue-600" : "bg-indigo-600",
-    badge:  shift.order === 1 ? "bg-blue-100 text-blue-700" : "bg-indigo-100 text-indigo-700",
-    ring:   shift.order === 1 ? "focus:ring-blue-400" : "focus:ring-indigo-400",
+  const canMoveUp = index > 0
+  const canMoveDown = index < totalShifts - 1
+  const totalBreakMinutes = (shift.breaks ?? []).reduce((sum, shiftBreak) => sum + calcBreakMinutes(shiftBreak.startTime, shiftBreak.endTime), 0)
+
+  const updateBreak = (breakIndex: number, data: Partial<ShiftBreak>) => {
+    if (!form) return
+    onFormChange({
+      ...form,
+      breaks: form.breaks.map((shiftBreak, index) => index === breakIndex ? { ...shiftBreak, ...data } : shiftBreak),
+    })
+  }
+
+  const removeBreak = (breakIndex: number) => {
+    if (!form) return
+    onFormChange({ ...form, breaks: form.breaks.filter((_, index) => index !== breakIndex) })
   }
 
   return (
       <div className={`bg-white rounded-2xl border-2 overflow-hidden transition-all ${isEditing ? "border-blue-300 shadow-lg shadow-blue-100" : "border-slate-200"} ${!shift.isActive ? "opacity-60" : ""}`}>
-        {/* Card header */}
-        <div className={`${accentClasses.header} px-5 py-3 flex items-center justify-between`}>
-          <div className="flex items-center gap-2">
-            <Clock size={15} className="text-white/80" />
-            <span className="text-sm font-black text-white">Shift {shift.order}</span>
+        <div className="bg-blue-600 px-5 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <Clock size={15} className="text-white/80 shrink-0" />
+            <span className="text-sm font-black text-white truncate">{shift.order}. {shift.name}</span>
           </div>
-          <button onClick={onToggleActive}
-                  className={`text-xs font-bold px-2.5 py-1 rounded-full transition-colors ${shift.isActive ? "bg-white/20 text-white hover:bg-white/30" : "bg-black/20 text-white/60 hover:bg-black/30"}`}>
-            {shift.isActive ? "Active" : "Inactive"}
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            <button onClick={onMoveUp} disabled={!canMoveUp} title="Move up"
+                    className="p-1 rounded-lg bg-white/15 text-white disabled:opacity-30 hover:bg-white/25">
+              <ChevronDown size={14} className="rotate-180" />
+            </button>
+            <button onClick={onMoveDown} disabled={!canMoveDown} title="Move down"
+                    className="p-1 rounded-lg bg-white/15 text-white disabled:opacity-30 hover:bg-white/25">
+              <ChevronDown size={14} />
+            </button>
+            <button onClick={onToggleActive}
+                    className={`text-xs font-bold px-2.5 py-1 rounded-full transition-colors ${shift.isActive ? "bg-white/20 text-white hover:bg-white/30" : "bg-black/20 text-white/60 hover:bg-black/30"}`}>
+              {shift.isActive ? "Active" : "Inactive"}
+            </button>
+          </div>
         </div>
 
         <div className="p-5 space-y-4">
           {isEditing && form ? (
-              /* ─── Edit mode ─────────────────────────────────────────────── */
               <>
                 <Field label="Shift Name">
                   <Input value={form.name} onChange={v => onFormChange({ ...form, name: v })} placeholder="e.g. Morning Shift" />
@@ -830,19 +962,41 @@ function ShiftCard({
                   </Field>
                 </div>
 
-                <div className="border-t border-dashed border-slate-200 pt-3">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Coffee size={13} className="text-slate-400" />
-                    <span className="text-xs font-black text-slate-500 uppercase tracking-widest">Break Window</span>
+                <div className="border-t border-dashed border-slate-200 pt-3 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Coffee size={13} className="text-slate-400" />
+                      <span className="text-xs font-black text-slate-500 uppercase tracking-widest">Break Windows</span>
+                    </div>
+                    <button type="button" onClick={() => onFormChange({ ...form, breaks: [...form.breaks, newBreak()] })}
+                            className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-700">
+                      <Plus size={12} /> Add Break
+                    </button>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="Break Start">
-                      <TimeInput value={form.breakStart} onChange={v => onFormChange({ ...form, breakStart: v })} />
-                    </Field>
-                    <Field label="Break End">
-                      <TimeInput value={form.breakEnd} onChange={v => onFormChange({ ...form, breakEnd: v })} />
-                    </Field>
-                  </div>
+
+                  {form.breaks.length === 0 ? (
+                    <p className="text-xs text-slate-400 bg-slate-50 rounded-xl p-3">No breaks added for this shift.</p>
+                  ) : form.breaks.map((shiftBreak, breakIndex) => (
+                    <div key={shiftBreak.id} className="rounded-xl border border-slate-200 p-3 space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs font-black text-slate-500 uppercase tracking-widest">Break {breakIndex + 1}</p>
+                        <button type="button" onClick={() => removeBreak(breakIndex)} className="text-red-500 hover:text-red-600">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                      <Field label="Break Name (optional)">
+                        <Input value={shiftBreak.name ?? ""} onChange={v => updateBreak(breakIndex, { name: v })} placeholder="e.g. Lunch" />
+                      </Field>
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field label="Break Start">
+                          <TimeInput value={shiftBreak.startTime} onChange={v => updateBreak(breakIndex, { startTime: v })} />
+                        </Field>
+                        <Field label="Break End">
+                          <TimeInput value={shiftBreak.endTime} onChange={v => updateBreak(breakIndex, { endTime: v })} />
+                        </Field>
+                      </div>
+                    </div>
+                  ))}
                 </div>
 
                 <div className="flex gap-3 pt-1">
@@ -851,17 +1005,16 @@ function ShiftCard({
                     Cancel
                   </button>
                   <button onClick={onSave} disabled={saving}
-                          className={`flex-1 px-4 py-2 rounded-xl ${accentClasses.header} hover:opacity-90 disabled:opacity-60 text-white text-sm font-bold`}>
+                          className="flex-1 px-4 py-2 rounded-xl bg-blue-600 hover:opacity-90 disabled:opacity-60 text-white text-sm font-bold">
                     {saving ? "Saving…" : "Save Shift"}
                   </button>
                 </div>
               </>
           ) : (
-              /* ─── View mode ─────────────────────────────────────────────── */
               <>
                 <div>
                   <p className="text-lg font-black text-slate-900">{shift.name}</p>
-                  <p className={`inline-flex items-center gap-1 text-xs font-bold mt-1 px-2.5 py-0.5 rounded-full ${accentClasses.badge}`}>
+                  <p className="inline-flex items-center gap-1 text-xs font-bold mt-1 px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
                     <Clock size={10} /> {shift.startTime} – {shift.endTime}
                   </p>
                 </div>
@@ -869,14 +1022,20 @@ function ShiftCard({
                 <div className="bg-slate-50 rounded-xl p-3">
                   <div className="flex items-center gap-2 mb-2">
                     <Coffee size={12} className="text-slate-400" />
-                    <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Break</span>
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Breaks</span>
                   </div>
-                  <p className="text-sm font-semibold text-slate-700">
-                    {shift.breakStart ?? shift.breaks?.[0]?.startTime ?? "--:--"} – {shift.breakEnd ?? shift.breaks?.[0]?.endTime ?? "--:--"}
-                    <span className="ml-2 text-xs text-slate-400">
-                  ({calcBreakMinutes(shift.breakStart ?? shift.breaks?.[0]?.startTime ?? "00:00", shift.breakEnd ?? shift.breaks?.[0]?.endTime ?? "00:00")} min)
-                </span>
-                  </p>
+                  {shift.breaks?.length ? (
+                    <div className="space-y-1.5">
+                      {shift.breaks.map((shiftBreak, breakIndex) => (
+                        <p key={shiftBreak.id || breakIndex} className="text-sm font-semibold text-slate-700">
+                          {shiftBreak.name ? `${shiftBreak.name}: ` : ""}{shiftBreak.startTime} – {shiftBreak.endTime}
+                          <span className="ml-2 text-xs text-slate-400">({calcBreakMinutes(shiftBreak.startTime, shiftBreak.endTime)} min)</span>
+                        </p>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-400">No breaks configured.</p>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-3 gap-2 pt-1 border-t border-slate-100">
@@ -886,7 +1045,7 @@ function ShiftCard({
                   </div>
                   <div className="text-center">
                     <p className="text-xs text-slate-400 font-medium">Break</p>
-                    <p className="text-sm font-black text-slate-700">{calcBreakMinutes(shift.breakStart ?? shift.breaks?.[0]?.startTime ?? "00:00", shift.breakEnd ?? shift.breaks?.[0]?.endTime ?? "00:00")}m</p>
+                    <p className="text-sm font-black text-slate-700">{totalBreakMinutes}m</p>
                   </div>
                   <div className="text-center">
                     <p className="text-xs text-slate-400 font-medium">Net</p>
@@ -915,22 +1074,46 @@ function timeToMinutes(t: string): number {
   return (h ?? 0) * 60 + (m ?? 0)
 }
 
+function durationMinutes(start: string, end: string): number {
+  const startMinutes = timeToMinutes(start)
+  const endMinutes = timeToMinutes(end)
+  return (endMinutes - startMinutes + 24 * 60) % (24 * 60)
+}
+
+function intervalWithinShift(
+  startTime: string,
+  endTime: string,
+  parentStart: number,
+  parentEnd: number,
+  parentDuration: number,
+): { start: number; end: number } | null {
+  const start = timeToMinutes(startTime)
+  const end = timeToMinutes(endTime)
+  const breakDuration = durationMinutes(startTime, endTime)
+  const parentSpansOvernight = parentEnd < parentStart
+  const breakSpansOvernight = end < start
+  if (breakSpansOvernight && !parentSpansOvernight) return null
+
+  let relativeStart = start - parentStart
+  if (relativeStart < 0) relativeStart += 24 * 60
+  const relativeEnd = relativeStart + breakDuration
+
+  if (relativeStart > parentDuration || relativeEnd > parentDuration) return null
+  return { start: relativeStart, end: relativeEnd }
+}
+
 function calcDurationHours(start: string, end: string): string {
-  let mins = timeToMinutes(end) - timeToMinutes(start)
-  if (mins < 0) mins += 24 * 60 // overnight
+  const mins = durationMinutes(start, end)
   return (mins / 60).toFixed(1).replace(".0", "")
 }
 
 function calcBreakMinutes(start: string, end: string): number {
-  let mins = timeToMinutes(end) - timeToMinutes(start)
-  if (mins < 0) mins += 24 * 60
-  return mins
+  return durationMinutes(start, end)
 }
 
 function calcNetHours(s: ShiftConfig): string {
-  let total = timeToMinutes(s.endTime) - timeToMinutes(s.startTime)
-  if (total < 0) total += 24 * 60
-  const breakMins = calcBreakMinutes(s.breakStart ?? s.breaks?.[0]?.startTime ?? "00:00", s.breakEnd ?? s.breaks?.[0]?.endTime ?? "00:00")
+  const total = durationMinutes(s.startTime, s.endTime)
+  const breakMins = (s.breaks ?? []).reduce((sum, shiftBreak) => sum + calcBreakMinutes(shiftBreak.startTime, shiftBreak.endTime), 0)
   const net = (total - breakMins) / 60
   return net.toFixed(1).replace(".0", "")
 }

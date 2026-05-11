@@ -2,9 +2,10 @@
 import { useState, useMemo } from "react"
 import { useApp } from "@/components/providers/AppProvider"
 import {
-  UserRole, SHIFT_LABELS, MACHINES, REASON_CODES,
-  type ProcessStage, type Shift, type ReworkEntry, type RejectionEntry,
+  UserRole, MACHINES, REASON_CODES,
+  type ProcessStage, type Shift, type ReworkEntry, type RejectionEntry, type ShiftConfig,
 } from "@/lib/store"
+import { getSelectableShiftOptions, getShiftLabel } from "@/lib/shiftUtils"
 import {
   Plus, Trash2, CheckCircle2, AlertTriangle, XCircle, ClipboardList,
   Eye, ChevronDown, ChevronRight, AlertCircle, ShieldCheck, History,
@@ -82,7 +83,7 @@ function ReasonEditor({
 }
 
 // ─── Previous Shift Card ──────────────────────────────────────────────────────
-function PrevShiftCard({ inspection }: { inspection: ReturnType<typeof usePrevInspections>[0] }) {
+function PrevShiftCard({ inspection, shifts }: { inspection: ReturnType<typeof usePrevInspections>[0]; shifts: ShiftConfig[] }) {
   const [open, setOpen] = useState(false)
   return (
     <div className="border border-slate-200 rounded-2xl overflow-hidden">
@@ -92,7 +93,7 @@ function PrevShiftCard({ inspection }: { inspection: ReturnType<typeof usePrevIn
       >
         <span className="flex items-center gap-2">
           <History size={14} className="text-slate-500" />
-          {inspection.date} — {SHIFT_LABELS[inspection.shift as Shift]} — {inspection.partName}
+          {inspection.date} — {getShiftLabel(shifts, inspection.shift as Shift)} — {inspection.partName}
         </span>
         {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
       </button>
@@ -212,11 +213,8 @@ export function QIInspectionPage({ process }: { process: ProcessStage }) {
   const theme = THEME[process]
   const machines = MACHINES.filter(m => m.process === process && m.status !== "inactive")
 
-  const shiftOptions: Shift[] = shifts.length > 0
-    ? [...shifts].sort((a, b) => a.order - b.order).map(s => s.id)
-    : ["shift_1", "shift_2"]
-
   const [form, setForm] = useState<FormState>(blank())
+  const shiftOptions = getSelectableShiftOptions(shifts, form.shift)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [submitted, setSubmitted] = useState(false)
   const [showPrev, setShowPrev] = useState(true)
@@ -369,7 +367,7 @@ export function QIInspectionPage({ process }: { process: ProcessStage }) {
             {prevInspections.length === 0 ? (
               <p className="text-sm text-slate-500 italic py-2">No previous inspections for this process.</p>
             ) : prevInspections.map(i => (
-              <PrevShiftCard key={i.id} inspection={i} />
+              <PrevShiftCard key={i.id} inspection={i} shifts={shifts} />
             ))}
           </div>
         )}
@@ -447,7 +445,7 @@ export function QIInspectionPage({ process }: { process: ProcessStage }) {
               >
                 <option value="">— Select Shift —</option>
                 {shiftOptions.map(s => (
-                  <option key={s} value={s}>{SHIFT_LABELS[s] ?? s}</option>
+                  <option key={s.id} value={s.id}>{s.label}</option>
                 ))}
               </select>
             </Field>
@@ -612,7 +610,7 @@ export function QIInspectionPage({ process }: { process: ProcessStage }) {
                       <td className="px-4 py-3 font-mono text-xs text-slate-600">{r.date}</td>
                       <td className="px-4 py-3 font-mono text-xs text-indigo-700">{r.masterId}</td>
                       <td className="px-4 py-3 text-slate-800 font-medium whitespace-nowrap max-w-[160px] truncate" title={r.partName}>{r.partName}</td>
-                      <td className="px-4 py-3 text-slate-600 capitalize whitespace-nowrap">{r.shift}</td>
+                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{getShiftLabel(shifts, r.shift)}</td>
                       <td className="px-4 py-3 text-slate-600 text-xs whitespace-nowrap">{r.machine.split("—")[0].trim()}</td>
                       <td className="px-4 py-3 font-bold text-slate-800">{r.producedPartCount}</td>
                       <td className="px-4 py-3 font-bold text-emerald-700">{r.goodPartCount}</td>
