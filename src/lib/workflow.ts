@@ -35,6 +35,7 @@ export function buildStageSubWorkOrder(params: {
   parentWoId?: string
   reworkCycleNumber?: number
   originQiId?: string
+  defectType?: "rework" | "rejection"
 }): Omit<WorkOrder, "id" | "createdAt"> {
   const { source, process, createdBy } = params
   const step = getWorkflowStep(process)
@@ -69,16 +70,17 @@ export function buildStageSubWorkOrder(params: {
     rejectedParts: 0,
     scrapWeight: 0,
     inputWeightKg: 0,
-    status: "draft",
+    status: params.defectType === "rejection" ? "rejected" : "draft",
     productionStarted: false,
     createdBy,
-    woType: params.reworkCycleNumber ? "rework" : "stage",
+    woType: params.defectType === "rejection" ? "rejection" : params.reworkCycleNumber ? "rework" : "stage",
     parentWoId: params.parentWoId ?? getRootWorkOrderId(source),
     rootWoId: getRootWorkOrderId(source),
     workflowStep: step,
     workflowLabel: PROCESS_STAGE_LABELS[process],
     reworkCycleNumber: params.reworkCycleNumber,
     originQiId: params.originQiId,
-    reworkPartCount: params.reworkCycleNumber ? targetPartNos : undefined,
+    reworkPartCount: params.defectType === "rework" || (params.reworkCycleNumber && params.defectType !== "rejection") ? targetPartNos : undefined,
+    rejectionPartCount: params.defectType === "rejection" ? targetPartNos : undefined,
   }
 }

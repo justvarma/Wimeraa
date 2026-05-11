@@ -243,7 +243,7 @@ export interface WorkOrder {
   phase2CompletedBy?: string; phase2CompletedAt?: string
   // ─── SWO / Rework Traceability ─────────────────────────────────────────────
   // woType: "standard" = primary WO shell; "stage" = system-generated process SWO; "rework" = SWO spawned from QI/FQI rejection
-  woType?: "standard" | "stage" | "rework"
+  woType?: "standard" | "stage" | "rework" | "rejection"
   parentWoId?: string          // ID of the parent/root WO this SWO originated from
   rootWoId?: string            // stable root WO ID for the complete workflow chain
   workflowStep?: number        // zero-based position in the process sequence
@@ -252,6 +252,7 @@ export interface WorkOrder {
   originFqiId?: string         // ID of the FQIInspection record that triggered this SWO
   originQiId?: string          // ID of the QIInspection record that triggered the next/rework SWO
   reworkPartCount?: number     // how many parts are in this rework batch
+  rejectionPartCount?: number  // how many parts are in this rejection/NCR batch
 }
 
 // ─── PROCESS RECORDS ─────────────────────────────────────────────────────────

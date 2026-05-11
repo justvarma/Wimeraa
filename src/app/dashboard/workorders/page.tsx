@@ -405,7 +405,7 @@ export default function WorkOrdersPage() {
   const [expanded, setExpanded]     = useState<string | null>(null)
   const [statusFilter, setStatusFilter]   = useState("all")
   const [processFilter, setProcessFilter] = useState("all")
-  const [typeFilter, setTypeFilter]       = useState<"all" | "standard" | "stage" | "rework">("all")
+  const [typeFilter, setTypeFilter]       = useState<"all" | "standard" | "stage" | "rework" | "rejection">("all")
 
   const isPTCManager   = role === UserRole.PTC_MANAGER
   const isAdmin        = role === UserRole.ADMIN
@@ -425,6 +425,7 @@ export default function WorkOrdersPage() {
       const matchType    = typeFilter === "all" ||
                            (typeFilter === "rework"   && w.woType === "rework") ||
                            (typeFilter === "stage"    && w.woType === "stage") ||
+                           (typeFilter === "rejection" && w.woType === "rejection") ||
                            (typeFilter === "standard" && (!w.woType || w.woType === "standard"))
       // Process PTCs see their own process (includes rework SWOs for that process)
       const matchRole    = !myProcess    || (w.process === myProcess && w.woType !== "standard")
@@ -446,7 +447,7 @@ export default function WorkOrdersPage() {
   // Build a lookup: parentWoId → child SWOs (for expanded view)
   const swoByParent = useMemo(() => {
     const map: Record<string, typeof workOrders> = {}
-    workOrders.filter(w => w.woType === "rework" && w.parentWoId).forEach(w => {
+    workOrders.filter(w => (w.woType === "rework" || w.woType === "rejection") && w.parentWoId).forEach(w => {
       map[w.parentWoId!] = [...(map[w.parentWoId!] ?? []), w]
     })
     return map
@@ -569,11 +570,11 @@ export default function WorkOrdersPage() {
         )}
         {/* WO Type filter */}
         <span className="w-px bg-slate-200 mx-1"/>
-        {(["all", "standard", "stage", "rework"] as const).map(t => (
+        {(["all", "standard", "stage", "rework", "rejection"] as const).map(t => (
           <button key={t} onClick={() => setTypeFilter(t)}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold transition-all ${typeFilter===t?"bg-slate-900 text-white":"bg-white border border-slate-200 text-slate-700 hover:bg-slate-50"}`}>
             {t === "rework" && <GitBranch size={12}/>}
-            {t === "all" ? "All Types" : t === "standard" ? "Primary WO" : t === "stage" ? "Process SWO" : "Rework SWO"}
+            {t === "all" ? "All Types" : t === "standard" ? "Primary WO" : t === "stage" ? "Process SWO" : t === "rejection" ? "Rejection WO" : "Rework SWO"}
           </button>
         ))}
       </div>

@@ -10,7 +10,7 @@ import {
 import { getSelectableShiftOptions, getShiftLabel } from "@/lib/shiftUtils"
 import {
   Plus, X, ChevronDown, ChevronRight, CheckCircle2, AlertTriangle,
-  Trash2, ClipboardList, Lock, Building2, Info, ArrowRight, Package, Clock,
+  Trash2, ClipboardList, Lock, Building2, Info, Package, Clock,
 } from "lucide-react"
 
 // ─── Shared styling ───────────────────────────────────────────────────────────
@@ -79,9 +79,6 @@ function InventorySummary({ wo, form, needsScrap, scrapCalc }: {
   needsScrap: boolean
   scrapCalc: number
 }) {
-  const totalRework = form.reworkEntries.reduce((s,e)=>s+e.quantity,0)
-  const totalReject = form.rejectionEntries.reduce((s,e)=>s+e.quantity,0)
-
   return (
     <div className="rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-5 space-y-4">
       <div className="flex items-center gap-2">
@@ -101,47 +98,10 @@ function InventorySummary({ wo, form, needsScrap, scrapCalc }: {
         </div>
       </div>
 
-      {/* Component quantities */}
-      <div className="grid grid-cols-3 gap-2">
-        <div className="bg-emerald-100 border border-emerald-200 rounded-xl p-3 text-center">
-          <p className="text-[10px] font-black text-emerald-700 uppercase tracking-wider">Good Parts</p>
-          <p className="text-2xl font-black text-emerald-800 mt-1">{form.goodParts}</p>
-        </div>
-        <div className="bg-amber-100 border border-amber-200 rounded-xl p-3 text-center">
-          <p className="text-[10px] font-black text-amber-700 uppercase tracking-wider">Rework Parts</p>
-          <p className="text-2xl font-black text-amber-800 mt-1">{form.reworkParts}</p>
-        </div>
-        <div className="bg-red-100 border border-red-200 rounded-xl p-3 text-center">
-          <p className="text-[10px] font-black text-red-700 uppercase tracking-wider">Rejected</p>
-          <p className="text-2xl font-black text-red-800 mt-1">{form.rejectedParts}</p>
-        </div>
+      <div className="bg-white border border-emerald-200 rounded-xl p-3 text-xs text-emerald-800">
+        <p className="font-black uppercase tracking-wider text-[10px] mb-1">Inventory Movement</p>
+        <p>Production output and material movement will be finalized from the saved production weights. Quality disposition counts are handled in QI/NCR records.</p>
       </div>
-
-      {/* Rework reasons */}
-      {form.reworkEntries.length > 0 && (
-        <div className="bg-white border border-amber-200 rounded-xl p-3">
-          <p className="text-[10px] font-black text-amber-700 uppercase tracking-wider mb-2">Rework Reasons</p>
-          {form.reworkEntries.map((e,i)=>(
-            <div key={i} className="flex justify-between text-xs text-amber-800 py-0.5">
-              <span><ArrowRight size={10} className="inline mr-1"/>{e.reasonCode}</span>
-              <span className="font-mono font-bold">{e.quantity} pcs</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Rejection reasons */}
-      {form.rejectionEntries.length > 0 && (
-        <div className="bg-white border border-red-200 rounded-xl p-3">
-          <p className="text-[10px] font-black text-red-700 uppercase tracking-wider mb-2">Rejection Reasons</p>
-          {form.rejectionEntries.map((e,i)=>(
-            <div key={i} className="flex justify-between text-xs text-red-800 py-0.5">
-              <span><ArrowRight size={10} className="inline mr-1"/>{e.reasonCode}</span>
-              <span className="font-mono font-bold">{e.quantity} pcs</span>
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* Weight data */}
       <div className="bg-white border border-emerald-200 rounded-xl p-3 text-xs space-y-1.5">
@@ -154,7 +114,6 @@ function InventorySummary({ wo, form, needsScrap, scrapCalc }: {
           <div className="flex justify-between text-slate-400 italic"><span>Scrap Weight</span><span>N/A — Coating process</span></div>
         )}
         <div className="flex justify-between"><span className="text-slate-500">Material Waste</span><span className="font-bold font-mono">{form.materialWasteKg} KG</span></div>
-        <div className="flex justify-between border-t border-slate-100 pt-1.5 text-slate-500"><span>Good Output Weight</span><span className="font-bold font-mono">{((form.goodParts * (wo.weightPerPart||0))).toFixed(3)} KG</span></div>
       </div>
 
       <p className="text-[10px] text-emerald-600 italic">→ Saving will update the Work Order record and mark this production stage as complete.</p>
