@@ -633,22 +633,15 @@ export function validateShiftConfigs(shifts: ShiftValidationDraft[]): void {
 
   for (const shift of activeShifts) validateBreaks(shift)
 
-  // During CRUD configuration it is valid to have no active shifts temporarily;
-  // inactive shifts are explicitly ignored by continuity validation.
-  if (activeShifts.length === 0) return
-
-  if (activeShifts.length === 1) {
-    const only = activeShifts[0]
-    if (only.startTime !== only.endTime) {
-      throw new Error("A single active shift must cover the full 24-hour loop with matching start and end times.")
-    }
-    return
-  }
+  // During CRUD configuration it is valid to have fewer than two active shifts
+  // temporarily. Continuity is only meaningful once multiple active shifts need
+  // to connect to each other; inactive shifts are ignored by design.
+  if (activeShifts.length < 2) return
 
   let totalActiveMinutes = 0
   for (const shift of activeShifts) {
     if (shift.startTime === shift.endTime) {
-      throw new Error(`${shift.name} cannot use matching start and end times unless it is the only active 24-hour shift.`)
+      throw new Error(`${shift.name} cannot use matching start and end times.`)
     }
     totalActiveMinutes += shiftDurationMinutes(shift)
   }
