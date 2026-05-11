@@ -2,11 +2,12 @@
 import { useState, useMemo } from "react"
 import { useApp } from "@/components/providers/AppProvider"
 import {
-  UserRole, SHIFT_LABELS, MACHINES, REASON_CODES, PROCESS_STAGE_LABELS,
+  UserRole, MACHINES, REASON_CODES, PROCESS_STAGE_LABELS,
   FQI_DISPOSITION_LABELS,
   type ProcessStage, type Shift, type ReworkEntry, type RejectionEntry, type FQIDisposition,
-  type WorkOrder,
+  type ShiftConfig, type WorkOrder,
 } from "@/lib/store"
+import { getSelectableShiftOptions, getShiftLabel } from "@/lib/shiftUtils"
 import {
   Plus, Trash2, CheckCircle2, AlertTriangle, XCircle, ClipboardList,
   Eye, ChevronDown, ChevronRight, AlertCircle, Award, History,
@@ -119,10 +120,11 @@ function DispositionBadge({ d }: { d: FQIDisposition }) {
 
 // ─── Previous QI data panel ───────────────────────────────────────────────────
 function QIHistoryPanel({
-  workOrderId, qiInspections,
+  workOrderId, qiInspections, shifts,
 }: {
   workOrderId: string
   qiInspections: ReturnType<typeof useApp>["qiInspections"]
+  shifts: ShiftConfig[]
 }) {
   const [open, setOpen] = useState(true)
   const records = useMemo(() =>
@@ -156,7 +158,7 @@ function QIHistoryPanel({
               <div>
                 <p className="text-slate-400 font-black uppercase tracking-widest text-[9px]">Date / Shift</p>
                 <p className="font-bold text-slate-700">{r.date}</p>
-                <p className="text-slate-500 capitalize">{r.shift}</p>
+                <p className="text-slate-500">{getShiftLabel(shifts, r.shift)}</p>
               </div>
               <div className="grid grid-cols-3 col-span-3 gap-3">
                 <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-2 text-center">
@@ -227,9 +229,7 @@ export default function FQIPage() {
   const [showHistory, setShowHistory] = useState(false)
   const [showPrevFQI, setShowPrevFQI] = useState(true)
   // SWO creation state — set after a rework_loop FQI is saved
-  const shiftOptions: Shift[] = shifts.length > 0
-    ? [...shifts].sort((a, b) => a.order - b.order).map(s => s.id)
-    : ["shift_1", "shift_2"]
+  const shiftOptions = getSelectableShiftOptions(shifts, form.shift)
 
   const [pendingSWO, setPendingSWO] = useState<{
     parentWo: WorkOrder
@@ -374,7 +374,7 @@ export default function FQIPage() {
       dueDate:              parentWo.dueDate,
       // Phase 2 fields — left blank for process PTC to fill
       materialGrade: "", rawMaterialId: "", rawMaterialGrade: "",
-      shift: "" as "shift_1" | "shift_2" | "shift_2" | "",
+      shift: "" as Shift | "",
       machine: "", operator: "",
       actualTarget: reworkCount, partPerCycle: parentWo.partPerCycle,
       weightPerPart: parentWo.weightPerPart, actualOutputKg: 0,
@@ -470,7 +470,7 @@ export default function FQIPage() {
                   <span className="font-mono text-xs text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">{r.masterId}</span>
                   <ProcessBadge p={r.process} />
                   <DispositionBadge d={r.disposition} />
-                  <span className="ml-auto text-xs text-slate-400">{r.date} · {r.shift}</span>
+                  <span className="ml-auto text-xs text-slate-400">{r.date} · {getShiftLabel(shifts, r.shift)}</span>
                 </div>
                 <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 text-xs">
                   <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-2 text-center">
@@ -671,7 +671,7 @@ export default function FQIPage() {
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
                   <Info size={10} /> In-process QI records for this batch
                 </p>
-                <QIHistoryPanel workOrderId={selectedWO.id} qiInspections={qiInspections} />
+                <QIHistoryPanel workOrderId={selectedWO.id} qiInspections={qiInspections} shifts={shifts} />
               </div>
             </div>
           )}
@@ -691,7 +691,7 @@ export default function FQIPage() {
                 >
                   <option value="">— Select Shift —</option>
                   {shiftOptions.map(s => (
-                    <option key={s} value={s}>{SHIFT_LABELS[s] ?? s}</option>
+                    <option key={s.id} value={s.id}>{s.label}</option>
                   ))}
                 </select>
               </Field>
@@ -1010,7 +1010,7 @@ export default function FQIPage() {
                       <td className="px-4 py-3 font-mono text-xs text-indigo-700 whitespace-nowrap">{r.masterId}</td>
                       <td className="px-4 py-3 text-slate-800 font-medium max-w-[140px] truncate text-xs" title={r.partName}>{r.partName}</td>
                       <td className="px-4 py-3"><ProcessBadge p={r.process} /></td>
-                      <td className="px-4 py-3 text-slate-600 capitalize text-xs whitespace-nowrap">{r.shift}</td>
+                      <td className="px-4 py-3 text-slate-600 text-xs whitespace-nowrap">{getShiftLabel(shifts, r.shift)}</td>
                       <td className="px-4 py-3 font-bold text-slate-800">{r.producedPartCount}</td>
                       <td className="px-4 py-3 font-bold text-emerald-700">{r.goodPartCount}</td>
                       <td className="px-4 py-3 font-bold text-amber-700">{r.reworkCount}</td>

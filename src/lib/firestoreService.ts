@@ -19,14 +19,14 @@
  *     qi_inspections/{id}
  *     fqi_inspections/{id}
  *     roles/{id}          ← RoleConfig — admin-managed role definitions
- *     shifts/{id}         ← ShiftConfig — admin-managed shift definitions (shift_1, shift_2)
+ *     shifts/{id}         ← ShiftConfig — admin-managed shift definitions
  *
  * Every listener returns an unsubscribe function — call it in useEffect cleanup.
  */
 
 import {
   collection, doc,
-  addDoc, setDoc, updateDoc, deleteDoc,
+  addDoc, setDoc, updateDoc, deleteDoc, getDocs,
   onSnapshot, serverTimestamp,
   query, where, orderBy,
   writeBatch,
@@ -535,26 +535,133 @@ export async function deleteRoleConfig(
 
 // ─── Shift Configs ────────────────────────────────────────────────────────────
 
-function normalizeShiftConfig(raw: any, id: string): ShiftConfig {
-  const legacyStart = raw.breakStart ?? "12:00"
-  const legacyEnd = raw.breakEnd ?? "12:15"
-  const breaks = Array.isArray(raw.breaks) && raw.breaks.length > 0
-    ? raw.breaks
+type ShiftValidationDraft = ShiftConfig | (Omit<ShiftConfig, "id"> & { id?: string })
+
+function normalizeShiftConfig(raw: Record<string, unknown>, id: string): ShiftConfig {
+  const legacyStart = typeof raw.breakStart === "string" ? raw.breakStart : "12:00"
+  const legacyEnd = typeof raw.breakEnd === "string" ? raw.breakEnd : "12:15"
+  const rawBreaks = raw.breaks
+  const breaks = Array.isArray(rawBreaks)
+    ? rawBreaks
     : [{ id: "break_1", startTime: legacyStart, endTime: legacyEnd, name: "Break 1" }]
 
-  const firstBreak = breaks[0]
+  const firstBreak = breaks[0] as { startTime?: string; endTime?: string } | undefined
   return {
     ...raw,
     id,
-    breaks,
-    breakStart: raw.breakStart ?? firstBreak?.startTime ?? "12:00",
-    breakEnd: raw.breakEnd ?? firstBreak?.endTime ?? "12:15",
+    breaks: breaks as ShiftConfig["breaks"],
+    breakStart: typeof raw.breakStart === "string" ? raw.breakStart : firstBreak?.startTime ?? "12:00",
+    breakEnd: typeof raw.breakEnd === "string" ? raw.breakEnd : firstBreak?.endTime ?? "12:15",
   } as ShiftConfig
 }
 
-// Stored at clients/{clientId}/shifts/{id}
-// Exactly 2 shifts: doc IDs "shift_1" and "shift_2".
-// Seeded with DEFAULT_SHIFT_CONFIGS on client setup.
+const DAY_MINUTES = 24 * 60
+const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/
+
+function parseTimeToMinutes(value: string, label: string): number {
+  const match = TIME_RE.exec(value)
+  if (!match) throw new Error(`${label} must be in HH:mm 24-hour format.`)
+  return Number(match[1]) * 60 + Number(match[2])
+}
+
+function orderedShifts<T extends ShiftValidationDraft>(shifts: T[]): T[] {
+  return [...shifts].sort((a, b) => a.order - b.order || String(a.id ?? "").localeCompare(String(b.id ?? "")))
+}
+
+function shiftDurationMinutes(shift: ShiftValidationDraft): number {
+  const start = parseTimeToMinutes(shift.startTime, `${shift.name} start time`)
+  const end = parseTimeToMinutes(shift.endTime, `${shift.name} end time`)
+  return (end - start + DAY_MINUTES) % DAY_MINUTES
+}
+
+function intervalOnShiftTimeline(
+    startTime: string,
+    endTime: string,
+    parentStart: number,
+    parentDuration: number,
+    label: string,
+): { start: number; end: number; duration: number; isOvernight: boolean } {
+  const absoluteStart = parseTimeToMinutes(startTime, `${label} start time`)
+  const absoluteEnd = parseTimeToMinutes(endTime, `${label} end time`)
+  const isOvernight = absoluteEnd < absoluteStart
+  let start = absoluteStart - parentStart
+  if (start < 0) start += DAY_MINUTES
+  const rawDuration = (absoluteEnd - absoluteStart + DAY_MINUTES) % DAY_MINUTES
+  if (rawDuration === 0) throw new Error(`${label} start and end time cannot be the same.`)
+  const end = start + rawDuration
+  if (start > parentDuration || end > parentDuration) {
+    throw new Error(`${label} must remain fully inside its parent shift window.`)
+  }
+  return { start, end, duration: rawDuration, isOvernight }
+}
+
+function validateBreaks(shift: ShiftValidationDraft): void {
+  const parentStart = parseTimeToMinutes(shift.startTime, `${shift.name} start time`)
+  parseTimeToMinutes(shift.endTime, `${shift.name} end time`)
+  const parentDuration = shiftDurationMinutes(shift)
+  if (parentDuration === 0) throw new Error(`${shift.name} duration cannot be 0.`)
+  const parentSpansOvernight = shift.endTime < shift.startTime
+  const intervals = (shift.breaks ?? []).map((shiftBreak, index) => {
+    const label = `${shift.name} break ${shiftBreak.name || shiftBreak.id || index + 1}`
+    const interval = intervalOnShiftTimeline(
+        shiftBreak.startTime,
+        shiftBreak.endTime,
+        parentStart,
+        parentDuration,
+        label,
+    )
+    if (interval.isOvernight && !parentSpansOvernight) {
+      throw new Error(`${label} can span overnight only when its parent shift spans overnight.`)
+    }
+    return interval
+  }).sort((a, b) => a.start - b.start)
+
+  const totalBreakMinutes = intervals.reduce((sum, interval) => sum + interval.duration, 0)
+  if (totalBreakMinutes > parentDuration) {
+    throw new Error(`${shift.name} total break duration cannot exceed shift duration.`)
+  }
+
+  for (let i = 1; i < intervals.length; i += 1) {
+    if (intervals[i - 1].end > intervals[i].start) {
+      throw new Error(`${shift.name} breaks cannot overlap.`)
+    }
+  }
+}
+
+export function validateShiftConfigs(shifts: ShiftValidationDraft[]): void {
+  const activeShifts = orderedShifts(shifts).filter(shift => shift.isActive)
+
+  if (activeShifts.length === 0) {
+    throw new Error("At least one active shift is required before confirming the shift schedule.")
+  }
+
+  let totalActiveMinutes = 0
+  for (const shift of activeShifts) {
+    validateBreaks(shift)
+    const duration = shiftDurationMinutes(shift)
+    if (duration === 0) throw new Error(`${shift.name} duration cannot be 0.`)
+    totalActiveMinutes += duration
+  }
+
+  for (let i = 0; i < activeShifts.length; i += 1) {
+    const current = activeShifts[i]
+    const next = activeShifts[(i + 1) % activeShifts.length]
+    if (current.endTime !== next.startTime) {
+      throw new Error(`Active shifts must form a continuous 24-hour loop: ${current.name} must end at ${next.name}'s start time.`)
+    }
+  }
+
+  if (totalActiveMinutes !== DAY_MINUTES) {
+    throw new Error("Active shifts must cover exactly 24 hours with no gaps or overlaps.")
+  }
+}
+
+async function getShiftConfigs(clientId: string): Promise<ShiftConfig[]> {
+  const snap = await getDocs(query(clientCol(clientId, "shifts"), orderBy("order", "asc")))
+  return snap.docs.map(d => normalizeShiftConfig(d.data(), d.id))
+}
+
+// Stored at clients/{clientId}/shifts/{id}. Seeded only when the collection is empty.
 
 export function subscribeShifts(
     clientId: string,
@@ -573,34 +680,46 @@ export function subscribeShifts(
 
 /**
  * Seed default shift configs for a new client.
- * Call this once during client setup.
+ * Call this only when clients/{clientId}/shifts is empty.
  */
 export async function seedDefaultShifts(
     clientId: string,
     defaults: ShiftConfig[],
 ): Promise<void> {
+  validateShiftConfigs(defaults)
+  const existing = await getDocs(clientCol(clientId, "shifts"))
+  if (!existing.empty) return
+
   const batch = writeBatch(db)
-  for (const shift of defaults) {
+  for (const shift of orderedShifts(defaults)) {
     batch.set(clientDoc(clientId, "shifts", shift.id), shift)
   }
   await batch.commit()
 }
 
-/**
- * Update a shift config. Use doc IDs "shift_1" or "shift_2".
- */
-
 export async function createShiftConfig(
     clientId: string,
     shift: ShiftConfig,
 ): Promise<void> {
-  await setDoc(clientDoc(clientId, "shifts", shift.id), shift)
+  const shifts = await getShiftConfigs(clientId)
+  if (shifts.some(existing => existing.id === shift.id)) {
+    throw new Error(`Shift ${shift.id} already exists.`)
+  }
+
+  const normalizedShift = normalizeShiftConfig(shift as unknown as Record<string, unknown>, shift.id)
+  validateBreaks(normalizedShift)
+
+  await setDoc(clientDoc(clientId, "shifts", normalizedShift.id), normalizedShift)
 }
 
 export async function deleteShiftConfig(
     clientId: string,
     id: string,
 ): Promise<void> {
+  const shifts = await getShiftConfigs(clientId)
+  const shiftToDelete = shifts.find(shift => shift.id === id)
+  if (!shiftToDelete) throw new Error(`Shift ${id} does not exist.`)
+
   await deleteDoc(clientDoc(clientId, "shifts", id))
 }
 
@@ -609,5 +728,38 @@ export async function updateShiftConfig(
     id: string,
     data: Partial<ShiftConfig>,
 ): Promise<void> {
+  const shifts = await getShiftConfigs(clientId)
+  const nextShifts = shifts.map(shift => shift.id === id ? normalizeShiftConfig({ ...shift, ...data }, id) : shift)
+  if (nextShifts.length === shifts.length && !shifts.some(shift => shift.id === id)) {
+    throw new Error(`Shift ${id} does not exist.`)
+  }
+  const updatedShift = nextShifts.find(shift => shift.id === id)
+  if (updatedShift) validateBreaks(updatedShift)
   await updateDoc(clientDoc(clientId, "shifts", id), data)
+}
+
+export async function reorderShiftConfigs(
+    clientId: string,
+    orderedIds: string[],
+): Promise<void> {
+  const shifts = await getShiftConfigs(clientId)
+  const ids = new Set(orderedIds)
+  if (ids.size !== orderedIds.length) throw new Error("Shift reorder list contains duplicate shift IDs.")
+  if (ids.size !== shifts.length || shifts.some(shift => !ids.has(shift.id))) {
+    throw new Error("Shift reorder list must include every existing shift exactly once.")
+  }
+
+  const orderById = new Map(orderedIds.map((id, index) => [id, index + 1]))
+  const nextShifts = shifts.map(shift => ({ ...shift, order: orderById.get(shift.id) ?? shift.order }))
+
+  const batch = writeBatch(db)
+  for (const shift of nextShifts) {
+    batch.update(clientDoc(clientId, "shifts", shift.id), { order: shift.order })
+  }
+  await batch.commit()
+}
+
+export async function confirmShiftConfigs(clientId: string): Promise<void> {
+  const shifts = await getShiftConfigs(clientId)
+  validateShiftConfigs(shifts)
 }
