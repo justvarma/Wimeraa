@@ -81,9 +81,8 @@ export const SHIFT_LABELS: Record<string, string> = {
 // ─── CONFIG TYPES (stored in Firestore, admin-configurable) ───────────────────
 
 /**
- * ShiftConfig — Company Admin defines up to 2 shifts per day with break windows.
- * Stored at: clients/{clientId}/shifts/{id}
- * Use doc IDs "shift_1" and "shift_2" for the two shifts.
+ * ShiftConfig — Company Admin defines any number of ordered shifts per day with break windows.
+ * Stored at: clients/{clientId}/shifts/{id}.
  */
 export interface ShiftBreak {
   id: string
@@ -122,7 +121,7 @@ export const DEFAULT_SHIFT_CONFIGS: ShiftConfig[] = [
     id: "shift_2",
     name: "Evening Shift",
     startTime: "14:00",
-    endTime: "22:00",
+    endTime: "06:00",
     breaks: [{ id: "break_1", startTime: "18:00", endTime: "18:15", name: "Break 1" }],
     order: 2,
     isActive: true,

@@ -97,9 +97,10 @@ interface AppContextType {
 
   // ── Config: Shifts ─────────────────────────────────────────────────────────
   shifts:       ShiftConfig[]
-  updateShift:  (id: string, data: Partial<ShiftConfig>) => Promise<void>
   addShift:     (shift: ShiftConfig) => Promise<void>
   deleteShift:  (id: string) => Promise<void>
+  updateShift:  (id: string, data: Partial<ShiftConfig>) => Promise<void>
+  reorderShift: (orderedIds: string[]) => Promise<void>
 
   sidebarCollapsed: boolean
   setSidebarCollapsed: (v: boolean) => void
@@ -440,16 +441,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [clientId])
 
   // ── Config: Shifts ─────────────────────────────────────────────────────────
-  const updateShift = useCallback(async (id: string, data: Partial<ShiftConfig>) => {
-    await fs.updateShiftConfig(cid(), id, data)
-  }, [clientId])
-
   const addShift = useCallback(async (shift: ShiftConfig) => {
     await fs.createShiftConfig(cid(), shift)
   }, [clientId])
 
   const deleteShift = useCallback(async (id: string) => {
     await fs.deleteShiftConfig(cid(), id)
+  }, [clientId])
+
+  const updateShift = useCallback(async (id: string, data: Partial<ShiftConfig>) => {
+    await fs.updateShiftConfig(cid(), id, data)
+  }, [clientId])
+
+  const reorderShift = useCallback(async (orderedIds: string[]) => {
+    await fs.reorderShiftConfigs(cid(), orderedIds)
   }, [clientId])
 
   // ─── Context value ───────────────────────────────────────────────────────────
@@ -471,7 +476,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         fqiInspections, addFQIInspection,
 
         roles,  addRole,  updateRole,  deleteRole,
-        shifts, updateShift, addShift, deleteShift,
+        shifts, addShift, deleteShift, updateShift, reorderShift,
 
         sidebarCollapsed, setSidebarCollapsed,
       }}>
