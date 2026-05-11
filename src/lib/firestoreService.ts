@@ -630,11 +630,12 @@ function validateBreaks(shift: ShiftValidationDraft): void {
 
 export function validateShiftConfigs(shifts: ShiftValidationDraft[]): void {
   const activeShifts = orderedShifts(shifts).filter(shift => shift.isActive)
-  if (activeShifts.length === 0) {
-    throw new Error("At least one active shift is required.")
-  }
 
   for (const shift of activeShifts) validateBreaks(shift)
+
+  // During CRUD configuration it is valid to have no active shifts temporarily;
+  // inactive shifts are explicitly ignored by continuity validation.
+  if (activeShifts.length === 0) return
 
   if (activeShifts.length === 1) {
     const only = activeShifts[0]
@@ -644,10 +645,12 @@ export function validateShiftConfigs(shifts: ShiftValidationDraft[]): void {
     return
   }
 
+  let totalActiveMinutes = 0
   for (const shift of activeShifts) {
     if (shift.startTime === shift.endTime) {
       throw new Error(`${shift.name} cannot use matching start and end times unless it is the only active 24-hour shift.`)
     }
+    totalActiveMinutes += shiftDurationMinutes(shift)
   }
 
   for (let i = 0; i < activeShifts.length; i += 1) {
@@ -656,6 +659,10 @@ export function validateShiftConfigs(shifts: ShiftValidationDraft[]): void {
     if (current.endTime !== next.startTime) {
       throw new Error(`Active shifts must form a continuous 24-hour loop: ${current.name} must end at ${next.name}'s start time.`)
     }
+  }
+
+  if (totalActiveMinutes !== DAY_MINUTES) {
+    throw new Error("Active shifts must cover exactly 24 hours with no gaps or overlaps.")
   }
 }
 
@@ -708,8 +715,23 @@ export async function createShiftConfig(
   if (shifts.some(existing => existing.id === shift.id)) {
     throw new Error(`Shift ${shift.id} already exists.`)
   }
-  validateShiftConfigs([...shifts, shift])
-  await setDoc(clientDoc(clientId, "shifts", shift.id), shift)
+
+  const normalizedShift = normalizeShiftConfig(shift as unknown as Record<string, unknown>, shift.id)
+  validateBreaks(normalizedShift)
+
+  let shiftToSave = normalizedShift
+  if (normalizedShift.isActive) {
+    try {
+      validateShiftConfigs([...shifts, normalizedShift])
+    } catch {
+      // Adding a brand-new active shift to an already continuous loop usually
+      // requires editing neighboring shift boundaries. Persist it as inactive
+      // so admins can configure it without breaking the active 24h schedule.
+      shiftToSave = { ...normalizedShift, isActive: false }
+    }
+  }
+
+  await setDoc(clientDoc(clientId, "shifts", shiftToSave.id), shiftToSave)
 }
 
 export async function deleteShiftConfig(
@@ -717,10 +739,32 @@ export async function deleteShiftConfig(
     id: string,
 ): Promise<void> {
   const shifts = await getShiftConfigs(clientId)
-  const nextShifts = shifts.filter(shift => shift.id !== id)
-  if (nextShifts.length === shifts.length) throw new Error(`Shift ${id} does not exist.`)
-  if (nextShifts.length > 0) validateShiftConfigs(nextShifts)
-  await deleteDoc(clientDoc(clientId, "shifts", id))
+  const shiftToDelete = shifts.find(shift => shift.id === id)
+  if (!shiftToDelete) throw new Error(`Shift ${id} does not exist.`)
+
+  let nextShifts = shifts.filter(shift => shift.id !== id)
+  const bridgeUpdates: Array<{ id: string; data: Partial<ShiftConfig> }> = []
+
+  if (shiftToDelete.isActive) {
+    const activeShifts = orderedShifts(shifts).filter(shift => shift.isActive)
+    const deleteIndex = activeShifts.findIndex(shift => shift.id === id)
+    if (deleteIndex >= 0 && activeShifts.length > 1) {
+      const previous = activeShifts[(deleteIndex - 1 + activeShifts.length) % activeShifts.length]
+      const next = activeShifts[(deleteIndex + 1) % activeShifts.length]
+      const bridgedEndTime = previous.id === next.id ? previous.startTime : next.startTime
+      bridgeUpdates.push({ id: previous.id, data: { endTime: bridgedEndTime } })
+      nextShifts = nextShifts.map(shift => shift.id === previous.id ? { ...shift, endTime: bridgedEndTime } : shift)
+    }
+  }
+
+  validateShiftConfigs(nextShifts)
+
+  const batch = writeBatch(db)
+  batch.delete(clientDoc(clientId, "shifts", id))
+  for (const update of bridgeUpdates) {
+    batch.update(clientDoc(clientId, "shifts", update.id), update.data)
+  }
+  await batch.commit()
 }
 
 export async function updateShiftConfig(
