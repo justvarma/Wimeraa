@@ -101,6 +101,7 @@ interface AppContextType {
   deleteShift:  (id: string) => Promise<void>
   updateShift:  (id: string, data: Partial<ShiftConfig>) => Promise<void>
   reorderShift: (orderedIds: string[]) => Promise<void>
+  confirmShifts: () => Promise<void>
 
   sidebarCollapsed: boolean
   setSidebarCollapsed: (v: boolean) => void
@@ -457,6 +458,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await fs.reorderShiftConfigs(cid(), orderedIds)
   }, [clientId])
 
+  const confirmShifts = useCallback(async () => {
+    await fs.confirmShiftConfigs(cid())
+  }, [clientId])
+
   // ─── Context value ───────────────────────────────────────────────────────────
 
   return (
@@ -476,7 +481,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         fqiInspections, addFQIInspection,
 
         roles,  addRole,  updateRole,  deleteRole,
-        shifts, addShift, deleteShift, updateShift, reorderShift,
+        shifts, addShift, deleteShift, updateShift, reorderShift, confirmShifts,
 
         sidebarCollapsed, setSidebarCollapsed,
       }}>

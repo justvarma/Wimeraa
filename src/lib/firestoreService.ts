@@ -631,18 +631,13 @@ function validateBreaks(shift: ShiftValidationDraft): void {
 export function validateShiftConfigs(shifts: ShiftValidationDraft[]): void {
   const activeShifts = orderedShifts(shifts).filter(shift => shift.isActive)
 
-  for (const shift of activeShifts) validateBreaks(shift)
-
-  // During CRUD configuration it is valid to have fewer than two active shifts
-  // temporarily. Continuity is only meaningful once multiple active shifts need
-  // to connect to each other; inactive shifts are ignored by design.
-  if (activeShifts.length < 2) return
+  if (activeShifts.length === 0) {
+    throw new Error("At least one active shift is required before confirming the shift schedule.")
+  }
 
   let totalActiveMinutes = 0
   for (const shift of activeShifts) {
-    if (shift.startTime === shift.endTime) {
-      throw new Error(`${shift.name} cannot use matching start and end times.`)
-    }
+    validateBreaks(shift)
     totalActiveMinutes += shiftDurationMinutes(shift)
   }
 
@@ -712,19 +707,7 @@ export async function createShiftConfig(
   const normalizedShift = normalizeShiftConfig(shift as unknown as Record<string, unknown>, shift.id)
   validateBreaks(normalizedShift)
 
-  let shiftToSave = normalizedShift
-  if (normalizedShift.isActive) {
-    try {
-      validateShiftConfigs([...shifts, normalizedShift])
-    } catch {
-      // Adding a brand-new active shift to an already continuous loop usually
-      // requires editing neighboring shift boundaries. Persist it as inactive
-      // so admins can configure it without breaking the active 24h schedule.
-      shiftToSave = { ...normalizedShift, isActive: false }
-    }
-  }
-
-  await setDoc(clientDoc(clientId, "shifts", shiftToSave.id), shiftToSave)
+  await setDoc(clientDoc(clientId, "shifts", normalizedShift.id), normalizedShift)
 }
 
 export async function deleteShiftConfig(
@@ -735,29 +718,7 @@ export async function deleteShiftConfig(
   const shiftToDelete = shifts.find(shift => shift.id === id)
   if (!shiftToDelete) throw new Error(`Shift ${id} does not exist.`)
 
-  let nextShifts = shifts.filter(shift => shift.id !== id)
-  const bridgeUpdates: Array<{ id: string; data: Partial<ShiftConfig> }> = []
-
-  if (shiftToDelete.isActive) {
-    const activeShifts = orderedShifts(shifts).filter(shift => shift.isActive)
-    const deleteIndex = activeShifts.findIndex(shift => shift.id === id)
-    if (deleteIndex >= 0 && activeShifts.length > 1) {
-      const previous = activeShifts[(deleteIndex - 1 + activeShifts.length) % activeShifts.length]
-      const next = activeShifts[(deleteIndex + 1) % activeShifts.length]
-      const bridgedEndTime = previous.id === next.id ? previous.startTime : next.startTime
-      bridgeUpdates.push({ id: previous.id, data: { endTime: bridgedEndTime } })
-      nextShifts = nextShifts.map(shift => shift.id === previous.id ? { ...shift, endTime: bridgedEndTime } : shift)
-    }
-  }
-
-  validateShiftConfigs(nextShifts)
-
-  const batch = writeBatch(db)
-  batch.delete(clientDoc(clientId, "shifts", id))
-  for (const update of bridgeUpdates) {
-    batch.update(clientDoc(clientId, "shifts", update.id), update.data)
-  }
-  await batch.commit()
+  await deleteDoc(clientDoc(clientId, "shifts", id))
 }
 
 export async function updateShiftConfig(
@@ -770,7 +731,8 @@ export async function updateShiftConfig(
   if (nextShifts.length === shifts.length && !shifts.some(shift => shift.id === id)) {
     throw new Error(`Shift ${id} does not exist.`)
   }
-  validateShiftConfigs(nextShifts)
+  const updatedShift = nextShifts.find(shift => shift.id === id)
+  if (updatedShift) validateBreaks(updatedShift)
   await updateDoc(clientDoc(clientId, "shifts", id), data)
 }
 
@@ -787,11 +749,15 @@ export async function reorderShiftConfigs(
 
   const orderById = new Map(orderedIds.map((id, index) => [id, index + 1]))
   const nextShifts = shifts.map(shift => ({ ...shift, order: orderById.get(shift.id) ?? shift.order }))
-  validateShiftConfigs(nextShifts)
 
   const batch = writeBatch(db)
   for (const shift of nextShifts) {
     batch.update(clientDoc(clientId, "shifts", shift.id), { order: shift.order })
   }
   await batch.commit()
+}
+
+export async function confirmShiftConfigs(clientId: string): Promise<void> {
+  const shifts = await getShiftConfigs(clientId)
+  validateShiftConfigs(shifts)
 }

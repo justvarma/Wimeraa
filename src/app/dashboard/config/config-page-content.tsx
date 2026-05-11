@@ -625,14 +625,15 @@ type ShiftForm = {
 }
 
 function ShiftsTab() {
-  const { shifts, updateShift, addShift, deleteShift } = useApp()
+  const { shifts, updateShift, addShift, deleteShift, confirmShifts } = useApp()
 
   const [editId,  setEditId]  = useState<string | null>(null)
   const [form,    setForm]    = useState<ShiftForm | null>(null)
   const [saving,  setSaving]  = useState(false)
   const [error,   setError]   = useState("")
+  const [success, setSuccess] = useState("")
 
-  // Always show 2 shift cards in UI; fall back to defaults when Firestore has no docs yet.
+  // Fall back to defaults only while Firestore has no shift documents yet.
   const displayShifts = (shifts.length > 0 ? [...shifts] : DEFAULT_SHIFT_CONFIGS)
     .sort((a, b) => a.order - b.order)
 
@@ -652,35 +653,20 @@ function ShiftsTab() {
     if (!editId || !form) return
     if (!form.name.trim() || !form.startTime || !form.endTime) return
     setError("")
+    setSuccess("")
     const start = timeToMinutes(form.startTime)
     const end = timeToMinutes(form.endTime)
     const breakStart = timeToMinutes(form.breakStart)
     const breakEnd = timeToMinutes(form.breakEnd)
-    const shiftDuration = (end - start + 24 * 60) % (24 * 60)
+    const rawShiftDuration = (end - start + 24 * 60) % (24 * 60)
+    const shiftDuration = rawShiftDuration === 0 ? 24 * 60 : rawShiftDuration
     const breakDuration = (breakEnd - breakStart + 24 * 60) % (24 * 60)
-    const isWithinShift = (t: number, s: number, e: number) => (s < e ? (t >= s && t <= e) : (t >= s || t <= e))
-    if (shiftDuration <= 0) { setError("Shift start and end time cannot be the same."); return }
+    const isWithinShift = (t: number, s: number, e: number) => (s === e ? true : (s < e ? (t >= s && t <= e) : (t >= s || t <= e)))
     if (!isWithinShift(breakStart, start, end) || !isWithinShift(breakEnd, start, end) || breakDuration <= 0 || breakDuration >= shiftDuration) {
       setError("Break window must be inside shift start/end time."); return
     }
     setSaving(true)
     try {
-      const otherShift = displayShifts.find(s => s.id !== editId)
-      if (otherShift) {
-        // Auto-maintain 24h continuity by syncing the counterpart shift.
-        if (editId === "shift_1") {
-          await updateShift(otherShift.id, {
-            startTime: form.endTime,
-            endTime: form.startTime,
-          })
-        }
-        if (editId === "shift_2") {
-          await updateShift(otherShift.id, {
-            endTime: form.startTime,
-            startTime: form.endTime,
-          })
-        }
-      }
       await updateShift(editId, {
         name: form.name,
         startTime: form.startTime,
@@ -688,12 +674,13 @@ function ShiftsTab() {
         breaks: [{ id: "break_1", startTime: form.breakStart, endTime: form.breakEnd, name: "Break 1" }],
         breakStart: form.breakStart,
         breakEnd: form.breakEnd,
-        startNextDay: start < end && start !== end,
-        endNextDay: end < start && start !== end,
+        startNextDay: start > end,
+        endNextDay: end < start,
         isActive: form.isActive,
       })
       setEditId(null)
       setForm(null)
+      setSuccess("Shift saved. Confirm the full schedule when all shift changes are complete.")
     } catch (err: any) {
       const msg = err?.message ?? "Unable to save shift configuration."
       if (String(msg).toLowerCase().includes("permission")) {
@@ -710,20 +697,44 @@ function ShiftsTab() {
 
   const createShift = async () => {
     const nextOrder = (displayShifts.at(-1)?.order ?? 0) + 1
-    const id = `shift_${nextOrder}`
-    await addShift({
-      id,
-      name: `Shift ${nextOrder}`,
-      order: nextOrder,
-      startTime: "09:00",
-      endTime: "17:00",
-      breaks: [{ id: "break_1", startTime: "13:00", endTime: "13:30", name: "Break 1" }],
-      breakStart: "13:00",
-      breakEnd: "13:30",
-      isActive: true,
-      startNextDay: false,
-      endNextDay: false,
-    })
+    const id = `shift_${Date.now()}`
+    setError("")
+    setSuccess("")
+    try {
+      await addShift({
+        id,
+        name: `Shift ${nextOrder}`,
+        order: nextOrder,
+        startTime: "09:00",
+        endTime: "17:00",
+        breaks: [{ id: "break_1", startTime: "13:00", endTime: "13:30", name: "Break 1" }],
+        breakStart: "13:00",
+        breakEnd: "13:30",
+        isActive: true,
+        startNextDay: false,
+        endNextDay: false,
+      })
+      setSuccess("Shift added. Edit all shifts, then confirm the full schedule.")
+    } catch (err: any) {
+      setError(err?.message ?? "Unable to add shift.")
+    }
+  }
+
+  const confirmSchedule = async () => {
+    setError("")
+    setSuccess("")
+    const activeCount = displayShifts.filter(shift => shift.isActive).length
+    const confirmed = window.confirm(
+      `Confirm ${activeCount} active shift${activeCount === 1 ? "" : "s"}? This checks that the ordered start/end times cover one continuous 24-hour loop and that breaks stay inside their shifts.`,
+    )
+    if (!confirmed) return
+
+    try {
+      await confirmShifts()
+      setSuccess("Shift schedule confirmed: active shifts cover a continuous 24-hour loop and breaks are valid.")
+    } catch (err: any) {
+      setError(err?.message ?? "Shift schedule confirmation failed.")
+    }
   }
 
   return (
@@ -732,15 +743,21 @@ function ShiftsTab() {
         <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-700">
           <Clock size={16} className="shrink-0 mt-0.5" />
           <p>
-            Configure exactly <strong>2 shifts</strong> per day with their start/end times and break windows.
-            These shift definitions are used across all production tracking, work orders, and reports.
+            Add any number of shifts, edit their ordered start/end times, then confirm the schedule when the active shifts cover one continuous 24-hour loop.
+            Break windows must remain inside their parent shifts.
           </p>
         </div>
         {error && (
           <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-4 py-3">{error}</div>
         )}
+        {success && (
+          <div className="flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+            <CheckCircle size={16} /> {success}
+          </div>
+        )}
 
-        <div className="flex justify-end">
+        <div className="flex flex-wrap justify-end gap-2">
+          <button onClick={confirmSchedule} className="px-3 py-2 rounded-xl bg-emerald-600 text-white text-sm font-bold">Confirm Shift Schedule</button>
           <button onClick={createShift} className="px-3 py-2 rounded-xl bg-blue-600 text-white text-sm font-bold">Add Shift</button>
         </div>
 
@@ -756,11 +773,22 @@ function ShiftsTab() {
                   onCancel={cancelEdit}
                   onSave={handleSave}
                   onFormChange={setForm}
-                  onDelete={async () => { await deleteShift(s.id) }}
+                  onDelete={async () => {
+                    try {
+                      setError("")
+                      setSuccess("")
+                      await deleteShift(s.id)
+                      setSuccess("Shift deleted. Confirm the full schedule when all shift changes are complete.")
+                    } catch (err: any) {
+                      setError(err?.message ?? "Unable to delete shift.")
+                    }
+                  }}
                   onToggleActive={async () => {
                     try {
                       setError("")
+                      setSuccess("")
                       await updateShift(s.id, { isActive: !s.isActive })
+                      setSuccess("Shift status updated. Confirm the full schedule when all shift changes are complete.")
                     } catch (err: any) {
                       const msg = err?.message ?? "Unable to update shift status."
                       if (String(msg).toLowerCase().includes("permission")) {
