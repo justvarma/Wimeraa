@@ -6,7 +6,7 @@ import {
   type ProcessStage, type Shift, type ReworkEntry, type RejectionEntry, type ShiftConfig,
 } from "@/lib/store"
 import { getShiftLabel } from "@/lib/shiftUtils"
-import { buildStageSubWorkOrder, getNextProcess } from "@/lib/workflow"
+import { auth } from "@/lib/auth"
 import {
   Plus, Trash2, CheckCircle2, AlertTriangle, XCircle, ClipboardList,
   Eye, ChevronDown, ChevronRight, AlertCircle, ShieldCheck, History,
@@ -206,7 +206,7 @@ function blank(): FormState {
 
 // ─── MAIN ─────────────────────────────────────────────────────────────────────
 export function QIInspectionPage({ process }: { process: ProcessStage }) {
-  const { currentUser, workOrders, qiInspections, addQIInspection, updateWorkOrder, addWorkOrder, shifts } = useApp()
+  const { currentUser, workOrders, qiInspections, shifts } = useApp()
   const theme = THEME[process]
 
   const [form, setForm] = useState<FormState>(blank())
@@ -278,88 +278,31 @@ export function QIInspectionPage({ process }: { process: ProcessStage }) {
     if (!validate()) return
     const wo = selectedWO!
     setSubmittedWorkOrderIds(ids => ids.includes(wo.id) ? ids : [...ids, wo.id])
-    const qiRecord = {
-      process,
-      date: form.date,
-      masterId: wo.masterId,
-      partId: wo.partId,
-      partName: wo.partName,
-      shift: wo.shift as Shift,
-      machine: wo.machine,
-      producedPartCount: produced,
-      goodPartCount: good,
-      reworkCount: rework,
-      reworkEntries: form.reworkEntries,
-      rejectedCount: rejected,
-      rejectionEntries: form.rejectionEntries,
-      inspectedBy: currentUser!.name,
-      inspectedById: currentUser!.id,
-      workOrderId: wo.id,
-      operator: wo.operator,
-      isExternal: wo.isExternal,
-      vendorName: wo.vendorName,
-      vendorProductionDate: wo.vendorProductionDate,
-      vendorMachine: wo.vendorMachine,
-      vendorShift: wo.vendorShift,
-      assignedQiId: wo.assignedQiId,
-    }
     try {
-      const qiId = await addQIInspection(qiRecord)
+      const token = await auth.currentUser?.getIdToken()
+      if (!token) throw new Error("Not signed in.")
 
-      const nextProcess = good > 0 ? getNextProcess(process) : null
-    const finalAcceptedQuantity = good > 0 && !nextProcess
-    const hasAcceptedQuantity = good > 0
-    const rootId = wo.rootWoId || wo.parentWoId || wo.id
-
-      await updateWorkOrder(wo.id, {
-      goodParts:     good,
-      reworkParts:   rework,
-      rejectedParts: rejected,
-      qiApproval:    currentUser!.name,
-      status: hasAcceptedQuantity ? (finalAcceptedQuantity ? "finished_goods" : "completed") : "rejected",
-    })
-
-    if (hasAcceptedQuantity && nextProcess) {
-        await addWorkOrder(buildStageSubWorkOrder({
-        source: { ...wo, goodParts: good, reworkParts: rework, rejectedParts: rejected },
-        process: nextProcess,
-        createdBy: "System Workflow",
-        targetPartNos: good,
-        parentWoId: rootId,
-        originQiId: qiId,
-      }))
-    }
-
-    if (rework > 0) {
-      const existingReworks = workOrders.filter(w => w.parentWoId === rootId && w.woType === "rework")
-        await addWorkOrder(buildStageSubWorkOrder({
-        source: { ...wo, goodParts: good, reworkParts: rework, rejectedParts: rejected },
-        process,
-        createdBy: "System Workflow",
-        targetPartNos: rework,
-        parentWoId: rootId,
-        reworkCycleNumber: existingReworks.length + 1,
-        defectType: "rework",
-        originQiId: qiId,
-      }))
-    }
-
-    if (rejected > 0) {
-      const existingRejections = workOrders.filter(w => w.parentWoId === rootId && w.woType === "rejection")
-        await addWorkOrder({
-        ...buildStageSubWorkOrder({
-          source: { ...wo, goodParts: good, reworkParts: rework, rejectedParts: rejected },
+      const res = await fetch("/api/qi-workflow", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
           process,
-          createdBy: "System Workflow",
-          targetPartNos: rejected,
-          parentWoId: rootId,
-          reworkCycleNumber: existingRejections.length + 1,
-          defectType: "rejection",
-          originQiId: qiId,
+          date: form.date,
+          workOrderId: wo.id,
+          producedPartCount: produced,
+          goodPartCount: good,
+          reworkCount: rework,
+          reworkEntries: form.reworkEntries,
+          rejectedCount: rejected,
+          rejectionEntries: form.rejectionEntries,
         }),
-        acceptancePoints: "Rejected/NCR tracking WO — separated from accepted production for scrap analysis and reporting.",
       })
-    }
+      const result = await res.json().catch(() => ({})) as { error?: string }
+      if (!res.ok) throw new Error(result.error ?? "Unable to submit QI workflow.")
+
       setSubmitted(true)
       setTimeout(() => {
         setSubmitted(false)
