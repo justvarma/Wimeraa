@@ -3,13 +3,12 @@ import { useState, useMemo } from "react"
 import { useApp } from "@/components/providers/AppProvider"
 import {
   UserRole, PROCESS_STAGE_LABELS, PROCESS_PTC_ROLE_MAP, MACHINES,
-  type ProcessStage, type Shift, type WorkOrder,
+  SHIFT_LABELS, type ProcessStage, type Shift, type WorkOrder,
 } from "@/lib/store"
 import { ClipboardList, Plus, X, Edit2, Trash2, Lock, AlertTriangle, ChevronDown, ChevronRight, CheckCircle2, Building2, Pencil, GitBranch, ArrowUpRight } from "lucide-react"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const PROCESSES: ProcessStage[] = ["die_casting", "coating", "cnc_vmc"]
-const SHIFTS: Shift[] = ["morning", "evening", "night"]
 
 const cls = "w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none text-slate-900"
 const selectCls = `${cls} bg-white`
@@ -172,7 +171,10 @@ function Phase1Form({ onClose, onSave, initial }: {
 function Phase2Form({ wo, onClose, onSave }: {
   wo: WorkOrder; onClose: () => void; onSave: (data: Partial<WorkOrder>) => void
 }) {
-  const { materials, users, ptcs } = useApp()
+  const { materials, users, ptcs, shifts } = useApp()
+  const shiftOptions: Shift[] = shifts.length > 0
+    ? [...shifts].sort((a, b) => a.order - b.order).map(s => s.id)
+    : ["shift_1", "shift_2"]
   const approvedMats = materials.filter(m => m.status === "approved")
   const processOperators = users.filter(u =>
     u.role === PROCESS_PTC_ROLE_MAP[wo.process] || u.role === UserRole.ADMIN
@@ -185,7 +187,7 @@ function Phase2Form({ wo, onClose, onSave }: {
   const [form, setForm] = useState({
     materialGrade:  wo.materialGrade  || "",
     rawMaterialId:  wo.rawMaterialId  || "",
-    shift:          wo.shift          || "morning" as Shift,
+    shift:          wo.shift          || "shift_1" as Shift,
     machine:        wo.machine        || (processMachines[0]?.name || ""),
     operator:       wo.operator       || "",
     actualTarget:   wo.actualTarget   || wo.targetPartNos,
@@ -282,7 +284,7 @@ function Phase2Form({ wo, onClose, onSave }: {
             <div className="grid grid-cols-2 gap-4">
               <Field label="Shift" req>
                 <select required value={form.shift} onChange={e => setForm(p=>({...p,shift:e.target.value as Shift}))} className={selectCls}>
-                  {SHIFTS.map(s => <option key={s} value={s} className="capitalize">{s.charAt(0).toUpperCase()+s.slice(1)}</option>)}
+                  {shiftOptions.map(s => <option key={s} value={s}>{SHIFT_LABELS[s] ?? s}</option>)}
                 </select>
               </Field>
               <Field label="PTC Code" req>

@@ -534,6 +534,24 @@ export async function deleteRoleConfig(
 }
 
 // ─── Shift Configs ────────────────────────────────────────────────────────────
+
+function normalizeShiftConfig(raw: any, id: string): ShiftConfig {
+  const legacyStart = raw.breakStart ?? "12:00"
+  const legacyEnd = raw.breakEnd ?? "12:15"
+  const breaks = Array.isArray(raw.breaks) && raw.breaks.length > 0
+    ? raw.breaks
+    : [{ id: "break_1", startTime: legacyStart, endTime: legacyEnd, name: "Break 1" }]
+
+  const firstBreak = breaks[0]
+  return {
+    ...raw,
+    id,
+    breaks,
+    breakStart: raw.breakStart ?? firstBreak?.startTime ?? "12:00",
+    breakEnd: raw.breakEnd ?? firstBreak?.endTime ?? "12:15",
+  } as ShiftConfig
+}
+
 // Stored at clients/{clientId}/shifts/{id}
 // Exactly 2 shifts: doc IDs "shift_1" and "shift_2".
 // Seeded with DEFAULT_SHIFT_CONFIGS on client setup.
@@ -543,10 +561,13 @@ export function subscribeShifts(
     setter: (shifts: ShiftConfig[]) => void,
     onError?: (err: Error) => void,
 ): Unsub {
-  return subscribeCol<ShiftConfig>(
-      clientId, "shifts", setter,
-      [orderBy("order", "asc")],
-      onError,
+  const q = query(clientCol(clientId, "shifts"), orderBy("order", "asc"))
+  return onSnapshot(
+      q,
+      snap => {
+        setter(snap.docs.map(d => normalizeShiftConfig(d.data(), d.id)))
+      },
+      err => { if (onError) onError(err as Error); else console.error(err) },
   )
 }
 
@@ -568,6 +589,21 @@ export async function seedDefaultShifts(
 /**
  * Update a shift config. Use doc IDs "shift_1" or "shift_2".
  */
+
+export async function createShiftConfig(
+    clientId: string,
+    shift: ShiftConfig,
+): Promise<void> {
+  await setDoc(clientDoc(clientId, "shifts", shift.id), shift)
+}
+
+export async function deleteShiftConfig(
+    clientId: string,
+    id: string,
+): Promise<void> {
+  await deleteDoc(clientDoc(clientId, "shifts", id))
+}
+
 export async function updateShiftConfig(
     clientId: string,
     id: string,

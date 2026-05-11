@@ -208,9 +208,13 @@ function blank(): FormState {
 
 // ─── MAIN ─────────────────────────────────────────────────────────────────────
 export function QIInspectionPage({ process }: { process: ProcessStage }) {
-  const { currentUser, workOrders, qiInspections, addQIInspection, updateWorkOrder } = useApp()
+  const { currentUser, workOrders, qiInspections, addQIInspection, updateWorkOrder, shifts } = useApp()
   const theme = THEME[process]
   const machines = MACHINES.filter(m => m.process === process && m.status !== "inactive")
+
+  const shiftOptions: Shift[] = shifts.length > 0
+    ? [...shifts].sort((a, b) => a.order - b.order).map(s => s.id)
+    : ["shift_1", "shift_2"]
 
   const [form, setForm] = useState<FormState>(blank())
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -442,8 +446,8 @@ export function QIInspectionPage({ process }: { process: ProcessStage }) {
                 className={inputCls}
               >
                 <option value="">— Select Shift —</option>
-                {Object.entries(SHIFT_LABELS).map(([k, v]) => (
-                  <option key={k} value={k}>{v}</option>
+                {shiftOptions.map(s => (
+                  <option key={s} value={s}>{SHIFT_LABELS[s] ?? s}</option>
                 ))}
               </select>
             </Field>

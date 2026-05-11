@@ -98,6 +98,8 @@ interface AppContextType {
   // ── Config: Shifts ─────────────────────────────────────────────────────────
   shifts:       ShiftConfig[]
   updateShift:  (id: string, data: Partial<ShiftConfig>) => Promise<void>
+  addShift:     (shift: ShiftConfig) => Promise<void>
+  deleteShift:  (id: string) => Promise<void>
 
   sidebarCollapsed: boolean
   setSidebarCollapsed: (v: boolean) => void
@@ -442,6 +444,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await fs.updateShiftConfig(cid(), id, data)
   }, [clientId])
 
+  const addShift = useCallback(async (shift: ShiftConfig) => {
+    await fs.createShiftConfig(cid(), shift)
+  }, [clientId])
+
+  const deleteShift = useCallback(async (id: string) => {
+    await fs.deleteShiftConfig(cid(), id)
+  }, [clientId])
+
   // ─── Context value ───────────────────────────────────────────────────────────
 
   return (
@@ -461,7 +471,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         fqiInspections, addFQIInspection,
 
         roles,  addRole,  updateRole,  deleteRole,
-        shifts, updateShift,
+        shifts, updateShift, addShift, deleteShift,
 
         sidebarCollapsed, setSidebarCollapsed,
       }}>

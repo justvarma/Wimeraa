@@ -1,16 +1,13 @@
 "use client"
 import { useState } from "react"
 import { useApp } from "@/components/providers/AppProvider"
-import { UserRole, PROCESS_STAGE_LABELS, type ProcessStage, type Shift, SHIFT_LABELS } from "@/lib/store"
+import { UserRole, ROLE_LABELS, PROCESS_STAGE_LABELS, type ProcessStage, type Shift, SHIFT_LABELS } from "@/lib/store"
 import { Fingerprint, Plus, Trash2, X, AlertTriangle, CheckCircle2 } from "lucide-react"
 
 const PROCESSES: ProcessStage[] = ["die_casting", "coating", "cnc_vmc"]
-const SHIFTS: Shift[] = ["morning", "evening", "night"]
-
 const SHIFT_COLORS: Record<Shift,string> = {
-  morning: "bg-amber-100 text-amber-800",
-  evening: "bg-purple-100 text-purple-800",
-  night:   "bg-slate-200 text-slate-700",
+  shift_1: "bg-amber-100 text-amber-800",
+  shift_2: "bg-purple-100 text-purple-800",
 }
 const PROCESS_COLORS: Record<ProcessStage,string> = {
   die_casting: "bg-orange-100 text-orange-800",
@@ -18,15 +15,7 @@ const PROCESS_COLORS: Record<ProcessStage,string> = {
   cnc_vmc:     "bg-cyan-100 text-cyan-800",
 }
 function roleLabel(r: UserRole): string {
-  return {
-    [UserRole.ADMIN]:"Admin", [UserRole.STOREKEEPER]:"Storekeeper",
-    [UserRole.PTC_MANAGER]:"PTC Manager",
-    [UserRole.PTC_DIE_CASTING]:"PTC Die Casting",
-    [UserRole.PTC_COATING]:"PTC Coating",
-    [UserRole.PTC_CNC_VMC]:"PTC CNC/VMC",
-    [UserRole.QUALITY_INSPECTOR]:"Quality Inspector",
-    [UserRole.FQI]:"Final QI",
-  }[r] || r
+  return ROLE_LABELS[r] ?? r
 }
 
 const PROCESS_PTC_ROLE_OWNER: Record<ProcessStage, UserRole> = {
@@ -36,11 +25,14 @@ const PROCESS_PTC_ROLE_OWNER: Record<ProcessStage, UserRole> = {
 }
 
 export default function PTCPage() {
-  const { currentUser, ptcs, addPTC, deletePTC } = useApp()
+  const { currentUser, ptcs, addPTC, deletePTC, shifts } = useApp()
+  const shiftOptions: Shift[] = shifts.length > 0
+    ? [...shifts].sort((a, b) => a.order - b.order).map(s => s.id)
+    : ["shift_1", "shift_2"]
   const role = currentUser?.role as UserRole
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<{ process: ProcessStage; shift: Shift; date: string }>({
-    process: "die_casting", shift: "morning", date: new Date().toISOString().split("T")[0],
+    process: "die_casting", shift: "shift_1", date: new Date().toISOString().split("T")[0],
   })
   const [error, setError] = useState("")
 
@@ -176,7 +168,7 @@ export default function PTCPage() {
                 <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">Shift *</label>
                 <select required value={form.shift} onChange={e => setForm(p=>({...p,shift:e.target.value as Shift}))}
                   className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white text-slate-900 capitalize">
-                  {SHIFTS.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase()+s.slice(1)}</option>)}
+                  {shiftOptions.map(s => <option key={s} value={s}>{SHIFT_LABELS[s] ?? s}</option>)}
                 </select>
               </div>
               <div>
