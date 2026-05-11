@@ -203,7 +203,8 @@ service cloud.firestore {
         allow read: if belongsToClient(clientId);
         allow create: if isPTCManager(clientId) || isAnyQI(clientId) || isAdminOrAbove(clientId);
         allow update: if isAdminOrAbove(clientId) || isAnyPTC(clientId) || isAnyQI(clientId);
-        allow delete: if isAdminOrAbove(clientId);
+        allow delete: if isAdminOrAbove(clientId) ||
+          (isPTCManager(clientId) && resource.data.status in ["draft", "not_started"]);
       }
 
       // ── Daily Production Entries ──────────────────────────────────────────
