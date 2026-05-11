@@ -215,13 +215,19 @@ export function QIInspectionPage({ process }: { process: ProcessStage }) {
   const [showPrev, setShowPrev] = useState(true)
   const [showHistory, setShowHistory] = useState(false)
   const [balanceTouched, setBalanceTouched] = useState(false)
+  const [submittedWorkOrderIds, setSubmittedWorkOrderIds] = useState<string[]>([])
 
   const prevInspections = usePrevInspections(process, qiInspections)
 
   // Work orders for this process
   const eligibleWOs = useMemo(() =>
-    workOrders.filter(wo => wo.process === process && wo.status === "awaiting_qi"),
-    [workOrders, process])
+    workOrders.filter(wo =>
+      wo.process === process &&
+      wo.status === "awaiting_qi" &&
+      !submittedWorkOrderIds.includes(wo.id) &&
+      (!wo.assignedQiId || wo.assignedQiId === currentUser?.id || currentUser?.role === UserRole.ADMIN)
+    ),
+    [workOrders, process, submittedWorkOrderIds, currentUser])
 
   const selectedWO = useMemo(() =>
     eligibleWOs.find(wo => wo.id === form.workOrderId) ?? null,
@@ -267,9 +273,11 @@ export function QIInspectionPage({ process }: { process: ProcessStage }) {
     return Object.keys(errs).length === 0
   }
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
+    setBalanceTouched(true)
     if (!validate()) return
     const wo = selectedWO!
+    setSubmittedWorkOrderIds(ids => ids.includes(wo.id) ? ids : [...ids, wo.id])
     const qiRecord = {
       process,
       date: form.date,
@@ -287,15 +295,23 @@ export function QIInspectionPage({ process }: { process: ProcessStage }) {
       inspectedBy: currentUser!.name,
       inspectedById: currentUser!.id,
       workOrderId: wo.id,
+      operator: wo.operator,
+      isExternal: wo.isExternal,
+      vendorName: wo.vendorName,
+      vendorProductionDate: wo.vendorProductionDate,
+      vendorMachine: wo.vendorMachine,
+      vendorShift: wo.vendorShift,
+      assignedQiId: wo.assignedQiId,
     }
-    addQIInspection(qiRecord)
+    try {
+      const qiId = await addQIInspection(qiRecord)
 
-    const nextProcess = good > 0 ? getNextProcess(process) : null
+      const nextProcess = good > 0 ? getNextProcess(process) : null
     const finalAcceptedQuantity = good > 0 && !nextProcess
     const hasAcceptedQuantity = good > 0
     const rootId = wo.rootWoId || wo.parentWoId || wo.id
 
-    updateWorkOrder(wo.id, {
+      await updateWorkOrder(wo.id, {
       goodParts:     good,
       reworkParts:   rework,
       rejectedParts: rejected,
@@ -304,18 +320,19 @@ export function QIInspectionPage({ process }: { process: ProcessStage }) {
     })
 
     if (hasAcceptedQuantity && nextProcess) {
-      addWorkOrder(buildStageSubWorkOrder({
+        await addWorkOrder(buildStageSubWorkOrder({
         source: { ...wo, goodParts: good, reworkParts: rework, rejectedParts: rejected },
         process: nextProcess,
         createdBy: "System Workflow",
         targetPartNos: good,
         parentWoId: rootId,
+        originQiId: qiId,
       }))
     }
 
     if (rework > 0) {
       const existingReworks = workOrders.filter(w => w.parentWoId === rootId && w.woType === "rework")
-      addWorkOrder(buildStageSubWorkOrder({
+        await addWorkOrder(buildStageSubWorkOrder({
         source: { ...wo, goodParts: good, reworkParts: rework, rejectedParts: rejected },
         process,
         createdBy: "System Workflow",
@@ -323,12 +340,13 @@ export function QIInspectionPage({ process }: { process: ProcessStage }) {
         parentWoId: rootId,
         reworkCycleNumber: existingReworks.length + 1,
         defectType: "rework",
+        originQiId: qiId,
       }))
     }
 
     if (rejected > 0) {
       const existingRejections = workOrders.filter(w => w.parentWoId === rootId && w.woType === "rejection")
-      addWorkOrder({
+        await addWorkOrder({
         ...buildStageSubWorkOrder({
           source: { ...wo, goodParts: good, reworkParts: rework, rejectedParts: rejected },
           process,
@@ -337,16 +355,22 @@ export function QIInspectionPage({ process }: { process: ProcessStage }) {
           parentWoId: rootId,
           reworkCycleNumber: existingRejections.length + 1,
           defectType: "rejection",
+          originQiId: qiId,
         }),
         acceptancePoints: "Rejected/NCR tracking WO — separated from accepted production for scrap analysis and reporting.",
       })
     }
-    setSubmitted(true)
-    setTimeout(() => {
-      setSubmitted(false)
-      setForm(blank())
-      setBalanceTouched(false)
-    }, 3000)
+      setSubmitted(true)
+      setTimeout(() => {
+        setSubmitted(false)
+        setForm(blank())
+        setBalanceTouched(false)
+      }, 3000)
+    } catch (err) {
+      setSubmittedWorkOrderIds(ids => ids.filter(id => id !== wo.id))
+      console.error(err)
+      alert("Unable to submit QI inspection. Please check permissions and try again.")
+    }
   }
 
   // Auth check — scoped QI roles can only access their own process; QUALITY_INSPECTOR + ADMIN + FQI see all

@@ -230,6 +230,11 @@ export interface WorkOrder {
   isExternal: boolean
   vendorId?: string
   vendorName?: string
+  vendorProductionDate?: string
+  vendorMachine?: string
+  vendorShift?: Shift | ""
+  assignedQiId?: string
+  assignedQiName?: string
   // Progress
   partsCompleted: number; goodParts: number; reworkParts: number; rejectedParts: number
   scrapWeight: number; inputWeightKg: number
@@ -507,6 +512,13 @@ export interface QIInspection {
   inspectedBy: string
   inspectedById: string
   workOrderId: string
+  operator?: string
+  isExternal?: boolean
+  vendorName?: string
+  vendorProductionDate?: string
+  vendorMachine?: string
+  vendorShift?: Shift | ""
+  assignedQiId?: string
   createdAt: string
 }
 
