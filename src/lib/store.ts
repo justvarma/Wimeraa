@@ -348,7 +348,7 @@ export const INITIAL_DOWNTIME_EVENTS: DowntimeEvent[] = [
 
 // ─── MACHINES ─────────────────────────────────────────────────────────────────
 
-export const MACHINES: MachineDef[] = [
+export const DEFAULT_MACHINE_CONFIGS: MachineDef[] = [
   { id: "m-dc-01",  name: "DC-01 — Cold Chamber Press (250T)", process: "die_casting", type: "Cold Chamber Die Caster",  status: "active"      },
   { id: "m-dc-02",  name: "DC-02 — Cold Chamber Press (400T)", process: "die_casting", type: "Cold Chamber Die Caster",  status: "active"      },
   { id: "m-dc-03",  name: "DC-03 — Hot Chamber Press (150T)",  process: "die_casting", type: "Hot Chamber Die Caster",   status: "maintenance" },

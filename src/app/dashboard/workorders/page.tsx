@@ -2,7 +2,7 @@
 import { useState, useMemo } from "react"
 import { useApp } from "@/components/providers/AppProvider"
 import {
-  UserRole, PROCESS_STAGE_LABELS, PROCESS_PTC_ROLE_MAP, QI_ROLE_PROCESS_MAP, MACHINES,
+  UserRole, PROCESS_STAGE_LABELS, PROCESS_PTC_ROLE_MAP, QI_ROLE_PROCESS_MAP, 
   type ProcessStage, type Shift, type WorkOrder,
 } from "@/lib/store"
 import { getSelectableShiftOptions, getShiftLabel } from "@/lib/shiftUtils"
@@ -179,14 +179,14 @@ function Phase1Form({ onClose, onSave, initial }: {
 function Phase2Form({ wo, onClose, onSave }: {
   wo: WorkOrder; onClose: () => void; onSave: (data: Partial<WorkOrder>) => void
 }) {
-  const { materials, users, ptcs, shifts, workOrders } = useApp()
+  const { materials, users, ptcs, shifts, workOrders, machines } = useApp()
   const shiftOptions = getSelectableShiftOptions(shifts, wo.shift)
   const approvedMats = materials.filter(m => m.status === "approved")
   const processOperators = users.filter(u =>
     u.role === PROCESS_PTC_ROLE_MAP[wo.process] || u.role === UserRole.ADMIN
   )
   const ptcManagers = users.filter(u => u.role === UserRole.PTC_MANAGER || u.role === UserRole.ADMIN)
-  const processMachines = MACHINES.filter(m => m.process === wo.process && m.status === "active")
+  const processMachines = machines.filter(m => m.process === wo.process && m.status === "active")
   const validPTCs = ptcs.filter(p => p.process === wo.process)
   const qiUsers = users.filter(u => u.role === UserRole.QUALITY_INSPECTOR || u.role === UserRole.ADMIN || QI_ROLE_PROCESS_MAP[u.role] === wo.process)
 

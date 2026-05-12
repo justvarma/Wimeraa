@@ -263,6 +263,15 @@ service cloud.firestore {
         allow delete: if isSignedIn();
       }
 
+
+      // ── Machines Config ───────────────────────────────────────────────────
+      match /machines/{machineId} {
+        allow read:   if isSignedIn();
+        allow create: if isSignedIn();
+        allow update: if isSignedIn();
+        allow delete: if isSignedIn();
+      }
+
       // ── Shifts Config ─────────────────────────────────────────────────────
       // Stored at clients/{clientId}/shifts/{id}
       // Exactly 2 docs: shift_1, shift_2.
