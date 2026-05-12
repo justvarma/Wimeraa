@@ -59,7 +59,6 @@ export default function InventoryPage() {
   const [search, setSearch] = useState("")
   const [gradeFilter, setGradeFilter] = useState("all")
   const [statusFilter, setStatusFilter] = useState("all")
-  const [batchFilter, setBatchFilter] = useState("all")
   const [uploadStatus, setUploadStatus] = useState<{ type: "success" | "error"; message: string } | null>(null)
   const [importing, setImporting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -92,10 +91,9 @@ export default function InventoryPage() {
     const matchSearch = m.rawMaterialId.toLowerCase().includes(q) || m.batchNumber.toLowerCase().includes(q) || m.rawMaterialGrade.toLowerCase().includes(q) || (m.material || "").toLowerCase().includes(q)
     const matchGrade  = gradeFilter === "all" || m.rawMaterialGrade === gradeFilter
     const matchStatus = statusFilter === "all" || m.status === statusFilter
-    const matchBatch = batchFilter === "all" || m.batchNumber === batchFilter
     // Admin, QI, and PDC see all records; storekeeper sees only own submissions
     const matchUser   = isAdmin || isQI || isPDC ? true : m.submittedById === currentUser?.id
-    return matchSearch && matchGrade && matchStatus && matchBatch && matchUser
+    return matchSearch && matchGrade && matchStatus && matchUser
   })
 
   // Inventory summary per grade (approved stock only)
@@ -268,28 +266,7 @@ export default function InventoryPage() {
         </div>
       )}
 
-      {materialGradeGroups.length > 0 && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
-          <p className="text-sm font-black text-slate-700">Material + Grade Totals (click for batch breakdown)</p>
-          {materialGradeGroups.map(group => {
-            const totalKg = group.entries.reduce((s, e) => s + e.receivedQuantity, 0)
-            const usedKg = group.entries.reduce((s, e) => s + (e.usedQuantity || 0), 0)
-            const avail = totalKg - usedKg
-            return (
-              <details key={`${group.material}-${group.grade}`} className="border border-slate-200 rounded-xl p-3">
-                <summary className="cursor-pointer text-sm text-slate-800 font-semibold">{group.material} · Grade {group.grade} — {avail.toFixed(1)} KG available</summary>
-                <div className="mt-2 space-y-1 text-xs text-slate-600">
-                  {group.entries.map(entry => (
-                    <div key={entry.id} className="flex justify-between"><span>{entry.rawMaterialId} · Batch {entry.batchNumber}</span><span>{(entry.receivedQuantity - (entry.usedQuantity || 0)).toFixed(1)} KG</span></div>
-                  ))}
-                </div>
-              </details>
-            )
-          })}
-        </div>
-      )}
-
-      {/* Excel upload panel */}
+            {/* Excel upload panel */}
       {showUpload && canAdd && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
           <h2 className="text-base font-black text-slate-900 mb-1">Bulk Import via Excel</h2>
@@ -335,10 +312,6 @@ export default function InventoryPage() {
           <option value="approved">Approved</option>
           <option value="rejected">Rejected</option>
         </select>
-        <select value={batchFilter} onChange={e => setBatchFilter(e.target.value)} className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none">
-          <option value="all">All Batches</option>
-          {Array.from(new Set(materials.map(m => m.batchNumber))).sort().map(b => <option key={b} value={b}>{b}</option>)}
-        </select>
       </div>
 
       {/* Table */}
@@ -349,7 +322,7 @@ export default function InventoryPage() {
               <tr className="text-slate-600 text-xs font-bold uppercase tracking-wider">
                 <th className="px-5 py-4">Material ID</th>
                 <th className="px-5 py-4">Material</th><th className="px-5 py-4">Grade</th>
-                <th className="px-5 py-4">Batch No.</th>
+                <th className="px-5 py-4">Batch</th>
                 <th className="px-5 py-4">Qty (KG)</th>
                 <th className="px-5 py-4">Date</th>
                 <th className="px-5 py-4">Received By</th>
@@ -372,7 +345,7 @@ export default function InventoryPage() {
                     )}
                   </td>
                   <td className="px-5 py-4 text-sm text-slate-700">{item.material || "—"}</td><td className="px-5 py-4"><span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-full text-xs font-black">Grade {item.rawMaterialGrade}</span></td>
-                  <td className="px-5 py-4 text-sm font-mono text-slate-500">{item.batchNumber}</td>
+                  <td className="px-5 py-4 text-sm font-mono text-slate-500">{(() => { const options = Array.from(new Set(materials.filter(m => (m.material||"") === (item.material||"") && m.rawMaterialGrade === item.rawMaterialGrade).map(m => m.batchNumber))); return options.length > 1 ? <select value={item.batchNumber} className="border border-slate-200 rounded px-2 py-1 bg-white text-slate-700">{options.map(b => <option key={b} value={b}>{b}</option>)}</select> : item.batchNumber })()}</td>
                   <td className="px-5 py-4 text-sm font-bold text-slate-800">{item.receivedQuantity.toLocaleString()} KG</td>
                   <td className="px-5 py-4 text-sm text-slate-500">{item.date}</td>
                   <td className="px-5 py-4 text-sm text-slate-600">{item.receivedBy}</td>

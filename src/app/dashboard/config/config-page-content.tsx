@@ -8,7 +8,7 @@ import { UserRole, ROLE_LABELS, type RoleConfig, type ShiftBreak, type ShiftConf
 import {
   Settings, Users, Plus, Edit2, Trash2, X, ShieldAlert,
   ShieldCheck, Clock, CheckCircle, XCircle, AlertCircle,
-  Coffee, ChevronDown,
+  Coffee, ChevronDown, Package,
 } from "lucide-react"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -59,7 +59,7 @@ function TimeInput({ value, onChange }: { value: string; onChange: (v: string) =
 
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
-type Tab = "users" | "roles" | "shifts" | "machines"
+type Tab = "users" | "roles" | "shifts" | "machines" | "materials"
 
 export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
   const {
@@ -72,7 +72,7 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const tabParam = searchParams.get("tab")
-  const queryTab: Tab = tabParam === "roles" || tabParam === "shifts" || tabParam === "users" || tabParam === "machines" ? tabParam : "users"
+  const queryTab: Tab = tabParam === "roles" || tabParam === "shifts" || tabParam === "users" || tabParam === "machines" || tabParam === "materials" ? tabParam : "users"
   const initialTab: Tab = forcedTab ?? queryTab
   const [activeTab, setActiveTab] = useState<Tab>(initialTab)
   const isSystemAdmin = currentUser?.role === UserRole.SYSTEM_ADMIN
@@ -117,6 +117,7 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
             ["roles",  ShieldCheck, "Roles"],
             ["shifts", Clock,       "Shifts"],
             ["machines", Settings,    "Machines"],
+            ["materials", Package,    "Materials"],
           ] as const)
             .filter(([tab]) => !isSystemAdmin || tab === "users")
             .map(([tab, Icon, label]) => (
@@ -135,6 +136,7 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
         {activeTab === "roles"  && <RolesTab />}
         {activeTab === "shifts" && <ShiftsTab />}
         {activeTab === "machines" && <MachinesTab />}
+        {activeTab === "materials" && <MaterialsTab />}
       </div>
   )
 }
@@ -388,6 +390,17 @@ function MachinesTab() {
       <button onClick={async()=>{const id=`m-${Date.now()}`; if(!name.trim()||!process||!status) return; await addMachine({id,name:name.trim(),process,type:"",status}); setName("")}} className="px-3 py-2 bg-blue-600 text-white rounded text-sm font-bold">Add</button>
     </div>
     <div className="bg-white border rounded-xl overflow-hidden"><table className="w-full text-sm"><thead><tr className="bg-slate-50">{"Name,Process,Status,Open WO,Actions".split(",").map(h=><th key={h} className="text-left px-3 py-2 text-slate-700 font-semibold">{h}</th>)}</tr></thead><tbody>{machines.map(m=>{ const inUse = machineInUse(m.name); const usedAnywhere = machineUsedAnywhere(m.name); return <tr key={m.id} className="border-t"><td className="px-3 py-2 text-slate-900 font-medium">{m.name}</td><td className="px-3 py-2 text-slate-700">{m.process}</td><td className="px-3 py-2 text-slate-700"><select className="text-slate-900 bg-white border border-slate-200 rounded px-2 py-1" value={m.status} onChange={async e=>{ const next=e.target.value as MachineStatus; if(next!=="active" && inUse){ alert("This machine is currently used in open work orders and cannot be moved to maintenance/inactive."); return } await updateMachine(m.id,{status:next}) }}><option value="active">active</option><option value="maintenance">maintenance</option><option value="inactive">inactive</option></select></td><td className="px-3 py-2 text-slate-700 font-medium">{openReservations(m.name)}</td><td className="px-3 py-2"><button onClick={()=>{ if(usedAnywhere){ alert("Machine is being used in records/work orders and cannot be deleted."); return } deleteMachine(m.id) }} className="text-red-600">Delete</button></td></tr>})}</tbody></table></div>
+  </div>
+}
+
+
+function MaterialsTab() {
+  const { materials } = useApp()
+  const groups = Array.from(new Map(materials.map(m => [`${m.material || "Unknown"}__${m.rawMaterialGrade}`, { material: m.material || "Unknown", grade: m.rawMaterialGrade, entries: [] as typeof materials }])).values())
+  groups.forEach(g => { g.entries = materials.filter(m => (m.material || "Unknown")===g.material && m.rawMaterialGrade===g.grade) })
+  return <div className="bg-white border rounded-xl p-4">
+    <h3 className="font-black text-slate-800 mb-3">Material Master List</h3>
+    <table className="w-full text-sm"><thead><tr className="bg-slate-50">{["Material","Grade","Entries","Total KG"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead><tbody>{groups.map(g=>{const total=g.entries.reduce((s,m)=>s+m.receivedQuantity,0); return <tr key={`${g.material}-${g.grade}`} className="border-t"><td className="px-3 py-2">{g.material}</td><td className="px-3 py-2">{g.grade}</td><td className="px-3 py-2">{g.entries.length}</td><td className="px-3 py-2">{total.toFixed(1)}</td></tr>})}</tbody></table>
   </div>
 }
 
