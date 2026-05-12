@@ -7,6 +7,7 @@ import { Package, Plus, X, Edit2, Search, Upload, FileSpreadsheet, CheckCircle2,
 import * as XLSX from "xlsx"
 
 const GRADES = ["A", "B", "C", "D", "E", "Other"]
+const MATERIAL_OPTIONS = ["Aluminium", "Copper", "Tin", "Steel", "Zinc", "Other"]
 
 function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
@@ -31,6 +32,7 @@ function mapExcelRow(row: Record<string, unknown>, index: number, submittedBy: s
   }
   return {
     rawMaterialId: get("rawmaterialid", "materialid", "id") || `RM-IMPORT-${Date.now()}-${index}`,
+    material: get("material", "metal") || "Aluminium",
     rawMaterialGrade: get("rawmaterialgrade", "grade") || "A",
     receivedQuantity: Number(get("receivedquantity", "quantity", "qty")) || 0,
     date: get("date", "receiveddate", "receivedon") || new Date().toISOString().split("T")[0],
@@ -43,7 +45,7 @@ function mapExcelRow(row: Record<string, unknown>, index: number, submittedBy: s
 }
 
 const emptyForm = {
-  rawMaterialId: "", rawMaterialGrade: "A", receivedQuantity: "",
+  rawMaterialId: "", material: "Aluminium", rawMaterialGrade: "A", receivedQuantity: "",
   date: new Date().toISOString().split("T")[0], receivedBy: "",
   batchNumber: "", numberOfRequiredComponents: "", weightPerComponent: "", notes: ""
 }
@@ -76,10 +78,10 @@ export default function InventoryPage() {
   // PDC roles: read-only, no add, no approve
   const isViewOnly = isPDC
 
-  const masterItems = Array.from(new Map(materials.map(m => [`${m.rawMaterialId}__${m.rawMaterialGrade}`, { rawMaterialId: m.rawMaterialId, rawMaterialGrade: m.rawMaterialGrade }])).values())
+  const masterItems = Array.from(new Map(materials.map(m => [`${m.material || "Aluminium"}__${m.rawMaterialGrade}`, { rawMaterialId: m.rawMaterialId, material: m.material || "Aluminium", rawMaterialGrade: m.rawMaterialGrade }])).values())
   const batchesByMaster = new Map<string, string[]>()
   for (const m of materials) {
-    const key = `${m.rawMaterialId}__${m.rawMaterialGrade}`
+    const key = `${m.material || "Aluminium"}__${m.rawMaterialGrade}`
     const arr = batchesByMaster.get(key) ?? []
     if (!arr.includes(m.batchNumber)) arr.push(m.batchNumber)
     batchesByMaster.set(key, arr)
@@ -87,7 +89,7 @@ export default function InventoryPage() {
 
   const visible = materials.filter(m => {
     const q = search.toLowerCase()
-    const matchSearch = m.rawMaterialId.toLowerCase().includes(q) || m.batchNumber.toLowerCase().includes(q) || m.rawMaterialGrade.toLowerCase().includes(q)
+    const matchSearch = m.rawMaterialId.toLowerCase().includes(q) || m.batchNumber.toLowerCase().includes(q) || m.rawMaterialGrade.toLowerCase().includes(q) || (m.material || "").toLowerCase().includes(q)
     const matchGrade  = gradeFilter === "all" || m.rawMaterialGrade === gradeFilter
     const matchStatus = statusFilter === "all" || m.status === statusFilter
     const matchBatch = batchFilter === "all" || m.batchNumber === batchFilter
@@ -98,6 +100,15 @@ export default function InventoryPage() {
 
   // Inventory summary per grade (approved stock only)
   // FIX §4.3: availableKg = receivedQuantity − usedQuantity (not just total received)
+
+  const materialGradeGroups = Array.from(new Map(materials
+    .filter(m => m.status === "approved")
+    .map(m => [`${m.material || "Unknown"}__${m.rawMaterialGrade}`, { material: m.material || "Unknown", grade: m.rawMaterialGrade, entries: [] as RawMaterial[] }]))
+    .values())
+  materialGradeGroups.forEach(group => {
+    group.entries = materials.filter(m => m.status === "approved" && (m.material || "Unknown") === group.material && m.rawMaterialGrade === group.grade)
+  })
+
   const gradeSummary = GRADES.map(g => {
     const items = materials.filter(m => m.rawMaterialGrade === g && m.status === "approved")
     const totalReceivedKg  = items.reduce((s, m) => s + m.receivedQuantity, 0)
@@ -110,7 +121,7 @@ export default function InventoryPage() {
   const openAdd = () => {
     setEditItem(null)
     const first = masterItems[0]
-    setForm({ ...emptyForm, receivedBy: currentUser?.name || "", rawMaterialId: first?.rawMaterialId || "", rawMaterialGrade: first?.rawMaterialGrade || "A" })
+    setForm({ ...emptyForm, receivedBy: currentUser?.name || "", rawMaterialId: first?.rawMaterialId || "", material: first?.material || "Aluminium", rawMaterialGrade: first?.rawMaterialGrade || "A" })
     setShowForm(true)
   }
 
@@ -119,6 +130,7 @@ export default function InventoryPage() {
     setEditItem(item)
     setForm({
       rawMaterialId: item.rawMaterialId,
+      material: item.material || "Aluminium",
       rawMaterialGrade: item.rawMaterialGrade,
       receivedQuantity: String(item.receivedQuantity),
       date: item.date,
@@ -135,6 +147,7 @@ export default function InventoryPage() {
     e.preventDefault()
     const payload = {
       rawMaterialId: form.rawMaterialId,
+      material: form.material,
       rawMaterialGrade: form.rawMaterialGrade,
       receivedQuantity: Number(form.receivedQuantity),
       date: form.date,
@@ -255,6 +268,27 @@ export default function InventoryPage() {
         </div>
       )}
 
+      {materialGradeGroups.length > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
+          <p className="text-sm font-black text-slate-700">Material + Grade Totals (click for batch breakdown)</p>
+          {materialGradeGroups.map(group => {
+            const totalKg = group.entries.reduce((s, e) => s + e.receivedQuantity, 0)
+            const usedKg = group.entries.reduce((s, e) => s + (e.usedQuantity || 0), 0)
+            const avail = totalKg - usedKg
+            return (
+              <details key={`${group.material}-${group.grade}`} className="border border-slate-200 rounded-xl p-3">
+                <summary className="cursor-pointer text-sm text-slate-800 font-semibold">{group.material} · Grade {group.grade} — {avail.toFixed(1)} KG available</summary>
+                <div className="mt-2 space-y-1 text-xs text-slate-600">
+                  {group.entries.map(entry => (
+                    <div key={entry.id} className="flex justify-between"><span>{entry.rawMaterialId} · Batch {entry.batchNumber}</span><span>{(entry.receivedQuantity - (entry.usedQuantity || 0)).toFixed(1)} KG</span></div>
+                  ))}
+                </div>
+              </details>
+            )
+          })}
+        </div>
+      )}
+
       {/* Excel upload panel */}
       {showUpload && canAdd && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
@@ -293,7 +327,7 @@ export default function InventoryPage() {
         </div>
         <select value={gradeFilter} onChange={e => setGradeFilter(e.target.value)} className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none">
           <option value="all">All Grades</option>
-          {GRADES.map(g => <option key={g} value={g}>Grade {g}</option>)}
+          {MATERIAL_OPTIONS.map(m => <option key={m} value={m}>{m}</option>)}
         </select>
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none">
           <option value="all">All Status</option>
@@ -314,7 +348,7 @@ export default function InventoryPage() {
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr className="text-slate-600 text-xs font-bold uppercase tracking-wider">
                 <th className="px-5 py-4">Material ID</th>
-                <th className="px-5 py-4">Grade</th>
+                <th className="px-5 py-4">Material</th><th className="px-5 py-4">Grade</th>
                 <th className="px-5 py-4">Batch No.</th>
                 <th className="px-5 py-4">Qty (KG)</th>
                 <th className="px-5 py-4">Date</th>
@@ -326,7 +360,7 @@ export default function InventoryPage() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {visible.length === 0 ? (
-                <tr><td colSpan={9} className="px-6 py-12 text-center text-slate-400">
+                <tr><td colSpan={10} className="px-6 py-12 text-center text-slate-400">
                   <Package size={40} className="mx-auto mb-2 text-slate-200" />No materials found
                 </td></tr>
               ) : visible.map(item => (
@@ -337,9 +371,7 @@ export default function InventoryPage() {
                       <p className="text-xs text-red-500 mt-0.5">↩ {item.rejectedReason}</p>
                     )}
                   </td>
-                  <td className="px-5 py-4">
-                    <span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-full text-xs font-black">Grade {item.rawMaterialGrade}</span>
-                  </td>
+                  <td className="px-5 py-4 text-sm text-slate-700">{item.material || "—"}</td><td className="px-5 py-4"><span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-full text-xs font-black">Grade {item.rawMaterialGrade}</span></td>
                   <td className="px-5 py-4 text-sm font-mono text-slate-500">{item.batchNumber}</td>
                   <td className="px-5 py-4 text-sm font-bold text-slate-800">{item.receivedQuantity.toLocaleString()} KG</td>
                   <td className="px-5 py-4 text-sm text-slate-500">{item.date}</td>
@@ -380,18 +412,22 @@ export default function InventoryPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Material Master *</label>
-                  <select required value={`${form.rawMaterialId}__${form.rawMaterialGrade}`} onChange={e => { const [rawMaterialId, rawMaterialGrade] = e.target.value.split("__"); setForm(p => ({ ...p, rawMaterialId, rawMaterialGrade })) }}
+                  <select required value={`${form.material}__${form.rawMaterialGrade}`} onChange={e => { const [material, rawMaterialGrade] = e.target.value.split("__"); const firstMatch = masterItems.find(item => item.material === material && item.rawMaterialGrade === rawMaterialGrade); setForm(p => ({ ...p, material, rawMaterialGrade, rawMaterialId: firstMatch?.rawMaterialId || p.rawMaterialId })) }}
                     className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none bg-white">
                     <option value="">— Select material master —</option>
-                    {masterItems.map(item => <option key={`${item.rawMaterialId}__${item.rawMaterialGrade}`} value={`${item.rawMaterialId}__${item.rawMaterialGrade}`}>{item.rawMaterialId} · Grade {item.rawMaterialGrade}</option>)}
+                    {masterItems.map(item => <option key={`${item.material}__${item.rawMaterialGrade}`} value={`${item.material}__${item.rawMaterialGrade}`}>{item.material} · Grade {item.rawMaterialGrade}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Material *</label>
+                  <select required value={form.material} onChange={e => setForm(p => ({ ...p, material: e.target.value }))}
+                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none bg-white">
+                    {GRADES.map(g => <option key={g} value={g}>Grade {g}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Raw Material Grade *</label>
-                  <select required value={form.rawMaterialGrade} onChange={e => setForm(p => ({ ...p, rawMaterialGrade: e.target.value }))}
-                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none bg-white">
-                    {GRADES.map(g => <option key={g} value={g}>Grade {g}</option>)}
-                  </select>
+                  <select required value={form.rawMaterialGrade} onChange={e => setForm(p => ({ ...p, rawMaterialGrade: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none bg-white">{GRADES.map(g => <option key={g} value={g}>Grade {g}</option>)}</select>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Received Quantity (KG) *</label>
