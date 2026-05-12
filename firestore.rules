@@ -168,9 +168,9 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys()
                .hasOnly(["rawMaterialId","rawMaterialGrade","receivedQuantity",
                          "batchNumber","numberOfRequiredComponents",
-                         "weightPerComponent","notes","date"])
+                         "weightPerComponent","notes","date","receivedBy"])
         ) || (
-          isAdminOrAbove(clientId)
+          (isAdminOrAbove(clientId) || isAnyQI(clientId) || isFQI(clientId))
           && request.resource.data.diff(resource.data).affectedKeys()
                .hasOnly(["status","approvedBy","rejectedReason"])
         ) || (
@@ -201,9 +201,10 @@ service cloud.firestore {
       // ── Work Orders ───────────────────────────────────────────────────────
       match /work_orders/{woId} {
         allow read: if belongsToClient(clientId);
-        allow create: if isPTCManager(clientId) || isAdminOrAbove(clientId);
-        allow update: if isAdminOrAbove(clientId) || isAnyPTC(clientId);
-        allow delete: if isAdminOrAbove(clientId);
+        allow create: if isPTCManager(clientId) || isAnyQI(clientId) || isAdminOrAbove(clientId);
+        allow update: if isAdminOrAbove(clientId) || isAnyPTC(clientId) || isAnyQI(clientId);
+        allow delete: if isAdminOrAbove(clientId) ||
+          (isPTCManager(clientId) && resource.data.status in ["draft", "not_started"]);
       }
 
       // ── Daily Production Entries ──────────────────────────────────────────

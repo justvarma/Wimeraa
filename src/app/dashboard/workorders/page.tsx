@@ -2,15 +2,14 @@
 import { useState, useMemo } from "react"
 import { useApp } from "@/components/providers/AppProvider"
 import {
-  UserRole, PROCESS_STAGE_LABELS, PROCESS_PTC_ROLE_MAP, MACHINES,
+  UserRole, PROCESS_STAGE_LABELS, PROCESS_PTC_ROLE_MAP, QI_ROLE_PROCESS_MAP, MACHINES,
   type ProcessStage, type Shift, type WorkOrder,
 } from "@/lib/store"
 import { getSelectableShiftOptions, getShiftLabel } from "@/lib/shiftUtils"
+import { buildStageSubWorkOrder, hasOpenMachineAssignment } from "@/lib/workflow"
 import { ClipboardList, Plus, X, Edit2, Trash2, Lock, AlertTriangle, ChevronDown, ChevronRight, CheckCircle2, Building2, Pencil, GitBranch, ArrowUpRight } from "lucide-react"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-const PROCESSES: ProcessStage[] = ["die_casting", "coating", "cnc_vmc"]
-
 const cls = "w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none text-slate-900"
 const selectCls = `${cls} bg-white`
 const lbl = "block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5"
@@ -20,15 +19,21 @@ function Field({ label, req, children }: { label: string; req?: boolean; childre
 }
 
 const statusStyle = (s: string) =>
-  s === "completed"   ? "bg-emerald-100 text-emerald-800" :
-  s === "in_progress" ? "bg-blue-100 text-blue-800" :
-  s === "not_started" ? "bg-amber-100 text-amber-800" :
-  s === "draft"       ? "bg-slate-100 text-slate-600" : "bg-slate-100 text-slate-600"
+  s === "finished_goods" ? "bg-emerald-200 text-emerald-900" :
+  s === "completed"      ? "bg-emerald-100 text-emerald-800" :
+  s === "awaiting_qi"    ? "bg-violet-100 text-violet-800" :
+  s === "rejected"       ? "bg-red-100 text-red-800" :
+  s === "in_progress"    ? "bg-blue-100 text-blue-800" :
+  s === "not_started"    ? "bg-amber-100 text-amber-800" :
+  s === "draft"          ? "bg-slate-100 text-slate-600" : "bg-slate-100 text-slate-600"
 
 const statusLabel = (s: string) =>
-  s === "draft"       ? "Draft — Awaiting Process Details" :
-  s === "not_started" ? "Ready to Start" :
-  s === "in_progress" ? "In Progress" : "Completed"
+  s === "draft"          ? "Draft — Awaiting Process Details" :
+  s === "not_started"    ? "Active SWO — Ready to Start" :
+  s === "in_progress"    ? "In Progress" :
+  s === "awaiting_qi"    ? "Awaiting QI Validation" :
+  s === "rejected"       ? "Rejected — Rework Required" :
+  s === "finished_goods" ? "Finished Goods" : "Completed"
 
 const processColor = (p: ProcessStage) =>
   p === "die_casting" ? "bg-orange-100 text-orange-800 border-orange-200" :
@@ -93,7 +98,7 @@ function Phase1Form({ onClose, onSave, initial }: {
         </div>
 
         <div className="p-4 mx-6 mt-5 mb-0 rounded-xl bg-indigo-50 border border-indigo-200 text-xs text-indigo-800">
-          <strong>PTC Manager scope:</strong> Select the part from the monthly schedule, set the process, required quantities and dates. The process-specific PTC will fill in machine, operator, shift and operational details.
+          <strong>PTC Manager scope:</strong> Select the part from the monthly schedule and set quantities/dates. The system creates the first Die Casting SWO automatically; each approved QI decision creates the next process SWO.
         </div>
 
         {/* FIX §5.2: Locked fields notice for not_started WOs */}
@@ -110,11 +115,8 @@ function Phase1Form({ onClose, onSave, initial }: {
               <input type="date" required value={form.date} onChange={e => setForm(p=>({...p,date:e.target.value}))} className={cls}
                 readOnly={isPartLocked} disabled={isPartLocked}/>
             </Field>
-            <Field label="Process" req>
-              <select required value={form.process} onChange={e => setForm(p=>({...p,process:e.target.value as ProcessStage}))} className={selectCls}
-                disabled={isPartLocked}>
-                {PROCESSES.map(pr => <option key={pr} value={pr}>{PROCESS_STAGE_LABELS[pr]}</option>)}
-              </select>
+            <Field label="Initial Process" req>
+              <input readOnly value={PROCESS_STAGE_LABELS.die_casting} className={`${cls} bg-slate-50 text-slate-500 cursor-not-allowed`}/>
             </Field>
           </div>
 
@@ -159,7 +161,7 @@ function Phase1Form({ onClose, onSave, initial }: {
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-50">Cancel</button>
             <button type="submit" className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700">
-              {isEdit ? "Save Changes" : "Create Work Order"}
+              {isEdit ? "Save Changes" : "Create WO + Die Casting SWO"}
             </button>
           </div>
         </form>
@@ -172,7 +174,7 @@ function Phase1Form({ onClose, onSave, initial }: {
 function Phase2Form({ wo, onClose, onSave }: {
   wo: WorkOrder; onClose: () => void; onSave: (data: Partial<WorkOrder>) => void
 }) {
-  const { materials, users, ptcs, shifts } = useApp()
+  const { materials, users, ptcs, shifts, workOrders } = useApp()
   const shiftOptions = getSelectableShiftOptions(shifts, wo.shift)
   const approvedMats = materials.filter(m => m.status === "approved")
   const processOperators = users.filter(u =>
@@ -180,14 +182,16 @@ function Phase2Form({ wo, onClose, onSave }: {
   )
   const ptcManagers = users.filter(u => u.role === UserRole.PTC_MANAGER || u.role === UserRole.ADMIN)
   const processMachines = MACHINES.filter(m => m.process === wo.process && m.status === "active")
+  const occupiedMachines = new Set(processMachines.filter(m => hasOpenMachineAssignment(workOrders, m.name, wo.id)).map(m => m.name))
   const validPTCs = ptcs.filter(p => p.process === wo.process)
-  const qiUsers = users.filter(u => u.role === UserRole.QUALITY_INSPECTOR || u.role === UserRole.ADMIN)
+  const qiUsers = users.filter(u => u.role === UserRole.QUALITY_INSPECTOR || u.role === UserRole.ADMIN || QI_ROLE_PROCESS_MAP[u.role] === wo.process)
 
   const [form, setForm] = useState({
     materialGrade:  wo.materialGrade  || "",
     rawMaterialId:  wo.rawMaterialId  || "",
     shift:          wo.shift          || shiftOptions[0]?.id || "" as Shift,
     machine:        wo.machine        || (processMachines[0]?.name || ""),
+    customMachine:  "",
     operator:       wo.operator       || "",
     actualTarget:   wo.actualTarget   || wo.targetPartNos,
     partPerCycle:   wo.partPerCycle   || 1,
@@ -198,7 +202,15 @@ function Phase2Form({ wo, onClose, onSave }: {
     isExternal:     wo.isExternal     || false,
     vendorId:       wo.vendorId       || "",
     vendorName:     wo.vendorName     || "",
+    vendorProductionDate: wo.vendorProductionDate || new Date().toISOString().split("T")[0],
+    vendorMachine:  wo.vendorMachine  || wo.machine || "",
+    vendorShift:    wo.vendorShift    || wo.shift || shiftOptions[0]?.id || "" as Shift,
+    assignedQiId:   wo.assignedQiId   || "",
   })
+
+  const selectedMachineName = form.machine === "__custom__" ? form.customMachine.trim() : form.machine
+  const selectedQi = qiUsers.find(u => u.id === form.assignedQiId)
+  const vendorReady = !form.isExternal || Boolean(form.vendorName.trim() && form.vendorProductionDate && form.vendorMachine.trim() && form.vendorShift && form.assignedQiId)
 
   const selectedMat = approvedMats.find(m => m.id === form.rawMaterialId)
   const availableKg = selectedMat ? selectedMat.receivedQuantity - (selectedMat.usedQuantity || 0) : 0
@@ -214,8 +226,19 @@ function Phase2Form({ wo, onClose, onSave }: {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (shortfall) { alert(`Insufficient stock! Available: ${availableKg.toFixed(1)} KG, Required: ${wo.requiredQuantityKg} KG`); return }
+    if (!selectedMachineName) { alert("Machine is required. Select an existing machine or enter a new one."); return }
+    if (hasOpenMachineAssignment(workOrders, selectedMachineName, wo.id)) { alert(`${selectedMachineName} is already assigned to another open WO/SWO. Complete that assignment before using this machine.`); return }
+    if (!vendorReady) { alert("Vendor production requires vendor name, date, machine, shift, and assigned QI user."); return }
+    const { customMachine: _customMachine, ...saveForm } = form
+    void _customMachine
     onSave({
-      ...form,
+      ...saveForm,
+      machine: selectedMachineName,
+      vendorMachine: form.isExternal ? form.vendorMachine.trim() : "",
+      vendorProductionDate: form.isExternal ? form.vendorProductionDate : "",
+      vendorShift: form.isExternal ? form.vendorShift : "" as Shift,
+      assignedQiId: form.isExternal ? form.assignedQiId : "",
+      assignedQiName: form.isExternal ? selectedQi?.name || "" : "",
       rawMaterialGrade: selectedMat?.rawMaterialGrade || form.materialGrade,
       actualOutputKg: Number(autoOutputKg),
       inputWeightKg: wo.requiredQuantityKg,
@@ -302,8 +325,12 @@ function Phase2Form({ wo, onClose, onSave }: {
             <Field label="Machine" req>
               <select required value={form.machine} onChange={e => setForm(p=>({...p,machine:e.target.value}))} className={selectCls}>
                 <option value="">— Select machine —</option>
-                {processMachines.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
+                {processMachines.map(m => <option key={m.id} value={m.name} disabled={occupiedMachines.has(m.name)}>{m.name}{occupiedMachines.has(m.name) ? " — assigned until completion" : ""}</option>)}
+                <option value="__custom__">+ Add / use another machine</option>
               </select>
+              {form.machine === "__custom__" && (
+                <input required value={form.customMachine} onChange={e => setForm(p=>({...p,customMachine:e.target.value}))} placeholder="Enter machine name" className={`${cls} mt-2`}/>
+              )}
             </Field>
             <Field label="Operator" req>
               <select required value={form.operator} onChange={e => setForm(p=>({...p,operator:e.target.value}))} className={selectCls}>
@@ -362,8 +389,26 @@ function Phase2Form({ wo, onClose, onSave }: {
                 <Field label="Vendor ID">
                   <input value={form.vendorId} onChange={e => setForm(p=>({...p,vendorId:e.target.value}))} placeholder="VND-001" className={cls}/>
                 </Field>
-                <Field label="Vendor Name">
-                  <input value={form.vendorName} onChange={e => setForm(p=>({...p,vendorName:e.target.value}))} placeholder="Precision Parts Ltd" className={cls}/>
+                <Field label="Vendor Name" req>
+                  <input required value={form.vendorName} onChange={e => setForm(p=>({...p,vendorName:e.target.value}))} placeholder="Precision Parts Ltd" className={cls}/>
+                </Field>
+                <Field label="Vendor Production Date" req>
+                  <input required type="date" value={form.vendorProductionDate} onChange={e => setForm(p=>({...p,vendorProductionDate:e.target.value}))} className={cls}/>
+                </Field>
+                <Field label="Vendor Machine" req>
+                  <input required value={form.vendorMachine} onChange={e => setForm(p=>({...p,vendorMachine:e.target.value}))} placeholder="Vendor machine / line" className={cls}/>
+                </Field>
+                <Field label="Vendor Shift" req>
+                  <select required value={form.vendorShift} onChange={e => setForm(p=>({...p,vendorShift:e.target.value as Shift}))} className={selectCls}>
+                    <option value="">— Select vendor shift —</option>
+                    {shiftOptions.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+                  </select>
+                </Field>
+                <Field label="Assigned QI User" req>
+                  <select required value={form.assignedQiId} onChange={e => setForm(p=>({...p,assignedQiId:e.target.value}))} className={selectCls}>
+                    <option value="">— Select QI user —</option>
+                    {qiUsers.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
+                  </select>
                 </Field>
               </div>
             )}
@@ -372,8 +417,8 @@ function Phase2Form({ wo, onClose, onSave }: {
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-50">Cancel</button>
             <button type="submit"
-              disabled={!form.machine || !form.operator || !form.rawMaterialId || shortfall || !form.ptcId}
-              title={!form.ptcId ? "A valid PTC code must be selected" : shortfall ? "Insufficient material stock" : ""}
+              disabled={!selectedMachineName || !form.operator || !form.rawMaterialId || shortfall || !form.ptcId || occupiedMachines.has(selectedMachineName) || !vendorReady}
+              title={!form.ptcId ? "A valid PTC code must be selected" : occupiedMachines.has(selectedMachineName) ? "Machine is already assigned to an open WO/SWO" : !vendorReady ? "Vendor production requires vendor name, date, machine, shift, and assigned QI user" : shortfall ? "Insufficient material stock" : ""}
               className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
               <CheckCircle2 size={16}/> Activate Work Order
             </button>
@@ -401,7 +446,7 @@ export default function WorkOrdersPage() {
   const [expanded, setExpanded]     = useState<string | null>(null)
   const [statusFilter, setStatusFilter]   = useState("all")
   const [processFilter, setProcessFilter] = useState("all")
-  const [typeFilter, setTypeFilter]       = useState<"all" | "standard" | "rework">("all")
+  const [typeFilter, setTypeFilter]       = useState<"all" | "standard" | "stage" | "rework" | "rejection">("all")
 
   const isPTCManager   = role === UserRole.PTC_MANAGER
   const isAdmin        = role === UserRole.ADMIN
@@ -420,9 +465,11 @@ export default function WorkOrdersPage() {
       const matchProcess = processFilter === "all" || w.process === processFilter
       const matchType    = typeFilter === "all" ||
                            (typeFilter === "rework"   && w.woType === "rework") ||
-                           (typeFilter === "standard" && w.woType !== "rework")
+                           (typeFilter === "stage"    && w.woType === "stage") ||
+                           (typeFilter === "rejection" && w.woType === "rejection") ||
+                           (typeFilter === "standard" && (!w.woType || w.woType === "standard"))
       // Process PTCs see their own process (includes rework SWOs for that process)
-      const matchRole    = !myProcess    || w.process === myProcess
+      const matchRole    = !myProcess    || (w.process === myProcess && w.woType !== "standard")
       return matchStatus && matchProcess && matchType && matchRole
     })
     // Sort: parent WOs first, then their SWOs follow immediately (by parentWoId + cycle)
@@ -441,36 +488,47 @@ export default function WorkOrdersPage() {
   // Build a lookup: parentWoId → child SWOs (for expanded view)
   const swoByParent = useMemo(() => {
     const map: Record<string, typeof workOrders> = {}
-    workOrders.filter(w => w.woType === "rework" && w.parentWoId).forEach(w => {
+    workOrders.filter(w => (w.woType === "rework" || w.woType === "rejection") && w.parentWoId).forEach(w => {
       map[w.parentWoId!] = [...(map[w.parentWoId!] ?? []), w]
     })
     return map
   }, [workOrders])
 
-  const handlePhase1Save = (data: Partial<WorkOrder>) => {
+  const handlePhase1Save = async (data: Partial<WorkOrder>) => {
     if (editWO) {
       updateWorkOrder(editWO.id, data)
     } else {
-      addWorkOrder({
+      const primaryWO: Omit<WorkOrder, "id" | "createdAt"> = {
         ...(data as WorkOrder),
+        process: "die_casting",
         status: "draft",
         partsCompleted: 0, goodParts: 0, reworkParts: 0, rejectedParts: 0,
         scrapWeight: 0, inputWeightKg: 0, productionStarted: false,
         materialGrade: "", rawMaterialId: "", rawMaterialGrade: "",
         shift: "" as Shift, machine: "", operator: "",
-        actualTarget: 0, partPerCycle: 0, weightPerPart: 0, actualOutputKg: 0,
-        acceptancePoints: "", isExternal: false,
+        actualTarget: Number(data.targetPartNos || 0), partPerCycle: 0, weightPerPart: 0, actualOutputKg: 0,
+        acceptancePoints: "Primary WO shell — SWOs are system-generated per process stage.", isExternal: false,
         createdBy: currentUser!.name,
-      })
+        woType: "standard",
+        workflowStep: -1,
+        workflowLabel: "Primary Work Order",
+      }
+      const parentId = await addWorkOrder(primaryWO)
+      await addWorkOrder(buildStageSubWorkOrder({
+        source: { ...primaryWO, id: parentId, createdAt: new Date().toISOString().split("T")[0] },
+        process: "die_casting",
+        createdBy: "System Workflow",
+        parentWoId: parentId,
+      }))
     }
     setEditWO(null); setShowPhase1(false)
   }
 
-  const handlePhase2Save = (data: Partial<WorkOrder>) => {
+  const handlePhase2Save = async (data: Partial<WorkOrder>) => {
     if (!phase2WO) return
     // FIX §5.1: Real-time inventory deduction when WO is activated
     if (data.rawMaterialId && phase2WO.requiredQuantityKg > 0) {
-      const ok = deductMaterial(data.rawMaterialId, phase2WO.requiredQuantityKg)
+      const ok = await deductMaterial(data.rawMaterialId, phase2WO.requiredQuantityKg)
       if (!ok) {
         alert(`Stock deduction failed — insufficient inventory for Grade ${data.materialGrade}. Please check stock levels.`)
         return
@@ -494,6 +552,7 @@ export default function WorkOrdersPage() {
 
   const canFillPhase2 = (wo: WorkOrder) =>
     wo.status === "draft" &&
+    wo.woType !== "standard" &&
     (isAdmin || (isProcessPTC && wo.process === myProcess))
 
   return (
@@ -533,10 +592,10 @@ export default function WorkOrdersPage() {
 
       {/* Filters */}
       <div className="flex gap-2 flex-wrap">
-        {["all","draft","not_started","in_progress","completed"].map(s => (
+        {["all","draft","not_started","in_progress","awaiting_qi","completed","rejected","finished_goods"].map(s => (
           <button key={s} onClick={() => setStatusFilter(s)}
             className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${statusFilter===s?"bg-slate-900 text-white":"bg-white border border-slate-200 text-slate-700 hover:bg-slate-50"}`}>
-            {s === "all" ? "All" : s === "draft" ? "Draft" : s === "not_started" ? "Ready" : s === "in_progress" ? "In Progress" : "Completed"}
+            {s === "all" ? "All" : s === "draft" ? "Draft" : s === "not_started" ? "Active" : s === "in_progress" ? "In Progress" : s === "awaiting_qi" ? "Awaiting QI" : s === "rejected" ? "Rejected" : s === "finished_goods" ? "FG" : "Completed"}
           </button>
         ))}
         {!myProcess && (
@@ -552,11 +611,11 @@ export default function WorkOrdersPage() {
         )}
         {/* WO Type filter */}
         <span className="w-px bg-slate-200 mx-1"/>
-        {(["all", "standard", "rework"] as const).map(t => (
+        {(["all", "standard", "stage", "rework", "rejection"] as const).map(t => (
           <button key={t} onClick={() => setTypeFilter(t)}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold transition-all ${typeFilter===t?"bg-slate-900 text-white":"bg-white border border-slate-200 text-slate-700 hover:bg-slate-50"}`}>
             {t === "rework" && <GitBranch size={12}/>}
-            {t === "all" ? "All Types" : t === "standard" ? "Standard WO" : "Rework SWO"}
+            {t === "all" ? "All Types" : t === "standard" ? "Primary WO" : t === "stage" ? "Process SWO" : t === "rejection" ? "Rejection WO" : "Rework SWO"}
           </button>
         ))}
       </div>
