@@ -63,6 +63,7 @@ export default function InventoryPage() {
   const [importing, setImporting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [form, setForm] = useState({ ...emptyForm })
+  const [selectedBatchByGroup, setSelectedBatchByGroup] = useState<Record<string, string>>({})
 
   const role = currentUser?.role as UserRole
   const isAdmin       = role === UserRole.ADMIN
@@ -95,6 +96,13 @@ export default function InventoryPage() {
     const matchUser   = isAdmin || isQI || isPDC ? true : m.submittedById === currentUser?.id
     return matchSearch && matchGrade && matchStatus && matchUser
   })
+
+  const groupedVisibleMap = new Map<string, RawMaterial[]>()
+  for (const item of visible) {
+    const key = `${item.rawMaterialId}__${item.material || ""}__${item.rawMaterialGrade}`
+    groupedVisibleMap.set(key, [...(groupedVisibleMap.get(key) || []), item])
+  }
+  const groupedVisible = Array.from(groupedVisibleMap.entries())
 
   // Inventory summary per grade (approved stock only)
   // FIX §4.3: availableKg = receivedQuantity − usedQuantity (not just total received)
@@ -336,38 +344,19 @@ export default function InventoryPage() {
                 <tr><td colSpan={10} className="px-6 py-12 text-center text-slate-400">
                   <Package size={40} className="mx-auto mb-2 text-slate-200" />No materials found
                 </td></tr>
-              ) : visible.map(item => (
-                <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-5 py-4">
-                    <p className="font-bold text-slate-900 text-sm font-mono">{item.rawMaterialId}</p>
-                    {item.status === "rejected" && item.rejectedReason && (
-                      <p className="text-xs text-red-500 mt-0.5">↩ {item.rejectedReason}</p>
-                    )}
-                  </td>
+              ) : groupedVisible.map(([groupKey, items]) => {
+                const batchOptions = items.map(i => i.batchNumber)
+                const selectedBatch = selectedBatchByGroup[groupKey] || batchOptions[0]
+                const item = items.find(i => i.batchNumber === selectedBatch) || items[0]
+                return (
+                <tr key={groupKey} className="hover:bg-slate-50 transition-colors">
+                  <td className="px-5 py-4"><p className="font-bold text-slate-900 text-sm font-mono">{item.rawMaterialId}</p>{item.status === "rejected" && item.rejectedReason && (<p className="text-xs text-red-500 mt-0.5">↩ {item.rejectedReason}</p>)}</td>
                   <td className="px-5 py-4 text-sm text-slate-700">{item.material || "—"}</td><td className="px-5 py-4"><span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-full text-xs font-black">Grade {item.rawMaterialGrade}</span></td>
-                  <td className="px-5 py-4 text-sm font-mono text-slate-500">{(() => { const options = Array.from(new Set(materials.filter(m => (m.material||"") === (item.material||"") && m.rawMaterialGrade === item.rawMaterialGrade).map(m => m.batchNumber))); return options.length > 1 ? <select value={item.batchNumber} className="border border-slate-200 rounded px-2 py-1 bg-white text-slate-700">{options.map(b => <option key={b} value={b}>{b}</option>)}</select> : item.batchNumber })()}</td>
-                  <td className="px-5 py-4 text-sm font-bold text-slate-800">{item.receivedQuantity.toLocaleString()} KG</td>
-                  <td className="px-5 py-4 text-sm text-slate-500">{item.date}</td>
-                  <td className="px-5 py-4 text-sm text-slate-600">{item.receivedBy}</td>
-                  <td className="px-5 py-4 text-sm text-slate-600">{item.approvedBy || "—"}</td>
-                  <td className="px-5 py-4"><StatusBadge status={item.status} /></td>
-                  <td className="px-5 py-4">
-                    <div className="flex gap-2">
-                      {canAdd && item.status !== "approved" && (
-                        <button onClick={() => openEdit(item)} className="flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800">
-                          <Edit2 size={13} /> Edit
-                        </button>
-                      )}
-                      {canApprove && item.status === "pending" && (
-                        <>
-                          <button onClick={() => handleApprove(item.id)} className="text-xs font-bold text-emerald-600 hover:text-emerald-800">Approve</button>
-                          <button onClick={() => handleReject(item.id)} className="text-xs font-bold text-red-500 hover:text-red-700">Reject</button>
-                        </>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                  <td className="px-5 py-4 text-sm font-mono text-slate-500">{batchOptions.length > 1 ? <select value={selectedBatch} onChange={e => setSelectedBatchByGroup(prev => ({ ...prev, [groupKey]: e.target.value }))} className="border border-slate-200 rounded px-2 py-1 bg-white text-slate-700">{batchOptions.map(b => <option key={b} value={b}>{b}</option>)}</select> : selectedBatch}</td>
+                  <td className="px-5 py-4 text-sm font-bold text-slate-800">{item.receivedQuantity.toLocaleString()} KG</td><td className="px-5 py-4 text-sm text-slate-500">{item.date}</td><td className="px-5 py-4 text-sm text-slate-600">{item.receivedBy}</td><td className="px-5 py-4 text-sm text-slate-600">{item.approvedBy || "—"}</td><td className="px-5 py-4"><StatusBadge status={item.status} /></td>
+                  <td className="px-5 py-4"><div className="flex gap-2">{canAdd && item.status !== "approved" && (<button onClick={() => openEdit(item)} className="flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800"><Edit2 size={13} /> Edit</button>)}{canApprove && item.status === "pending" && (<><button onClick={() => handleApprove(item.id)} className="text-xs font-bold text-emerald-600 hover:text-emerald-800">Approve</button><button onClick={() => handleReject(item.id)} className="text-xs font-bold text-red-500 hover:text-red-700">Reject</button></>)}</div></td>
+                </tr>)
+              })}
             </tbody>
           </table>
         </div>
