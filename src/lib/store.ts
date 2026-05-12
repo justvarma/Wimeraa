@@ -170,10 +170,10 @@ export interface MachineDef {
 export interface RawMaterial {
   id: string; rawMaterialId: string; rawMaterialGrade: string
   receivedQuantity: number; usedQuantity: number; date: string
-  receivedBy: string; approvedBy?: string; batchNumber: string
+  receivedBy: string; approvedBy?: string | null; batchNumber: string
   numberOfRequiredComponents: number; weightPerComponent: number
   status: "pending"|"approved"|"rejected"; submittedById: string
-  rejectedReason?: string; notes?: string
+  rejectedReason?: string | null; notes?: string
 }
 
 export interface MonthlySchedule {

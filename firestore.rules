@@ -168,9 +168,9 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys()
                .hasOnly(["rawMaterialId","rawMaterialGrade","receivedQuantity",
                          "batchNumber","numberOfRequiredComponents",
-                         "weightPerComponent","notes","date"])
+                         "weightPerComponent","notes","date","receivedBy"])
         ) || (
-          isAdminOrAbove(clientId)
+          (isAdminOrAbove(clientId) || isAnyQI(clientId) || isFQI(clientId))
           && request.resource.data.diff(resource.data).affectedKeys()
                .hasOnly(["status","approvedBy","rejectedReason"])
         ) || (

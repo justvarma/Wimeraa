@@ -71,12 +71,12 @@ export default function InventoryQIPage() {
   }
 
   const handleApprove = (m: RawMaterial) => {
-    updateMaterial(m.id, { status: "approved", approvedBy: currentUser.name })
+    updateMaterial(m.id, { status: "approved", approvedBy: currentUser.name, rejectedReason: null })
   }
 
   const handleRejectConfirm = () => {
     if (!rejectModal || !rejectReason.trim()) return
-    updateMaterial(rejectModal.id, { status: "rejected", rejectedReason: rejectReason.trim() })
+    updateMaterial(rejectModal.id, { status: "rejected", rejectedReason: rejectReason.trim(), approvedBy: null })
     setRejectModal(null)
     setRejectReason("")
   }
