@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import * as admin from "firebase-admin"
+import { getFirestore } from "firebase-admin/firestore"
 import { buildStageSubWorkOrder, getNextProcess } from "@/lib/workflow"
 import { QI_ROLE_PROCESS_MAP, UserRole, type ProcessStage, type RejectionEntry, type ReworkEntry, type Shift, type WorkOrder } from "@/lib/store"
 
@@ -17,9 +18,8 @@ function getAdminApp(): admin.app.App {
 }
 
 function getAdminDb(app: admin.app.App): admin.firestore.Firestore {
-  const db = admin.firestore(app)
-  db.settings({ databaseId: "ai-studio-bdfef43d-2be7-481f-aa32-115cee100a5e" })
-  return db
+  const databaseId = process.env.FIRESTORE_DATABASE_ID?.trim()
+  return databaseId ? getFirestore(app, databaseId) : getFirestore(app)
 }
 
 function stripUndefined<T>(value: T): T {

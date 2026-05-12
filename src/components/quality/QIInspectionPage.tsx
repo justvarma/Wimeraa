@@ -313,8 +313,16 @@ export function QIInspectionPage({ process }: { process: ProcessStage }) {
           rejectionEntries: form.rejectionEntries,
         }),
       })
-      const result = await res.json().catch(() => ({})) as { error?: string }
-      if (!res.ok) throw new Error(result.error ?? "Unable to submit QI workflow.")
+      const responseText = await res.text()
+      let result: { error?: string } = {}
+      try {
+        result = responseText ? JSON.parse(responseText) as { error?: string } : {}
+      } catch {
+        result = { error: responseText }
+      }
+      if (!res.ok) {
+        throw new Error(result.error || res.statusText || `Unable to submit QI workflow (${res.status}).`)
+      }
 
       setSubmitted(true)
       setTimeout(() => {
@@ -324,8 +332,9 @@ export function QIInspectionPage({ process }: { process: ProcessStage }) {
       }, 3000)
     } catch (err) {
       setSubmittedWorkOrderIds(ids => ids.filter(id => id !== selectedWorkOrderId))
+      const message = err instanceof Error ? err.message : "Unable to submit QI inspection."
       console.error(err)
-      alert("Unable to submit QI inspection. Please check permissions and try again.")
+      alert(message)
     } finally {
       setSubmitting(false)
     }
