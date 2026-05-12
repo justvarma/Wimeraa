@@ -249,7 +249,7 @@ export default function InventoryPage() {
           <h2 className="text-base font-black text-slate-900 mb-1">Bulk Import via Excel</h2>
           <p className="text-sm text-slate-500 mb-4">
             Recognised columns:{" "}
-            {["RawMaterialId","RawMaterialGrade","ReceivedQuantity","Date","ReceivedBy","BatchNumber","NumberOfRequiredComponents","WeightPerComponent","Notes"].map(c => (
+            {["RawMaterialId","RawMaterialGrade","ReceivedQuantity","Date","ReceivedBy","BatchNumber","Notes"].map(c => (
               <span key={c} className="font-mono text-xs bg-slate-100 px-1 py-0.5 rounded mr-1">{c}</span>
             ))}
           </p>
@@ -301,8 +301,6 @@ export default function InventoryPage() {
                 <th className="px-5 py-4">Grade</th>
                 <th className="px-5 py-4">Batch No.</th>
                 <th className="px-5 py-4">Qty (KG)</th>
-                <th className="px-5 py-4">Components</th>
-                <th className="px-5 py-4">Wt/Component</th>
                 <th className="px-5 py-4">Date</th>
                 <th className="px-5 py-4">Received By</th>
                 <th className="px-5 py-4">Approved By</th>
@@ -312,7 +310,7 @@ export default function InventoryPage() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {visible.length === 0 ? (
-                <tr><td colSpan={11} className="px-6 py-12 text-center text-slate-400">
+                <tr><td colSpan={9} className="px-6 py-12 text-center text-slate-400">
                   <Package size={40} className="mx-auto mb-2 text-slate-200" />No materials found
                 </td></tr>
               ) : visible.map(item => (
@@ -328,8 +326,6 @@ export default function InventoryPage() {
                   </td>
                   <td className="px-5 py-4 text-sm font-mono text-slate-500">{item.batchNumber}</td>
                   <td className="px-5 py-4 text-sm font-bold text-slate-800">{item.receivedQuantity.toLocaleString()} KG</td>
-                  <td className="px-5 py-4 text-sm text-slate-700">{item.numberOfRequiredComponents.toLocaleString()}</td>
-                  <td className="px-5 py-4 text-sm text-slate-700">{item.weightPerComponent} KG</td>
                   <td className="px-5 py-4 text-sm text-slate-500">{item.date}</td>
                   <td className="px-5 py-4 text-sm text-slate-600">{item.receivedBy}</td>
                   <td className="px-5 py-4 text-sm text-slate-600">{item.approvedBy || "—"}</td>
