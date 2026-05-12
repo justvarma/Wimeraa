@@ -162,15 +162,16 @@ service cloud.firestore {
 
         allow update: if (
           isStorekeeper(clientId)
-          && resource.data.status == "pending"
+          && resource.data.status in ["pending", "rejected"]
           && request.resource.data.status == "pending"
           && resource.data.submittedById == request.auth.uid
           && request.resource.data.diff(resource.data).affectedKeys()
                .hasOnly(["rawMaterialId","rawMaterialGrade","receivedQuantity",
                          "batchNumber","numberOfRequiredComponents",
-                         "weightPerComponent","notes","date"])
+                         "weightPerComponent","notes","date","receivedBy",
+                         "status","approvedBy","rejectedReason"])
         ) || (
-          isAdminOrAbove(clientId)
+          (isAdminOrAbove(clientId) || isAnyQI(clientId) || isFQI(clientId))
           && request.resource.data.diff(resource.data).affectedKeys()
                .hasOnly(["status","approvedBy","rejectedReason"])
         ) || (
