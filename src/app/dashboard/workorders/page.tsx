@@ -77,6 +77,11 @@ function Phase1Form({ onClose, onSave, initial }: {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    const selectedSchedule = schedules.find(s => s.id === form.masterId)
+    if (selectedSchedule && form.date > selectedSchedule.date) {
+      alert("WO date cannot exceed component due date")
+      return
+    }
     onSave({
       ...form,
       targetPartNos:      Number(form.targetPartNos),
@@ -182,7 +187,6 @@ function Phase2Form({ wo, onClose, onSave }: {
   )
   const ptcManagers = users.filter(u => u.role === UserRole.PTC_MANAGER || u.role === UserRole.ADMIN)
   const processMachines = MACHINES.filter(m => m.process === wo.process && m.status === "active")
-  const occupiedMachines = new Set(processMachines.filter(m => hasOpenMachineAssignment(workOrders, m.name, wo.id)).map(m => m.name))
   const validPTCs = ptcs.filter(p => p.process === wo.process)
   const qiUsers = users.filter(u => u.role === UserRole.QUALITY_INSPECTOR || u.role === UserRole.ADMIN || QI_ROLE_PROCESS_MAP[u.role] === wo.process)
 
@@ -191,7 +195,6 @@ function Phase2Form({ wo, onClose, onSave }: {
     rawMaterialId:  wo.rawMaterialId  || "",
     shift:          wo.shift          || shiftOptions[0]?.id || "" as Shift,
     machine:        wo.machine        || (processMachines[0]?.name || ""),
-    customMachine:  "",
     operator:       wo.operator       || "",
     actualTarget:   wo.actualTarget   || wo.targetPartNos,
     partPerCycle:   wo.partPerCycle   || 1,
@@ -207,8 +210,13 @@ function Phase2Form({ wo, onClose, onSave }: {
     vendorShift:    wo.vendorShift    || wo.shift || shiftOptions[0]?.id || "" as Shift,
     assignedQiId:   wo.assignedQiId   || "",
   })
+  const reservedMachines = new Set(
+    workOrders
+      .filter(w => w.id !== wo.id && w.machine && w.date === wo.date && w.shift === form.shift && !["completed", "finished_goods", "rejected"].includes(w.status))
+      .map(w => w.machine)
+  )
 
-  const selectedMachineName = form.machine === "__custom__" ? form.customMachine.trim() : form.machine
+  const selectedMachineName = form.machine
   const selectedQi = qiUsers.find(u => u.id === form.assignedQiId)
   const vendorReady = !form.isExternal || Boolean(form.vendorName.trim() && form.vendorProductionDate && form.vendorMachine.trim() && form.vendorShift && form.assignedQiId)
 
@@ -226,13 +234,11 @@ function Phase2Form({ wo, onClose, onSave }: {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (shortfall) { alert(`Insufficient stock! Available: ${availableKg.toFixed(1)} KG, Required: ${wo.requiredQuantityKg} KG`); return }
-    if (!selectedMachineName) { alert("Machine is required. Select an existing machine or enter a new one."); return }
-    if (hasOpenMachineAssignment(workOrders, selectedMachineName, wo.id)) { alert(`${selectedMachineName} is already assigned to another open WO/SWO. Complete that assignment before using this machine.`); return }
+    if (!selectedMachineName) { alert("Machine is required."); return }
+    if (reservedMachines.has(selectedMachineName)) { alert("Machine already occupied for this shift"); return }
     if (!vendorReady) { alert("Vendor production requires vendor name, date, machine, shift, and assigned QI user."); return }
-    const { customMachine: _customMachine, ...saveForm } = form
-    void _customMachine
     onSave({
-      ...saveForm,
+      ...form,
       machine: selectedMachineName,
       vendorMachine: form.isExternal ? form.vendorMachine.trim() : "",
       vendorProductionDate: form.isExternal ? form.vendorProductionDate : "",
@@ -325,12 +331,8 @@ function Phase2Form({ wo, onClose, onSave }: {
             <Field label="Machine" req>
               <select required value={form.machine} onChange={e => setForm(p=>({...p,machine:e.target.value}))} className={selectCls}>
                 <option value="">— Select machine —</option>
-                {processMachines.map(m => <option key={m.id} value={m.name} disabled={occupiedMachines.has(m.name)}>{m.name}{occupiedMachines.has(m.name) ? " — assigned until completion" : ""}</option>)}
-                <option value="__custom__">+ Add / use another machine</option>
+                {processMachines.map(m => <option key={m.id} value={m.name} disabled={reservedMachines.has(m.name)}>{m.name}{reservedMachines.has(m.name) ? " — occupied for selected shift/date" : ""}</option>)}
               </select>
-              {form.machine === "__custom__" && (
-                <input required value={form.customMachine} onChange={e => setForm(p=>({...p,customMachine:e.target.value}))} placeholder="Enter machine name" className={`${cls} mt-2`}/>
-              )}
             </Field>
             <Field label="Operator" req>
               <select required value={form.operator} onChange={e => setForm(p=>({...p,operator:e.target.value}))} className={selectCls}>
@@ -417,8 +419,8 @@ function Phase2Form({ wo, onClose, onSave }: {
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-50">Cancel</button>
             <button type="submit"
-              disabled={!selectedMachineName || !form.operator || !form.rawMaterialId || shortfall || !form.ptcId || occupiedMachines.has(selectedMachineName) || !vendorReady}
-              title={!form.ptcId ? "A valid PTC code must be selected" : occupiedMachines.has(selectedMachineName) ? "Machine is already assigned to an open WO/SWO" : !vendorReady ? "Vendor production requires vendor name, date, machine, shift, and assigned QI user" : shortfall ? "Insufficient material stock" : ""}
+              disabled={!selectedMachineName || !form.operator || !form.rawMaterialId || shortfall || !form.ptcId || reservedMachines.has(selectedMachineName) || !vendorReady}
+              title={!form.ptcId ? "A valid PTC code must be selected" : reservedMachines.has(selectedMachineName) ? "Machine already occupied for this shift" : !vendorReady ? "Vendor production requires vendor name, date, machine, shift, and assigned QI user" : shortfall ? "Insufficient material stock" : ""}
               className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
               <CheckCircle2 size={16}/> Activate Work Order
             </button>
