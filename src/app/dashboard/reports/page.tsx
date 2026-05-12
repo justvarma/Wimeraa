@@ -26,11 +26,11 @@ const PDC_PROCESS_MAP: Partial<Record<UserRole, ProcessStage>> = {
   [UserRole.PTC_CNC_VMC]:     "cnc_vmc",
 }
 
-function StatCard({ label, value, sub, icon: Icon, color }: {
-  label: string; value: string | number; sub?: string; icon: React.ElementType; color: string
+function StatCard({ label, value, sub, icon: Icon, color, breakdown }: {
+  label: string; value: string | number; sub?: string; icon: React.ElementType; color: string; breakdown?: string
 }) {
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 p-5 flex items-center gap-4">
+    <div className="bg-white rounded-2xl border border-slate-200 p-5 flex items-center gap-4" title={breakdown}>
       <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${color}`}>
         <Icon size={20} className="text-white"/>
       </div>
@@ -120,11 +120,15 @@ export default function ReportsPage() {
 
       {/* Top-level KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Total Parts Produced"  value={totalOutput}      icon={Factory}       color="bg-blue-500"/>
-        <StatCard label="Good Parts"            value={totalGood}        icon={CheckCircle2}  color="bg-emerald-500"/>
-        <StatCard label="Rejected"              value={totalRejected}    icon={XCircle}       color="bg-red-500"/>
+        <StatCard label="Total Parts Produced"  value={totalOutput}      icon={Factory}       color="bg-blue-500"
+          breakdown={`Total jobs: ${filteredWOs.length}\nOutput contributions are summed from all process records.`}/>
+        <StatCard label="Good Parts"            value={totalGood}        icon={CheckCircle2}  color="bg-emerald-500"
+          breakdown={`Total output: ${totalOutput}\nGood parts: ${totalGood}\nFormula: (good / output) * 100`}/>
+        <StatCard label="Rejected"              value={totalRejected}    icon={XCircle}       color="bg-red-500"
+          breakdown={`Total output: ${totalOutput}\nRejected parts: ${totalRejected}\nRejection rate: ${rejRate}%`}/>
         <StatCard label="Yield Rate"            value={`${yieldRate}%`}  icon={TrendingUp}    color="bg-indigo-500"
-          sub={`Rejection: ${rejRate}%`}/>
+          sub={`Rejection: ${rejRate}%`}
+          breakdown={`Total output: ${totalOutput}\nGood: ${totalGood}\nRejected: ${totalRejected}\nIn rework: ${totalRework}\nFormula: (good / output) * 100`}/>
       </div>
 
       {/* Work Order summary */}
