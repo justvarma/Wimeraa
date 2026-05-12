@@ -135,7 +135,7 @@ export default function InventoryPage() {
       submittedById: currentUser!.id,
     }
     if (editItem) {
-      updateMaterial(editItem.id, payload)
+      updateMaterial(editItem.id, { ...payload, approvedBy: null, rejectedReason: null })
     } else {
       addMaterial({ ...payload, usedQuantity: 0, approvedBy: null, rejectedReason: null })
     }
