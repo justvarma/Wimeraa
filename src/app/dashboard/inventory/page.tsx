@@ -98,7 +98,7 @@ export default function InventoryPage() {
 
   const openAdd = () => {
     setEditItem(null)
-    setForm({ ...emptyForm, receivedBy: currentUser?.name || "" })
+    setForm({ ...emptyForm, receivedBy: currentUser?.name || "", rawMaterialId: `RM-${new Date().toISOString().slice(0,10).replace(/-/g,"")}-${String(materials.length+1).padStart(3,"0")}` })
     setShowForm(true)
   }
 
@@ -364,7 +364,7 @@ export default function InventoryPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Raw Material ID *</label>
-                  <input required value={form.rawMaterialId} onChange={e => setForm(p => ({ ...p, rawMaterialId: e.target.value }))}
+                  <input required value={form.rawMaterialId} readOnly={true} onChange={e => setForm(p => ({ ...p, rawMaterialId: e.target.value }))}
                     placeholder="e.g. RM-2026-005"
                     className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none" />
                 </div>
