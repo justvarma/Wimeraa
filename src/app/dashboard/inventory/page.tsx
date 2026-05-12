@@ -57,6 +57,7 @@ export default function InventoryPage() {
   const [search, setSearch] = useState("")
   const [gradeFilter, setGradeFilter] = useState("all")
   const [statusFilter, setStatusFilter] = useState("all")
+  const [batchFilter, setBatchFilter] = useState("all")
   const [uploadStatus, setUploadStatus] = useState<{ type: "success" | "error"; message: string } | null>(null)
   const [importing, setImporting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -75,14 +76,24 @@ export default function InventoryPage() {
   // PDC roles: read-only, no add, no approve
   const isViewOnly = isPDC
 
+  const masterItems = Array.from(new Map(materials.map(m => [`${m.rawMaterialId}__${m.rawMaterialGrade}`, { rawMaterialId: m.rawMaterialId, rawMaterialGrade: m.rawMaterialGrade }])).values())
+  const batchesByMaster = new Map<string, string[]>()
+  for (const m of materials) {
+    const key = `${m.rawMaterialId}__${m.rawMaterialGrade}`
+    const arr = batchesByMaster.get(key) ?? []
+    if (!arr.includes(m.batchNumber)) arr.push(m.batchNumber)
+    batchesByMaster.set(key, arr)
+  }
+
   const visible = materials.filter(m => {
     const q = search.toLowerCase()
     const matchSearch = m.rawMaterialId.toLowerCase().includes(q) || m.batchNumber.toLowerCase().includes(q) || m.rawMaterialGrade.toLowerCase().includes(q)
     const matchGrade  = gradeFilter === "all" || m.rawMaterialGrade === gradeFilter
     const matchStatus = statusFilter === "all" || m.status === statusFilter
+    const matchBatch = batchFilter === "all" || m.batchNumber === batchFilter
     // Admin, QI, and PDC see all records; storekeeper sees only own submissions
     const matchUser   = isAdmin || isQI || isPDC ? true : m.submittedById === currentUser?.id
-    return matchSearch && matchGrade && matchStatus && matchUser
+    return matchSearch && matchGrade && matchStatus && matchBatch && matchUser
   })
 
   // Inventory summary per grade (approved stock only)
@@ -98,7 +109,8 @@ export default function InventoryPage() {
 
   const openAdd = () => {
     setEditItem(null)
-    setForm({ ...emptyForm, receivedBy: currentUser?.name || "", rawMaterialId: `RM-${new Date().toISOString().slice(0,10).replace(/-/g,"")}-${String(materials.length+1).padStart(3,"0")}` })
+    const first = masterItems[0]
+    setForm({ ...emptyForm, receivedBy: currentUser?.name || "", rawMaterialId: first?.rawMaterialId || "", rawMaterialGrade: first?.rawMaterialGrade || "A" })
     setShowForm(true)
   }
 
@@ -289,6 +301,10 @@ export default function InventoryPage() {
           <option value="approved">Approved</option>
           <option value="rejected">Rejected</option>
         </select>
+        <select value={batchFilter} onChange={e => setBatchFilter(e.target.value)} className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+          <option value="all">All Batches</option>
+          {Array.from(new Set(materials.map(m => m.batchNumber))).sort().map(b => <option key={b} value={b}>{b}</option>)}
+        </select>
       </div>
 
       {/* Table */}
@@ -363,10 +379,12 @@ export default function InventoryPage() {
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Raw Material ID *</label>
-                  <input required value={form.rawMaterialId} readOnly={true} onChange={e => setForm(p => ({ ...p, rawMaterialId: e.target.value }))}
-                    placeholder="e.g. RM-2026-005"
-                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none" />
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Material Master *</label>
+                  <select required value={`${form.rawMaterialId}__${form.rawMaterialGrade}`} onChange={e => { const [rawMaterialId, rawMaterialGrade] = e.target.value.split("__"); setForm(p => ({ ...p, rawMaterialId, rawMaterialGrade })) }}
+                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none bg-white">
+                    <option value="">— Select material master —</option>
+                    {masterItems.map(item => <option key={`${item.rawMaterialId}__${item.rawMaterialGrade}`} value={`${item.rawMaterialId}__${item.rawMaterialGrade}`}>{item.rawMaterialId} · Grade {item.rawMaterialGrade}</option>)}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Raw Material Grade *</label>
@@ -395,9 +413,10 @@ export default function InventoryPage() {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Batch Number *</label>
-                  <input required value={form.batchNumber} onChange={e => setForm(p => ({ ...p, batchNumber: e.target.value }))}
-                    placeholder="e.g. BC-2026-005"
-                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none" />
+                  <select required value={form.batchNumber} onChange={e => setForm(p => ({ ...p, batchNumber: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none bg-white">
+                    <option value="">— Select batch —</option>
+                    {(batchesByMaster.get(`${form.rawMaterialId}__${form.rawMaterialGrade}`) || []).map(b => <option key={b} value={b}>{b}</option>)}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">No. of Required Components *</label>
