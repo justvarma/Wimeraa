@@ -38,7 +38,7 @@ import type {
   User, RawMaterial, MonthlySchedule, PTC,
   WorkOrder, DailyProductionEntry, ProcessRecord,
   DowntimeEvent, QIInspection, FQIInspection,
-  ShiftConfig, RoleConfig,
+  ShiftConfig, RoleConfig, MachineDef,
 } from "./store"
 
 // ─── Path helpers ─────────────────────────────────────────────────────────────
@@ -492,6 +492,34 @@ export async function addFQIInspection(
   return ref.id
 }
 
+
+export function subscribeMachines(
+    clientId: string,
+    setter: (machines: MachineDef[]) => void,
+    onError?: (err: Error) => void,
+): Unsub {
+  return subscribeCol<MachineDef>(clientId, "machines", setter, [orderBy("name", "asc")], onError)
+}
+
+export async function seedDefaultMachines(clientId: string, defaults: MachineDef[]): Promise<void> {
+  const existing = await getDocs(clientCol(clientId, "machines"))
+  if (!existing.empty) return
+  const batch = writeBatch(db)
+  for (const machine of defaults) batch.set(clientDoc(clientId, "machines", machine.id), machine)
+  await batch.commit()
+}
+
+export async function createMachineConfig(clientId: string, machine: MachineDef): Promise<void> {
+  await setDoc(clientDoc(clientId, "machines", machine.id), stripUndefined(machine))
+}
+
+export async function updateMachineConfig(clientId: string, id: string, data: Partial<MachineDef>): Promise<void> {
+  await updateDoc(clientDoc(clientId, "machines", id), stripUndefined(data))
+}
+
+export async function deleteMachineConfig(clientId: string, id: string): Promise<void> {
+  await deleteDoc(clientDoc(clientId, "machines", id))
+}
 // ─── Role Configs ─────────────────────────────────────────────────────────────
 // Stored at clients/{clientId}/roles/{id}
 // System roles use the UserRole enum value as the doc ID.

@@ -2,7 +2,7 @@
 import { useState, useMemo } from "react"
 import { useApp } from "@/components/providers/AppProvider"
 import {
-  UserRole, MACHINES, REASON_CODES, PROCESS_STAGE_LABELS,
+  UserRole,  REASON_CODES, PROCESS_STAGE_LABELS,
   FQI_DISPOSITION_LABELS,
   type ProcessStage, type Shift, type ReworkEntry, type RejectionEntry, type FQIDisposition,
   type ShiftConfig, type WorkOrder,
@@ -221,7 +221,7 @@ function blank(): FormState {
 
 // ─── MAIN ─────────────────────────────────────────────────────────────────────
 export default function FQIPage() {
-  const { currentUser, workOrders, qiInspections, fqiInspections, addFQIInspection, updateWorkOrder, addWorkOrder, shifts } = useApp()
+  const { currentUser, workOrders, qiInspections, fqiInspections, addFQIInspection, updateWorkOrder, addWorkOrder, shifts, machines: configuredMachines } = useApp()
 
   const [form, setForm] = useState<FormState>(blank())
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -255,8 +255,8 @@ export default function FQIPage() {
 
   // Machines for selected WO's process
   const machines = useMemo(() => {
-    if (!selectedWO) return MACHINES.filter(m => m.status !== "inactive")
-    return MACHINES.filter(m => m.process === selectedWO.process && m.status !== "inactive")
+    if (!selectedWO) return configuredMachines.filter(m => m.status !== "inactive")
+    return configuredMachines.filter(m => m.process === selectedWO.process && m.status !== "inactive")
   }, [selectedWO])
 
   // Derived numbers

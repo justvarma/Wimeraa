@@ -21,7 +21,7 @@ const PROCESS_PTC_ROLE_OWNER: Record<ProcessStage, UserRole> = {
   cnc_vmc:     UserRole.PTC_CNC_VMC,
 }
 
-export default function PTCPage() {
+export default function PDCPage() {
   const { currentUser, ptcs, addPTC, deletePTC, shifts } = useApp()
   const shiftOptions = getActiveShiftOptions(shifts)
   const role = currentUser?.role as UserRole
@@ -31,14 +31,14 @@ export default function PTCPage() {
   })
   const [error, setError] = useState("")
 
-  // Only PTC_MANAGER and Admin can create PTCs
+  // Only PTC_MANAGER and Admin can create PDCs
   const canManage = role === UserRole.PTC_MANAGER || role === UserRole.ADMIN
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault(); setError("")
     const clash = ptcs.find(p => p.process===form.process && p.shift===form.shift && p.date===form.date)
-    if (!form.shift) { setError("Select a shift before creating the PTC."); return }
-    if (clash) { setError(`A PTC already exists for ${PROCESS_STAGE_LABELS[form.process]} / ${getShiftLabel(shifts, form.shift)} on ${form.date}.`); return }
+    if (!form.shift) { setError("Select a shift before creating the PDC."); return }
+    if (clash) { setError(`A PDC already exists for ${PROCESS_STAGE_LABELS[form.process]} / ${getShiftLabel(shifts, form.shift)} on ${form.date}.`); return }
     addPTC({ ...form, createdBy: currentUser!.name, createdById: currentUser!.id })
     setShowForm(false)
   }
@@ -47,13 +47,13 @@ export default function PTCPage() {
     <div className="space-y-8">
       <header className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-3xl font-black text-slate-900">PTC Management</h1>
+          <h1 className="text-3xl font-black text-slate-900">PDC Management</h1>
           <p className="text-slate-600 mt-1">Process Tracking Codes — one per process per shift per day</p>
         </div>
         {canManage && (
           <button onClick={() => { setShowForm(true); setError("") }}
             className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-md">
-            <Plus size={18}/> Create PTC
+            <Plus size={18}/> Create PDC
           </button>
         )}
       </header>
@@ -63,12 +63,12 @@ export default function PTCPage() {
         <div className="flex items-start gap-3 p-4 bg-blue-50 border border-blue-200 rounded-2xl text-sm text-blue-800">
           <AlertTriangle size={18} className="shrink-0 mt-0.5 text-blue-500"/>
           <div>
-            <p className="font-bold mb-1">Rule: PTCs must exist before Work Orders are created</p>
-            <p className="text-xs text-blue-700">The <strong>PTC Manager</strong> creates PTCs here. A Work Order requires a matching PTC for its process and shift. One PTC per process per shift per day is allowed.</p>
+            <p className="font-bold mb-1">Rule: PDCs must exist before Work Orders are created</p>
+            <p className="text-xs text-blue-700">The <strong>PDC Manager</strong> creates PDCs here. A Work Order requires a matching PDC for its process and shift. One PDC per process per shift per day is allowed.</p>
           </div>
         </div>
         <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl">
-          <p className="text-xs font-black text-slate-600 uppercase tracking-wider mb-2">Process PTC Owners</p>
+          <p className="text-xs font-black text-slate-600 uppercase tracking-wider mb-2">Process PDC Owners</p>
           <div className="space-y-1.5">
             {(["die_casting","coating","cnc_vmc"] as ProcessStage[]).map(p => (
               <div key={p} className="flex items-center justify-between text-xs">
@@ -80,18 +80,18 @@ export default function PTCPage() {
         </div>
       </div>
 
-      {/* PTC Table */}
+      {/* PDC Table */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left min-w-[640px]">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr className="text-slate-600 text-xs font-bold uppercase tracking-wider">
-                <th className="px-6 py-4">PTC ID</th>
+                <th className="px-6 py-4">PDC ID</th>
                 <th className="px-6 py-4">Process</th>
                 <th className="px-6 py-4">Shift</th>
                 <th className="px-6 py-4">Date</th>
                 <th className="px-6 py-4">Created By</th>
-                <th className="px-6 py-4">Process PTC Owner</th>
+                <th className="px-6 py-4">Process PDC Owner</th>
                 {canManage && <th className="px-6 py-4">Actions</th>}
               </tr>
             </thead>
@@ -99,7 +99,7 @@ export default function PTCPage() {
               {ptcs.length === 0 ? (
                 <tr><td colSpan={7} className="px-6 py-12 text-center">
                   <Fingerprint size={40} className="mx-auto text-slate-200 mb-3"/>
-                  <p className="text-slate-500 font-medium">No PTCs yet — create one to enable Work Order creation</p>
+                  <p className="text-slate-500 font-medium">No PDCs yet — create one to enable Work Order creation</p>
                 </td></tr>
               ) : ptcs.map(ptc => (
                 <tr key={ptc.id} className="hover:bg-slate-50">
@@ -123,7 +123,7 @@ export default function PTCPage() {
                   </td>
                   {canManage && (
                     <td className="px-6 py-4">
-                      <button onClick={() => { if(confirm("Delete this PTC?")) deletePTC(ptc.id) }}
+                      <button onClick={() => { if(confirm("Delete this PDC?")) deletePTC(ptc.id) }}
                         className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
                         <Trash2 size={15}/>
                       </button>
@@ -141,7 +141,7 @@ export default function PTCPage() {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
             <div className="flex items-center justify-between p-6 border-b border-slate-200">
-              <h2 className="text-xl font-black text-slate-900">Create PTC</h2>
+              <h2 className="text-xl font-black text-slate-900">Create PDC</h2>
               <button onClick={() => setShowForm(false)}><X size={22} className="text-slate-400 hover:text-slate-700"/></button>
             </div>
             <form onSubmit={handleCreate} className="p-6 space-y-4">
@@ -157,7 +157,7 @@ export default function PTCPage() {
                   {PROCESSES.map(p => <option key={p} value={p}>{PROCESS_STAGE_LABELS[p]}</option>)}
                 </select>
                 <p className="text-[10px] text-slate-400 mt-1">
-                  This PTC will be available to: <strong>{roleLabel(PROCESS_PTC_ROLE_OWNER[form.process])}</strong>
+                  This PDC will be available to: <strong>{roleLabel(PROCESS_PTC_ROLE_OWNER[form.process])}</strong>
                 </p>
               </div>
               <div>
@@ -176,7 +176,7 @@ export default function PTCPage() {
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => setShowForm(false)} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-50">Cancel</button>
                 <button type="submit" className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700">
-                  <CheckCircle2 size={16} className="inline mr-1.5"/>Create PTC
+                  <CheckCircle2 size={16} className="inline mr-1.5"/>Create PDC
                 </button>
               </div>
             </form>
@@ -185,4 +185,4 @@ export default function PTCPage() {
       )}
     </div>
   )
-}
+} 

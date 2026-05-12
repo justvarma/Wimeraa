@@ -3,7 +3,7 @@ import { useState, useMemo } from "react"
 import { useApp } from "@/components/providers/AppProvider"
 import {
   UserRole, PROCESS_STAGE_LABELS, PROCESS_OPERATION_LABELS, PROCESS_RULES, PROCESS_PTC_ROLE_MAP,
-  REASON_CODES, MACHINES,
+  REASON_CODES, 
   type ProcessStage, type Shift, type WorkOrder, type ProcessRecord,
   type ReworkEntry, type RejectionEntry, type DailyProductionEntry, type DowntimeEvent,
 } from "@/lib/store"
@@ -128,7 +128,7 @@ function ProcessRecordForm({ wo, onClose, onSave, currentUser: cu }: {
   onSave: (r: Omit<ProcessRecord,"id"|"createdAt">) => void
   currentUser: { name: string; role: UserRole }
 }) {
-  const { users, shifts } = useApp()
+  const { users, shifts, machines } = useApp()
   // Role flags for conditional section visibility (Issue 5 — role separation)
   const cuRole = cu.role
   const cuIsAdmin      = cuRole === UserRole.ADMIN
@@ -140,7 +140,7 @@ function ProcessRecordForm({ wo, onClose, onSave, currentUser: cu }: {
   const showProduction = cuIsAdmin || cuIsProcessPTC                 // Steps 2–3
   const showQI         = cuIsAdmin || cuIsQI                         // Step 4
   const ptcManagerUsers = users.filter(u => u.role === UserRole.PTC_MANAGER || u.role === UserRole.ADMIN)
-  const processMachines = MACHINES.filter(m => m.process === wo.process && m.status === "active")
+  const processMachines = machines.filter(m => m.process === wo.process && m.status === "active")
 
   const shiftOptions = getSelectableShiftOptions(shifts, wo.shift)
   const needsScrap = PROCESS_RULES[wo.process].scrap
@@ -450,9 +450,9 @@ function DailyEntryForm({ wo, onClose, onSave, currentUserName }: {
   onSave: (data: Omit<DailyProductionEntry,"id"|"createdAt">) => void
   currentUserName: string
 }) {
-  const { users, shifts } = useApp()
+  const { users, shifts, machines } = useApp()
   const today = new Date().toISOString().split("T")[0]
-  const processMachines = MACHINES.filter(m => m.process === wo.process && m.status === "active")
+  const processMachines = machines.filter(m => m.process === wo.process && m.status === "active")
   const operators = users.filter(u => u.role === UserRole.PTC_DIE_CASTING || u.role === UserRole.PTC_COATING || u.role === UserRole.PTC_CNC_VMC || u.role === UserRole.ADMIN)
 
   const shiftOptions = getSelectableShiftOptions(shifts, wo.shift)
@@ -539,9 +539,9 @@ function DowntimeForm({ wo, onClose, onSave, currentUserName }: {
   onSave: (data: Omit<DowntimeEvent,"id"|"createdAt">) => void
   currentUserName: string
 }) {
-  const { shifts } = useApp()
+  const { shifts, machines } = useApp()
   const today = new Date().toISOString().split("T")[0]
-  const processMachines = MACHINES.filter(m => m.process === wo.process)
+  const processMachines = machines.filter(m => m.process === wo.process)
   const shiftOptions = getSelectableShiftOptions(shifts, wo.shift)
   const [form, setForm] = useState({
     date: today, shift: (wo.shift || shiftOptions[0]?.id || "") as Shift,
