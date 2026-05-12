@@ -376,18 +376,16 @@ function MachinesTab() {
   const { machines, addMachine, updateMachine, deleteMachine, workOrders } = useApp()
   const [name,setName]=useState("")
   const [process,setProcess]=useState<"die_casting"|"coating"|"cnc_vmc">("die_casting")
-  const [type,setType]=useState("")
   const [status,setStatus]=useState<MachineStatus>("active")
   const openReservations = (machineName: string) => workOrders.filter(wo => wo.machine===machineName && ["not_started","in_progress","awaiting_qi"].includes(wo.status)).length
   return <div className="space-y-4">
     <div className="bg-white border rounded-xl p-4 flex gap-2 flex-wrap">
       <input value={name} onChange={e=>setName(e.target.value)} placeholder="Machine name" className="border rounded px-3 py-2 text-sm"/>
-      <input value={type} onChange={e=>setType(e.target.value)} placeholder="Type" className="border rounded px-3 py-2 text-sm"/>
-      <select value={process} onChange={e=>setProcess(e.target.value as any)} className="border rounded px-3 py-2 text-sm"><option value="die_casting">Die Casting</option><option value="coating">Coating</option><option value="cnc_vmc">CNC/VMC</option></select>
+            <select value={process} onChange={e=>setProcess(e.target.value as any)} className="border rounded px-3 py-2 text-sm"><option value="die_casting">Die Casting</option><option value="coating">Coating</option><option value="cnc_vmc">CNC/VMC</option></select>
       <select value={status} onChange={e=>setStatus(e.target.value as MachineStatus)} className="border rounded px-3 py-2 text-sm"><option value="active">Active</option><option value="maintenance">Maintenance</option><option value="inactive">Inactive</option></select>
-      <button onClick={async()=>{const id=`m-${Date.now()}`; await addMachine({id,name,process,type,status}); setName(""); setType("")}} className="px-3 py-2 bg-blue-600 text-white rounded text-sm font-bold">Add</button>
+      <button onClick={async()=>{const id=`m-${Date.now()}`; if(!name.trim()||!process||!status) return; await addMachine({id,name:name.trim(),process,type:"",status}); setName("")}} className="px-3 py-2 bg-blue-600 text-white rounded text-sm font-bold">Add</button>
     </div>
-    <div className="bg-white border rounded-xl overflow-hidden"><table className="w-full text-sm"><thead><tr className="bg-slate-50">{["Name","Process","Type","Status","Open WO reservations","Actions"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead><tbody>{machines.map(m=><tr key={m.id} className="border-t"><td className="px-3 py-2">{m.name}</td><td className="px-3 py-2">{m.process}</td><td className="px-3 py-2">{m.type}</td><td className="px-3 py-2"><select value={m.status} onChange={e=>updateMachine(m.id,{status:e.target.value as MachineStatus})}><option value="active">active</option><option value="maintenance">maintenance</option><option value="inactive">inactive</option></select></td><td className="px-3 py-2">{openReservations(m.name)}</td><td className="px-3 py-2"><button onClick={()=>deleteMachine(m.id)} className="text-red-600">Delete</button></td></tr>)}</tbody></table></div>
+    <div className="bg-white border rounded-xl overflow-hidden"><table className="w-full text-sm"><thead><tr className="bg-slate-50">{["Name","Process","Status","Open WO reservations","Actions"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead><tbody>{machines.map(m=><tr key={m.id} className="border-t"><td className="px-3 py-2 text-slate-900 font-medium">{m.name}</td><td className="px-3 py-2">{m.process}</td><td className="px-3 py-2 text-slate-900"><select className="text-slate-900" value={m.status} onChange={e=>updateMachine(m.id,{status:e.target.value as MachineStatus})}><option value="active">active</option><option value="maintenance">maintenance</option><option value="inactive">inactive</option></select></td><td className="px-3 py-2">{openReservations(m.name)}</td><td className="px-3 py-2"><button onClick={()=>deleteMachine(m.id)} className="text-red-600">Delete</button></td></tr>)}</tbody></table></div>
   </div>
 }
 

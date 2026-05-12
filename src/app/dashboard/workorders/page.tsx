@@ -43,7 +43,7 @@ const processColor = (p: ProcessStage) =>
 const processIcon = (p: ProcessStage) =>
   p === "die_casting" ? "🔥" : p === "coating" ? "🎨" : "⚙️"
 
-// ─── Phase 1 Form (PTC Manager — WO Shell) ────────────────────────────────────
+// ─── Phase 1 Form (PDC Manager — WO Shell) ────────────────────────────────────
 function Phase1Form({ onClose, onSave, initial }: {
   onClose: () => void
   onSave: (data: Partial<WorkOrder>) => void
@@ -97,13 +97,13 @@ function Phase1Form({ onClose, onSave, initial }: {
         <div className="sticky top-0 bg-white z-10 flex items-center justify-between p-6 border-b border-slate-200">
           <div>
             <h2 className="text-xl font-black text-slate-900">{isEdit ? "Edit Work Order" : "New Work Order"}</h2>
-            <p className="text-xs text-slate-500 mt-0.5">Phase 1 — PTC Manager: Part, dates, quantities</p>
+            <p className="text-xs text-slate-500 mt-0.5">Phase 1 — PDC Manager: Part, dates, quantities</p>
           </div>
           <button onClick={onClose}><X size={22} className="text-slate-400 hover:text-slate-700"/></button>
         </div>
 
         <div className="p-4 mx-6 mt-5 mb-0 rounded-xl bg-indigo-50 border border-indigo-200 text-xs text-indigo-800">
-          <strong>PTC Manager scope:</strong> Select the part from the monthly schedule and set quantities/dates. The system creates the first Die Casting SWO automatically; each approved QI decision creates the next process SWO.
+          <strong>PDC Manager scope:</strong> Select the part from the monthly schedule and set quantities/dates. The system creates the first Die Casting SWO automatically; each approved QI decision creates the next process SWO.
         </div>
 
         {/* FIX §5.2: Locked fields notice for not_started WOs */}
@@ -175,7 +175,7 @@ function Phase1Form({ onClose, onSave, initial }: {
   )
 }
 
-// ─── Phase 2 Form (Process PTC — Operational Details) ─────────────────────────
+// ─── Phase 2 Form (Process PDC — Operational Details) ─────────────────────────
 function Phase2Form({ wo, onClose, onSave }: {
   wo: WorkOrder; onClose: () => void; onSave: (data: Partial<WorkOrder>) => void
 }) {
@@ -187,7 +187,7 @@ function Phase2Form({ wo, onClose, onSave }: {
   )
   const ptcManagers = users.filter(u => u.role === UserRole.PTC_MANAGER || u.role === UserRole.ADMIN)
   const processMachines = machines.filter(m => m.process === wo.process && m.status === "active")
-  const validPTCs = ptcs.filter(p => p.process === wo.process)
+  const validPDCs = ptcs.filter(p => p.process === wo.process)
   const qiUsers = users.filter(u => u.role === UserRole.QUALITY_INSPECTOR || u.role === UserRole.ADMIN || QI_ROLE_PROCESS_MAP[u.role] === wo.process)
 
   const [form, setForm] = useState({
@@ -201,7 +201,7 @@ function Phase2Form({ wo, onClose, onSave }: {
     weightPerPart:  wo.weightPerPart  || (wo.requiredQuantityKg / wo.targetPartNos || 0),
     acceptancePoints: wo.acceptancePoints || "",
     cycleTimeMinutes: wo.cycleTimeMinutes || 5,
-    ptcId:          wo.ptcId          || (validPTCs[0]?.id || ""),
+    ptcId:          wo.ptcId          || (validPDCs[0]?.id || ""),
     isExternal:     wo.isExternal     || false,
     vendorId:       wo.vendorId       || "",
     vendorName:     wo.vendorName     || "",
@@ -213,10 +213,10 @@ function Phase2Form({ wo, onClose, onSave }: {
   const reservedMachines = new Set(
     workOrders
       .filter(w => w.id !== wo.id && w.machine && w.date === wo.date && w.shift === form.shift && !["completed", "finished_goods", "rejected"].includes(w.status))
-      .map(w => w.machine)
+      .flatMap(w => String(w.machine).split(",").map(m => m.trim()).filter(Boolean))
   )
 
-  const selectedMachineName = form.machine
+  const selectedMachineNames = form.machine.split(",").map(m => m.trim()).filter(Boolean)
   const selectedQi = qiUsers.find(u => u.id === form.assignedQiId)
   const vendorReady = !form.isExternal || Boolean(form.vendorName.trim() && form.vendorProductionDate && form.vendorMachine.trim() && form.vendorShift && form.assignedQiId)
 
@@ -234,12 +234,12 @@ function Phase2Form({ wo, onClose, onSave }: {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (shortfall) { alert(`Insufficient stock! Available: ${availableKg.toFixed(1)} KG, Required: ${wo.requiredQuantityKg} KG`); return }
-    if (!selectedMachineName) { alert("Machine is required."); return }
-    if (reservedMachines.has(selectedMachineName)) { alert("Machine already occupied for this shift"); return }
+    if (selectedMachineNames.length===0) { alert("At least one machine is required."); return }
+    if (selectedMachineNames.some(machine => reservedMachines.has(machine))) { alert("One or more machines are already occupied for this shift"); return }
     if (!vendorReady) { alert("Vendor production requires vendor name, date, machine, shift, and assigned QI user."); return }
     onSave({
       ...form,
-      machine: selectedMachineName,
+      machine: selectedMachineNames.join(", "),
       vendorMachine: form.isExternal ? form.vendorMachine.trim() : "",
       vendorProductionDate: form.isExternal ? form.vendorProductionDate : "",
       vendorShift: form.isExternal ? form.vendorShift : "" as Shift,
@@ -264,7 +264,7 @@ function Phase2Form({ wo, onClose, onSave }: {
               </span>
             </div>
             <h2 className="text-xl font-black text-slate-900">Fill Operational Details</h2>
-            <p className="text-xs text-slate-500 mt-0.5">Phase 2 — {PROCESS_STAGE_LABELS[wo.process]} PTC: Machine, operator, material, acceptance points</p>
+            <p className="text-xs text-slate-500 mt-0.5">Phase 2 — {PROCESS_STAGE_LABELS[wo.process]} PDC: Machine, operator, material, acceptance points</p>
           </div>
           <button onClick={onClose}><X size={22} className="text-slate-400 hover:text-slate-700"/></button>
         </div>
@@ -316,10 +316,10 @@ function Phase2Form({ wo, onClose, onSave }: {
                   {shiftOptions.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
                 </select>
               </Field>
-              <Field label="PTC Code" req>
+              <Field label="PDC Code" req>
                 <select required value={form.ptcId} onChange={e => setForm(p=>({...p,ptcId:e.target.value}))} className={selectCls}>
-                  <option value="">— Select PTC —</option>
-                  {validPTCs.map(p => <option key={p.id} value={p.id}>{p.id} · {getShiftLabel(shifts, p.shift)} · {p.date}</option>)}
+                  <option value="">— Select PDC —</option>
+                  {validPDCs.map(p => <option key={p.id} value={p.id}>{p.id} · {getShiftLabel(shifts, p.shift)} · {p.date}</option>)}
                 </select>
               </Field>
             </div>
@@ -329,10 +329,7 @@ function Phase2Form({ wo, onClose, onSave }: {
           <div className="p-4 border border-slate-200 rounded-xl space-y-3">
             <p className="text-xs font-black text-slate-700 uppercase tracking-wider">Machine & Operator</p>
             <Field label="Machine" req>
-              <select required value={form.machine} onChange={e => setForm(p=>({...p,machine:e.target.value}))} className={selectCls}>
-                <option value="">— Select machine —</option>
-                {processMachines.map(m => <option key={m.id} value={m.name} disabled={reservedMachines.has(m.name)}>{m.name}{reservedMachines.has(m.name) ? " — occupied for selected shift/date" : ""}</option>)}
-              </select>
+              <div className="space-y-2">{processMachines.map(m => { const checked = selectedMachineNames.includes(m.name); const occupied = reservedMachines.has(m.name); return <label key={m.id} className={`flex items-center gap-2 text-sm ${occupied?"text-red-600":"text-slate-700"}`}><input type="checkbox" checked={checked} disabled={occupied && !checked} onChange={e=>{ setForm(p=>{ const set=new Set(p.machine.split(",").map(x=>x.trim()).filter(Boolean)); if(e.target.checked) set.add(m.name); else set.delete(m.name); return {...p, machine:Array.from(set).join(", ")} }) }} />{m.name}{occupied && !checked ? " — occupied for selected shift/date" : ""}</label>})}</div>
             </Field>
             <Field label="Operator" req>
               <select required value={form.operator} onChange={e => setForm(p=>({...p,operator:e.target.value}))} className={selectCls}>
@@ -419,17 +416,17 @@ function Phase2Form({ wo, onClose, onSave }: {
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-50">Cancel</button>
             <button type="submit"
-              disabled={!selectedMachineName || !form.operator || !form.rawMaterialId || shortfall || !form.ptcId || reservedMachines.has(selectedMachineName) || !vendorReady}
-              title={!form.ptcId ? "A valid PTC code must be selected" : reservedMachines.has(selectedMachineName) ? "Machine already occupied for this shift" : !vendorReady ? "Vendor production requires vendor name, date, machine, shift, and assigned QI user" : shortfall ? "Insufficient material stock" : ""}
+              disabled={selectedMachineNames.length===0 || !form.operator || !form.rawMaterialId || shortfall || !form.ptcId || selectedMachineNames.some(machine => reservedMachines.has(machine)) || !vendorReady}
+              title={!form.ptcId ? "A valid PDC code must be selected" : selectedMachineNames.some(machine => reservedMachines.has(machine)) ? "One or more machines are already occupied for this shift" : !vendorReady ? "Vendor production requires vendor name, date, machine, shift, and assigned QI user" : shortfall ? "Insufficient material stock" : ""}
               className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
               <CheckCircle2 size={16}/> Activate Work Order
             </button>
           </div>
           {!form.ptcId && (
-            <p className="text-xs text-red-600 font-bold text-center -mt-2">⚠ A PTC code must be selected before activating</p>
+            <p className="text-xs text-red-600 font-bold text-center -mt-2">⚠ A PDC code must be selected before activating</p>
           )}
-          {validPTCs.length === 0 && (
-            <p className="text-xs text-red-600 font-bold text-center -mt-2">⚠ No PTC codes exist for {PROCESS_STAGE_LABELS[wo.process]}. Ask Admin/PTC Manager to create one first.</p>
+          {validPDCs.length === 0 && (
+            <p className="text-xs text-red-600 font-bold text-center -mt-2">⚠ No PDC codes exist for {PROCESS_STAGE_LABELS[wo.process]}. Ask Admin/PDC Manager to create one first.</p>
           )}
         </form>
       </div>
@@ -450,16 +447,16 @@ export default function WorkOrdersPage() {
   const [processFilter, setProcessFilter] = useState("all")
   const [typeFilter, setTypeFilter]       = useState<"all" | "standard" | "stage" | "rework" | "rejection">("all")
 
-  const isPTCManager   = role === UserRole.PTC_MANAGER
+  const isPDCManager   = role === UserRole.PTC_MANAGER
   const isAdmin        = role === UserRole.ADMIN
-  const isPTCDC        = role === UserRole.PTC_DIE_CASTING
-  const isPTCCoat      = role === UserRole.PTC_COATING
-  const isPTCCNC       = role === UserRole.PTC_CNC_VMC
-  const isProcessPTC   = isPTCDC || isPTCCoat || isPTCCNC
+  const isPDCDC        = role === UserRole.PTC_DIE_CASTING
+  const isPDCCoat      = role === UserRole.PTC_COATING
+  const isPDCCNC       = role === UserRole.PTC_CNC_VMC
+  const isProcessPDC   = isPDCDC || isPDCCoat || isPDCCNC
 
-  // What process can this PTC user see/edit?
+  // What process can this PDC user see/edit?
   const myProcess: ProcessStage | null =
-    isPTCDC ? "die_casting" : isPTCCoat ? "coating" : isPTCCNC ? "cnc_vmc" : null
+    isPDCDC ? "die_casting" : isPDCCoat ? "coating" : isPDCCNC ? "cnc_vmc" : null
 
   const visible = useMemo(() => {
     const filtered = workOrders.filter(w => {
@@ -470,7 +467,7 @@ export default function WorkOrdersPage() {
                            (typeFilter === "stage"    && w.woType === "stage") ||
                            (typeFilter === "rejection" && w.woType === "rejection") ||
                            (typeFilter === "standard" && (!w.woType || w.woType === "standard"))
-      // Process PTCs see their own process (includes rework SWOs for that process)
+      // Process PDCs see their own process (includes rework SWOs for that process)
       const matchRole    = !myProcess    || (w.process === myProcess && w.woType !== "standard")
       return matchStatus && matchProcess && matchType && matchRole
     })
@@ -547,15 +544,15 @@ export default function WorkOrdersPage() {
 
   // FIX §5.2: SRS allows delete when status is "draft" OR "not_started" (production not yet started)
   const canDeleteWO = (wo: WorkOrder) =>
-    (isPTCManager || isAdmin) && (wo.status === "draft" || wo.status === "not_started")
+    (isPDCManager || isAdmin) && (wo.status === "draft" || wo.status === "not_started")
 
   const canEditPhase1 = (wo: WorkOrder) =>
-    (isPTCManager || isAdmin) && (wo.status === "draft" || wo.status === "not_started")
+    (isPDCManager || isAdmin) && (wo.status === "draft" || wo.status === "not_started")
 
   const canFillPhase2 = (wo: WorkOrder) =>
     wo.status === "draft" &&
     wo.woType !== "standard" &&
-    (isAdmin || (isProcessPTC && wo.process === myProcess))
+    (isAdmin || (isProcessPDC && wo.process === myProcess))
 
   return (
     <div className="space-y-8">
@@ -563,14 +560,14 @@ export default function WorkOrdersPage() {
         <div>
           <h1 className="text-3xl font-black text-slate-900">Work Orders</h1>
           <p className="text-slate-600 mt-1">
-            {isPTCManager
-              ? "Create work order shells — process PTCs will fill operational details"
-              : isProcessPTC
+            {isPDCManager
+              ? "Create work order shells — process PDCs will fill operational details"
+              : isProcessPDC
               ? `${PROCESS_STAGE_LABELS[myProcess!]} — View & fill operational details for your process`
               : "Production planning & management"}
           </p>
         </div>
-        {(isPTCManager || isAdmin) && (
+        {(isPDCManager || isAdmin) && (
           <button onClick={() => { setEditWO(null); setShowPhase1(true) }}
             className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-md">
             <Plus size={18}/> New Work Order
@@ -579,13 +576,13 @@ export default function WorkOrdersPage() {
       </header>
 
       {/* Role info banner */}
-      {isPTCManager && (
+      {isPDCManager && (
         <div className="flex items-start gap-3 p-4 bg-indigo-50 border border-indigo-200 rounded-2xl text-sm text-indigo-800">
           <AlertTriangle size={16} className="shrink-0 mt-0.5 text-indigo-500"/>
-          <p><strong>Your role:</strong> Create Work Order shells with part, dates, and quantities. Draft WOs appear in yellow — process PTCs (Die Casting, Coating, CNC/VMC) will complete the operational details to activate them.</p>
+          <p><strong>Your role:</strong> Create Work Order shells with part, dates, and quantities. Draft WOs appear in yellow — process PDCs (Die Casting, Coating, CNC/VMC) will complete the operational details to activate them.</p>
         </div>
       )}
-      {isProcessPTC && (
+      {isProcessPDC && (
         <div className="flex items-start gap-3 p-4 bg-blue-50 border border-blue-200 rounded-2xl text-sm text-blue-800">
           <AlertTriangle size={16} className="shrink-0 mt-0.5 text-blue-500"/>
           <p><strong>Your role ({PROCESS_STAGE_LABELS[myProcess!]}):</strong> Click <strong>"Fill Details"</strong> on any <em>Draft</em> work order for your process to enter machine, operator, shift, material, and acceptance criteria.</p>
@@ -678,7 +675,7 @@ export default function WorkOrdersPage() {
                       Grade <span className="font-bold text-slate-700">{wo.materialGrade}</span>
                     </p>
                   ) : (
-                    <p className="text-xs text-amber-700 mt-1.5 font-medium">⏳ Awaiting process PTC to fill operational details</p>
+                    <p className="text-xs text-amber-700 mt-1.5 font-medium">⏳ Awaiting process PDC to fill operational details</p>
                   )}
 
                   <p className="text-xs text-slate-500 mt-0.5">
