@@ -53,6 +53,20 @@ const clientDoc = (clientId: string, col: string, id: string) =>
 
 type Unsub = () => void
 
+function stripUndefined<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map(item => stripUndefined(item)) as T
+  }
+  if (value && typeof value === "object" && !(value instanceof Date)) {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, v]) => v !== undefined)
+        .map(([k, v]) => [k, stripUndefined(v)]),
+    ) as T
+  }
+  return value
+}
+
 /**
  * Subscribe to an entire sub-collection with optional constraints.
  * The snapshot strips Firestore metadata and maps `id` from the doc.
@@ -132,7 +146,7 @@ export async function updateUserProfile(
     uid: string,
     data: Partial<Omit<User, "id" | "password">>,
 ): Promise<void> {
-  await updateDoc(clientDoc(clientId, "users", uid), data)
+  await updateDoc(clientDoc(clientId, "users", uid), stripUndefined(data))
 }
 
 export async function deleteUserProfile(
@@ -163,7 +177,7 @@ export async function addMaterial(
     clientId: string,
     data: Omit<RawMaterial, "id">,
 ): Promise<string> {
-  const ref = await addDoc(clientCol(clientId, "raw_materials"), data)
+  const ref = await addDoc(clientCol(clientId, "raw_materials"), stripUndefined(data))
   return ref.id
 }
 
@@ -172,7 +186,7 @@ export async function updateMaterial(
     id: string,
     data: Partial<RawMaterial>,
 ): Promise<void> {
-  await updateDoc(clientDoc(clientId, "raw_materials", id), data)
+  await updateDoc(clientDoc(clientId, "raw_materials", id), stripUndefined(data))
 }
 
 /**
@@ -248,7 +262,7 @@ export async function updateSchedule(
     id: string,
     data: Partial<MonthlySchedule>,
 ): Promise<void> {
-  await updateDoc(clientDoc(clientId, "schedules", id), data)
+  await updateDoc(clientDoc(clientId, "schedules", id), stripUndefined(data))
 }
 
 export async function deleteSchedule(
@@ -308,10 +322,10 @@ export async function addWorkOrder(
     clientId: string,
     data: Omit<WorkOrder, "id" | "createdAt">,
 ): Promise<string> {
-  const ref = await addDoc(clientCol(clientId, "work_orders"), {
+  const ref = await addDoc(clientCol(clientId, "work_orders"), stripUndefined({
     ...data,
     createdAt: new Date().toISOString().split("T")[0],
-  })
+  }))
   return ref.id
 }
 
@@ -320,7 +334,7 @@ export async function updateWorkOrder(
     id: string,
     data: Partial<WorkOrder>,
 ): Promise<void> {
-  await updateDoc(clientDoc(clientId, "work_orders", id), data)
+  await updateDoc(clientDoc(clientId, "work_orders", id), stripUndefined(data))
 }
 
 export async function deleteWorkOrder(
@@ -360,7 +374,7 @@ export async function updateDailyEntry(
     id: string,
     data: Partial<DailyProductionEntry>,
 ): Promise<void> {
-  await updateDoc(clientDoc(clientId, "daily_entries", id), data)
+  await updateDoc(clientDoc(clientId, "daily_entries", id), stripUndefined(data))
 }
 
 export async function deleteDailyEntry(
@@ -400,7 +414,7 @@ export async function updateProcessRecord(
     id: string,
     data: Partial<ProcessRecord>,
 ): Promise<void> {
-  await updateDoc(clientDoc(clientId, "process_records", id), data)
+  await updateDoc(clientDoc(clientId, "process_records", id), stripUndefined(data))
 }
 
 // ─── Downtime Events ──────────────────────────────────────────────────────────
@@ -446,10 +460,10 @@ export async function addQIInspection(
     clientId: string,
     data: Omit<QIInspection, "id" | "createdAt">,
 ): Promise<string> {
-  const ref = await addDoc(clientCol(clientId, "qi_inspections"), {
+  const ref = await addDoc(clientCol(clientId, "qi_inspections"), stripUndefined({
     ...data,
     createdAt: new Date().toISOString().split("T")[0],
-  })
+  }))
   return ref.id
 }
 
@@ -519,7 +533,7 @@ export async function updateRoleConfig(
     id: string,
     data: Partial<RoleConfig>,
 ): Promise<void> {
-  await updateDoc(clientDoc(clientId, "roles", id), data)
+  await updateDoc(clientDoc(clientId, "roles", id), stripUndefined(data))
 }
 
 /**
@@ -735,7 +749,7 @@ export async function updateShiftConfig(
   }
   const updatedShift = nextShifts.find(shift => shift.id === id)
   if (updatedShift) validateBreaks(updatedShift)
-  await updateDoc(clientDoc(clientId, "shifts", id), data)
+  await updateDoc(clientDoc(clientId, "shifts", id), stripUndefined(data))
 }
 
 export async function reorderShiftConfigs(

@@ -133,25 +133,23 @@ export default function InventoryPage() {
       notes: form.notes,
       status: "pending" as const,
       submittedById: currentUser!.id,
-      approvedBy: undefined,
-      rejectedReason: undefined,
     }
     if (editItem) {
       updateMaterial(editItem.id, payload)
     } else {
-      addMaterial({ ...payload, usedQuantity: 0 })
+      addMaterial({ ...payload, usedQuantity: 0, approvedBy: null, rejectedReason: null })
     }
     setShowForm(false)
   }
 
   const handleApprove = (id: string) => {
-    updateMaterial(id, { status: "approved", approvedBy: currentUser!.name, rejectedReason: undefined })
+    updateMaterial(id, { status: "approved", approvedBy: currentUser!.name, rejectedReason: null })
   }
 
   const handleReject = (id: string) => {
     const reason = prompt("Enter rejection reason:")
     if (!reason) return
-    updateMaterial(id, { status: "rejected", rejectedReason: reason, approvedBy: undefined })
+    updateMaterial(id, { status: "rejected", rejectedReason: reason, approvedBy: null })
   }
 
   const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {

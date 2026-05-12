@@ -38,12 +38,12 @@ export default function ApprovalsPage() {
   const processed = materials.filter(m => m.status !== "pending")
 
   const handleApprove = (id: string) => {
-    updateMaterial(id, { status: "approved", approvedBy: currentUser!.name, rejectedReason: undefined })
+    updateMaterial(id, { status: "approved", approvedBy: currentUser!.name, rejectedReason: null })
   }
 
   const handleReject = () => {
     if (!rejectModal || !rejectReason.trim()) return
-    updateMaterial(rejectModal.id, { status: "rejected", rejectedReason: rejectReason.trim(), approvedBy: undefined })
+    updateMaterial(rejectModal.id, { status: "rejected", rejectedReason: rejectReason.trim(), approvedBy: null })
     setRejectModal(null)
     setRejectReason("")
   }

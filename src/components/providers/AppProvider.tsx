@@ -63,7 +63,7 @@ interface AppContextType {
 
   // ── Work Orders ────────────────────────────────────────────────────────────
   workOrders:     WorkOrder[]
-  addWorkOrder:   (wo: Omit<WorkOrder, "id" | "createdAt">)  => Promise<void>
+  addWorkOrder:   (wo: Omit<WorkOrder, "id" | "createdAt">)  => Promise<string>
   updateWorkOrder:(id: string, d: Partial<WorkOrder>)         => Promise<void>
   deleteWorkOrder:(id: string)                                 => Promise<void>
 
@@ -84,7 +84,7 @@ interface AppContextType {
 
   // ── QI / FQI ───────────────────────────────────────────────────────────────
   qiInspections:  QIInspection[]
-  addQIInspection:(i: Omit<QIInspection, "id" | "createdAt">) => Promise<void>
+  addQIInspection:(i: Omit<QIInspection, "id" | "createdAt">) => Promise<string>
 
   fqiInspections:  FQIInspection[]
   addFQIInspection:(i: Omit<FQIInspection, "id" | "createdAt">) => Promise<void>
@@ -210,12 +210,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
 
           const handleShifts = (loadedShifts: ShiftConfig[]) => {
-            if (loadedShifts.length === 0) {
-              fs.seedDefaultShifts(cid, DEFAULT_SHIFT_CONFIGS).catch(console.error)
-              setShifts(DEFAULT_SHIFT_CONFIGS)
-            } else {
-              setShifts(loadedShifts)
-            }
+            // Do not auto-reseed defaults after admins delete shift docs; an empty
+            // shift collection is a valid configured state and should stay empty.
+            setShifts(loadedShifts)
           }
 
           // Silent handler for the rare permission-denied that still slips through.
@@ -381,7 +378,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // ── Work Orders ────────────────────────────────────────────────────────────
   const addWorkOrder = useCallback(async (data: Omit<WorkOrder, "id" | "createdAt">) => {
-    await fs.addWorkOrder(cid(), data)
+    return await fs.addWorkOrder(cid(), data)
   }, [clientId])
 
   const updateWorkOrder = useCallback(async (id: string, data: Partial<WorkOrder>) => {
@@ -421,7 +418,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // ── QI / FQI ───────────────────────────────────────────────────────────────
   const addQIInspection = useCallback(async (data: Omit<QIInspection, "id" | "createdAt">) => {
-    await fs.addQIInspection(cid(), data)
+    return await fs.addQIInspection(cid(), data)
   }, [clientId])
 
   const addFQIInspection = useCallback(async (data: Omit<FQIInspection, "id" | "createdAt">) => {
