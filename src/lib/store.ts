@@ -19,10 +19,10 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   [UserRole.SYSTEM_ADMIN]:      "System Admin (Wimera)",
   [UserRole.ADMIN]:             "Admin",
   [UserRole.STOREKEEPER]:       "Storekeeper",
-  [UserRole.PTC_MANAGER]:       "PTC Manager",
-  [UserRole.PTC_DIE_CASTING]:   "PTC – Die Casting",
-  [UserRole.PTC_COATING]:       "PTC – Coating",
-  [UserRole.PTC_CNC_VMC]:       "PTC – CNC/VMC",
+  [UserRole.PTC_MANAGER]:       "PDC Manager",
+  [UserRole.PTC_DIE_CASTING]:   "PDC – Die Casting",
+  [UserRole.PTC_COATING]:       "PDC – Coating",
+  [UserRole.PTC_CNC_VMC]:       "PDC – CNC/VMC",
   [UserRole.QI_DIE_CASTING]:    "QI – Die Casting",
   [UserRole.QI_COATING]:        "QI – Coating",
   [UserRole.QI_MACHINING]:      "QI – Machining",
@@ -144,10 +144,10 @@ export interface RoleConfig {
 export const DEFAULT_ROLE_CONFIGS: RoleConfig[] = [
   { id: UserRole.ADMIN,             name: "Admin",                       permissionKey: UserRole.ADMIN,             description: "Full access to all modules and configuration.",                     isSystem: true, isActive: true },
   { id: UserRole.STOREKEEPER,       name: "Storekeeper",                 permissionKey: UserRole.STOREKEEPER,       description: "Manages raw material inventory, add/edit/delete entries.",          isSystem: true, isActive: true },
-  { id: UserRole.PTC_MANAGER,       name: "PTC Manager",                 permissionKey: UserRole.PTC_MANAGER,       description: "Creates Work Order shells, oversees all production tracking.",       isSystem: true, isActive: true },
-  { id: UserRole.PTC_DIE_CASTING,   name: "PTC – Die Casting",           permissionKey: UserRole.PTC_DIE_CASTING,   description: "Fills Die Casting operational details and logs production.",         isSystem: true, isActive: true },
-  { id: UserRole.PTC_COATING,       name: "PTC – Coating",               permissionKey: UserRole.PTC_COATING,       description: "Fills Coating process details and logs production.",                 isSystem: true, isActive: true },
-  { id: UserRole.PTC_CNC_VMC,       name: "PTC – CNC/VMC",               permissionKey: UserRole.PTC_CNC_VMC,       description: "Fills CNC/VMC machining details and logs production.",              isSystem: true, isActive: true },
+  { id: UserRole.PTC_MANAGER,       name: "PDC Manager",                 permissionKey: UserRole.PTC_MANAGER,       description: "Creates Work Order shells, oversees all production tracking.",       isSystem: true, isActive: true },
+  { id: UserRole.PTC_DIE_CASTING,   name: "PDC – Die Casting",           permissionKey: UserRole.PTC_DIE_CASTING,   description: "Fills Die Casting operational details and logs production.",         isSystem: true, isActive: true },
+  { id: UserRole.PTC_COATING,       name: "PDC – Coating",               permissionKey: UserRole.PTC_COATING,       description: "Fills Coating process details and logs production.",                 isSystem: true, isActive: true },
+  { id: UserRole.PTC_CNC_VMC,       name: "PDC – CNC/VMC",               permissionKey: UserRole.PTC_CNC_VMC,       description: "Fills CNC/VMC machining details and logs production.",              isSystem: true, isActive: true },
   { id: UserRole.QI_DIE_CASTING,    name: "QI – Die Casting",            permissionKey: UserRole.QI_DIE_CASTING,    description: "Quality Inspector scoped to Die Casting stage only.",               isSystem: true, isActive: true },
   { id: UserRole.QI_COATING,        name: "QI – Coating",                permissionKey: UserRole.QI_COATING,        description: "Quality Inspector scoped to Coating stage only.",                   isSystem: true, isActive: true },
   { id: UserRole.QI_MACHINING,      name: "QI – Machining",              permissionKey: UserRole.QI_MACHINING,      description: "Quality Inspector scoped to CNC/VMC Machining stage only.",         isSystem: true, isActive: true },
@@ -181,7 +181,7 @@ export interface MonthlySchedule {
   requiredQuantity: number; date: string; submittedById: string; createdAt: string
 }
 
-// PTC = Process Tracking Code — created by Admin/PTC Manager, one per process+shift+date
+// PDC = Process Dispatch Code — created by Admin/PTC Manager, one per process+shift+date
 export interface PTC {
   id: string; process: ProcessStage; shift: Shift; date: string
   createdBy: string; createdById: string; createdAt: string
@@ -348,7 +348,7 @@ export const INITIAL_DOWNTIME_EVENTS: DowntimeEvent[] = [
 
 // ─── MACHINES ─────────────────────────────────────────────────────────────────
 
-export const MACHINES: MachineDef[] = [
+export const DEFAULT_MACHINE_CONFIGS: MachineDef[] = [
   { id: "m-dc-01",  name: "DC-01 — Cold Chamber Press (250T)", process: "die_casting", type: "Cold Chamber Die Caster",  status: "active"      },
   { id: "m-dc-02",  name: "DC-02 — Cold Chamber Press (400T)", process: "die_casting", type: "Cold Chamber Die Caster",  status: "active"      },
   { id: "m-dc-03",  name: "DC-03 — Hot Chamber Press (150T)",  process: "die_casting", type: "Hot Chamber Die Caster",   status: "maintenance" },

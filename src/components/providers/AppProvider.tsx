@@ -20,8 +20,8 @@ import {
   type User, type RawMaterial, type WorkOrder, type MonthlySchedule,
   type PTC, type DailyProductionEntry, type ProcessRecord,
   type DowntimeEvent, type QIInspection, type FQIInspection,
-  type ShiftConfig, type RoleConfig,
-  UserRole, DEFAULT_SHIFT_CONFIGS, DEFAULT_ROLE_CONFIGS,
+  type ShiftConfig, type RoleConfig, type MachineDef,
+  UserRole, DEFAULT_SHIFT_CONFIGS, DEFAULT_ROLE_CONFIGS, DEFAULT_MACHINE_CONFIGS,
 } from "@/lib/store"
 import { onAuthStateChange, signIn, signOut, fetchUserProfile, auth } from "@/lib/auth"
 import * as fs from "@/lib/firestoreService"
@@ -95,6 +95,12 @@ interface AppContextType {
   updateRole:     (id: string, data: Partial<RoleConfig>) => Promise<void>
   deleteRole:     (id: string) => Promise<void>
 
+  // ── Config: Machines ───────────────────────────────────────────────────────
+  machines: MachineDef[]
+  addMachine: (machine: MachineDef) => Promise<void>
+  updateMachine: (id: string, data: Partial<MachineDef>) => Promise<void>
+  deleteMachine: (id: string) => Promise<void>
+
   // ── Config: Shifts ─────────────────────────────────────────────────────────
   shifts:       ShiftConfig[]
   addShift:     (shift: ShiftConfig) => Promise<void>
@@ -138,6 +144,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Config collections
   const [roles,           setRoles]           = useState<RoleConfig[]>([])
   const [shifts,          setShifts]          = useState<ShiftConfig[]>([])
+  const [machines,        setMachines]        = useState<MachineDef[]>([])
 
   const unsubsRef = useRef<Array<() => void>>([])
 
@@ -224,6 +231,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             }
           }
 
+          const handleMachines = (loadedMachines: MachineDef[]) => {
+            if (loadedMachines.length === 0) {
+              fs.seedDefaultMachines(cid, DEFAULT_MACHINE_CONFIGS).catch(console.error)
+              setMachines(DEFAULT_MACHINE_CONFIGS)
+            } else {
+              setMachines(loadedMachines)
+            }
+          }
+
           unsubsRef.current = [
             fs.subscribeUsers(cid, setUsers, onSnapError),
             fs.subscribeMaterials(cid, setMaterials, onSnapError),
@@ -237,6 +253,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             fs.subscribeFQIInspections(cid, setFQIInspections, onSnapError),
             fs.subscribeRoles(cid, handleRoles, onSnapError),
             fs.subscribeShifts(cid, handleShifts, onSnapError),
+            fs.subscribeMachines(cid, handleMachines, onSnapError),
           ]
         }
       } catch (err) {
@@ -455,6 +472,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await fs.reorderShiftConfigs(cid(), orderedIds)
   }, [clientId])
 
+  const addMachine = useCallback(async (machine: MachineDef) => { if (!clientId) return; await fs.createMachineConfig(clientId, machine) }, [clientId])
+  const updateMachine = useCallback(async (id: string, data: Partial<MachineDef>) => { if (!clientId) return; await fs.updateMachineConfig(clientId, id, data) }, [clientId])
+  const deleteMachine = useCallback(async (id: string) => { if (!clientId) return; await fs.deleteMachineConfig(clientId, id) }, [clientId])
+
   const confirmShifts = useCallback(async () => {
     await fs.confirmShiftConfigs(cid())
   }, [clientId])
@@ -478,7 +499,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         fqiInspections, addFQIInspection,
 
         roles,  addRole,  updateRole,  deleteRole,
-        shifts, addShift, deleteShift, updateShift, reorderShift, confirmShifts,
+        machines, addMachine, updateMachine, deleteMachine,
+    shifts, addShift, deleteShift, updateShift, reorderShift, confirmShifts,
 
         sidebarCollapsed, setSidebarCollapsed,
       }}>

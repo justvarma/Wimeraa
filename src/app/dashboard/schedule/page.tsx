@@ -61,7 +61,7 @@ export default function SchedulePage() {
 
   const openAdd = () => {
     setEditItem(null)
-    setForm({ ...emptyForm, serialNumber: String(schedules.length + 1) })
+    setForm({ ...emptyForm, serialNumber: String(schedules.length + 1), partId: `PT-${new Date().toISOString().slice(0,10).replace(/-/g,"")}-${String(schedules.length+1).padStart(3,"0")}` })
     setShowForm(true)
   }
 
@@ -274,7 +274,7 @@ export default function SchedulePage() {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Part ID *</label>
-                  <input required value={form.partId} onChange={e => setForm(p => ({ ...p, partId: e.target.value }))}
+                  <input required value={form.partId} readOnly={true} onChange={e => setForm(p => ({ ...p, partId: e.target.value }))}
                     placeholder="e.g. RE-PT-0021"
                     className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none" />
                 </div>
