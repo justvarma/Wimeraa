@@ -399,6 +399,9 @@ function MaterialsTab() {
   const [material, setMaterial] = useState("")
   const [grade, setGrade] = useState("")
   const [applyMasterId, setApplyMasterId] = useState("")
+  const sortedMasters = [...materialMasters].sort((a, b) => (
+    a.material.localeCompare(b.material) || a.grade.localeCompare(b.grade)
+  ))
   useEffect(() => {
     if (materialMasters.length > 0 || materials.length === 0) return
     const unique = Array.from(new Map(
@@ -443,13 +446,13 @@ function MaterialsTab() {
       <input value={grade} onChange={e=>setGrade(e.target.value)} placeholder="Grade" className="border rounded px-3 py-2 text-sm text-slate-900 bg-white" />
       <button onClick={createMaster} className="px-3 py-2 bg-blue-600 text-white rounded text-sm font-bold">Add</button>
     </div>
-    <table className="w-full text-sm"><thead><tr className="bg-slate-50">{["Material","Grade","Actions"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead><tbody>{materialMasters.map(g=><tr key={g.id} className="border-t"><td className="px-3 py-2">{g.material}</td><td className="px-3 py-2">{g.grade}</td><td className="px-3 py-2"><button className="text-red-600" onClick={()=>deleteMaterialMaster(g.id)}>Delete</button></td></tr>)}</tbody></table>
+    <table className="w-full text-sm"><thead><tr className="bg-slate-50">{["Material","Grade","Actions"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead><tbody>{sortedMasters.map(g=><tr key={g.id} className="border-t"><td className="px-3 py-2">{g.material}</td><td className="px-3 py-2">{g.grade}</td><td className="px-3 py-2"><button className="text-red-600" onClick={()=>deleteMaterialMaster(g.id)}>Delete</button></td></tr>)}</tbody></table>
     <div className="mt-4 border-t pt-4">
       <p className="text-sm font-semibold text-slate-700 mb-2">Apply config to existing unknown inventory</p>
       <div className="flex gap-2 items-center">
         <select value={applyMasterId} onChange={e=>setApplyMasterId(e.target.value)} className="border rounded px-3 py-2 text-sm text-slate-900 bg-white">
           <option value="">Select material + grade</option>
-          {materialMasters.map(m => <option key={m.id} value={m.id}>{m.material} · Grade {m.grade}</option>)}
+          {sortedMasters.map(m => <option key={m.id} value={m.id}>{m.material} · Grade {m.grade}</option>)}
         </select>
         <button onClick={applyMasterToUnknownInventory} className="px-3 py-2 bg-slate-800 text-white rounded text-sm font-bold">Apply to Unknown</button>
       </div>

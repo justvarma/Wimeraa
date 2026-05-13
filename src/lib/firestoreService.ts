@@ -196,7 +196,7 @@ export function subscribeMaterialMasters(
 ): Unsub {
   return subscribeCol<RawMaterialMaster>(
       clientId, "material_masters", setter,
-      [orderBy("material", "asc"), orderBy("grade", "asc")],
+      [orderBy("material", "asc")],
       onError,
   )
 }
