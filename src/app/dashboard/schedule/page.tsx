@@ -20,7 +20,7 @@ function mapExcelRow(row: Record<string, unknown>, index: number) {
   }
   return {
     serialNumber: Number(get("serialnumber", "serial", "sno", "no")) || index + 1,
-    partId: get("partid", "part", "partno", "id") || `PT-${Date.now()}-${index}`,
+    partId: get("partid", "part", "partno", "id") || `PT-IMPORT-${String(index + 1).padStart(4, "0")}`,
     partName: get("partname", "name", "component", "description") || "",
     requiredQuantity: Number(get("requiredquantity", "quantity", "qty", "nos")) || 0,
     date: get("date", "month", "scheduledate") || new Date().toISOString().slice(0, 7),
@@ -28,7 +28,7 @@ function mapExcelRow(row: Record<string, unknown>, index: number) {
 }
 
 export default function SchedulePage() {
-  const { currentUser, schedules, addSchedule, updateSchedule, deleteSchedule } = useApp()
+  const { currentUser, schedules, workOrders, addSchedule, updateSchedule, deleteSchedule } = useApp()
   const [showForm, setShowForm] = useState(false)
   const [editItem, setEditItem] = useState<MonthlySchedule | null>(null)
   const [showUpload, setShowUpload] = useState(false)
@@ -58,6 +58,12 @@ export default function SchedulePage() {
   })
 
   const totalRequired = visible.reduce((sum, s) => sum + s.requiredQuantity, 0)
+  const scheduleProgress = (scheduleId: string) => {
+    const rows = workOrders.filter(wo => wo.masterId === scheduleId)
+    const produced = rows.reduce((sum, wo) => sum + (wo.partsCompleted || 0), 0)
+    const latest = rows.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""))[0]
+    return { produced, step: latest?.process ? latest.process.replace("_", " ") : "not_started" }
+  }
 
   const openAdd = () => {
     setEditItem(null)
@@ -223,21 +229,27 @@ export default function SchedulePage() {
                 <th className="px-5 py-4">Part Name</th>
                 <th className="px-5 py-4">Required Qty (Nos)</th>
                 <th className="px-5 py-4">Schedule Month</th>
+                <th className="px-5 py-4">Progress</th>
                 {canManage && <th className="px-5 py-4">Actions</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {visible.length === 0 ? (
-                <tr><td colSpan={6} className="px-6 py-12 text-center text-slate-400">
+                <tr><td colSpan={7} className="px-6 py-12 text-center text-slate-400">
                   <CalendarDays size={40} className="mx-auto mb-2 text-slate-200" />No schedule entries found
                 </td></tr>
-              ) : visible.map(item => (
+              ) : visible.map(item => { const p = scheduleProgress(item.id); return (
                 <tr key={item.id} className="hover:bg-slate-50 transition-colors">
                   <td className="px-5 py-4 text-sm font-bold text-slate-500">{item.serialNumber}</td>
                   <td className="px-5 py-4 text-sm font-mono text-indigo-600 font-bold">{item.partId}</td>
                   <td className="px-5 py-4 text-sm font-semibold text-slate-800">{item.partName}</td>
                   <td className="px-5 py-4 text-sm font-bold text-slate-900">{item.requiredQuantity.toLocaleString()}</td>
                   <td className="px-5 py-4 text-sm text-slate-500">{item.date.slice(0, 7)}</td>
+                  <td className="px-5 py-4 text-sm">
+                    <select value={p.step} disabled className="border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-700 bg-slate-50">
+                      <option value={p.step}>{p.produced} produced · {p.step}</option>
+                    </select>
+                  </td>
                   {canManage && (
                     <td className="px-5 py-4">
                       <div className="flex gap-3">
@@ -251,7 +263,7 @@ export default function SchedulePage() {
                     </td>
                   )}
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
         </div>

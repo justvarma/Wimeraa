@@ -226,6 +226,7 @@ export function QIInspectionPage({ process }: { process: ProcessStage }) {
     workOrders.filter(wo =>
       wo.process === process &&
       wo.status === "awaiting_qi" &&
+      wo.targetPartNos > 0 &&
       !submittedWorkOrderIds.includes(wo.id) &&
       (!wo.assignedQiId || wo.assignedQiId === currentUser?.id || currentUser?.role === UserRole.ADMIN)
     ),
