@@ -78,8 +78,16 @@ function Phase1Form({ onClose, onSave, initial }: {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     const selectedSchedule = schedules.find(s => s.id === form.masterId)
+    if (form.workOrderStartDate > form.dueDate) {
+      alert("WO start date cannot be after due date")
+      return
+    }
     if (selectedSchedule && form.date > selectedSchedule.date) {
       alert("WO date cannot exceed component due date")
+      return
+    }
+    if (selectedSchedule && form.dueDate > selectedSchedule.date) {
+      alert("WO due date cannot exceed component due date")
       return
     }
     onSave({
@@ -199,7 +207,7 @@ function Phase2Form({ wo, onClose, onSave }: {
     actualTarget:   wo.actualTarget   || wo.targetPartNos,
     partPerCycle:   wo.partPerCycle   || 1,
     weightPerPart:  wo.weightPerPart  || (wo.requiredQuantityKg / wo.targetPartNos || 0),
-    acceptancePoints: wo.acceptancePoints || "",
+    acceptancePoints: wo.acceptancePoints || "As per configured QI checkpoints",
     cycleTimeMinutes: wo.cycleTimeMinutes || 5,
     ptcId:          wo.ptcId          || (validPDCs[0]?.id || ""),
     isExternal:     wo.isExternal     || false,
@@ -264,7 +272,7 @@ function Phase2Form({ wo, onClose, onSave }: {
               </span>
             </div>
             <h2 className="text-xl font-black text-slate-900">Fill Operational Details</h2>
-            <p className="text-xs text-slate-500 mt-0.5">Phase 2 — {PROCESS_STAGE_LABELS[wo.process]} PDC: Machine, operator, material, acceptance points</p>
+            <p className="text-xs text-slate-500 mt-0.5">Phase 2 — {PROCESS_STAGE_LABELS[wo.process]} PDC: Machine, operator, material, shift planning</p>
           </div>
           <button onClick={onClose}><X size={22} className="text-slate-400 hover:text-slate-700"/></button>
         </div>
@@ -368,13 +376,7 @@ function Phase2Form({ wo, onClose, onSave }: {
             )}
           </div>
 
-          {/* Acceptance points */}
-          <Field label="Acceptance Points (Quality Criteria)" req>
-            <textarea required rows={3} value={form.acceptancePoints}
-              onChange={e => setForm(p=>({...p,acceptancePoints:e.target.value}))}
-              placeholder={`e.g. for ${PROCESS_STAGE_LABELS[wo.process]}: dimensional tolerance ±0.2mm, no surface defects...`}
-              className={`${cls} resize-none`}/>
-          </Field>
+          {/* Acceptance points are now system-defined and not entered manually here. */}
 
           {/* Vendor/External toggle */}
           <div className="p-4 border border-slate-200 rounded-xl space-y-3">
