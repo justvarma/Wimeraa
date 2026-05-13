@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useApp } from "@/components/providers/AppProvider"
 import { orderedShiftConfigs } from "@/lib/shiftUtils"
@@ -399,6 +399,22 @@ function MaterialsTab() {
   const [material, setMaterial] = useState("")
   const [grade, setGrade] = useState("")
   const [applyMasterId, setApplyMasterId] = useState("")
+  useEffect(() => {
+    if (materialMasters.length > 0 || materials.length === 0) return
+    const unique = Array.from(new Map(
+      materials
+        .filter(m => (m.material || "").trim() && (m.rawMaterialGrade || "").trim())
+        .map(m => {
+          const mat = (m.material || "").trim()
+          const grd = (m.rawMaterialGrade || "").trim().toUpperCase()
+          return [`${mat.toLowerCase().replace(/\s+/g, "_")}__${grd}`, { material: mat, grade: grd }]
+        }),
+    ).values())
+    unique.forEach(item => {
+      const id = `${item.material.toLowerCase().replace(/\s+/g, "_")}__${item.grade}`
+      addMaterialMaster({ id, material: item.material, grade: item.grade }).catch(console.error)
+    })
+  }, [materialMasters, materials, addMaterialMaster])
   const createMaster = async () => {
     if (!material.trim() || !grade.trim()) return
     const id = `${material.trim().toLowerCase().replace(/\s+/g, "_")}__${grade.trim().toUpperCase()}`
