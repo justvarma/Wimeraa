@@ -252,6 +252,22 @@ export async function consumeMaterial(
   })
 }
 
+export async function releaseMaterial(
+    clientId: string,
+    materialId: string,
+    releasedKg: number,
+): Promise<void> {
+  if (!materialId || releasedKg <= 0) return
+  const ref = clientDoc(clientId, "raw_materials", materialId)
+  await runTransaction(db, async tx => {
+    const snap = await tx.get(ref)
+    if (!snap.exists()) return
+    const mat = snap.data() as RawMaterial
+    const current = mat.usedQuantity ?? 0
+    tx.update(ref, { usedQuantity: Math.max(0, current - releasedKg) })
+  })
+}
+
 // ─── Monthly Schedules ────────────────────────────────────────────────────────
 
 export function subscribeSchedules(

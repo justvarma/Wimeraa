@@ -52,6 +52,7 @@ interface AppContextType {
   deleteMaterialMaster: (id: string) => Promise<void>
   deductMaterial:  (materialId: string, requiredKg: number) => Promise<boolean>
   consumeMaterial: (materialId: string, consumedKg: number) => Promise<void>
+  releaseMaterial: (materialId: string, releasedKg: number) => Promise<void>
 
   // ── Schedules ──────────────────────────────────────────────────────────────
   schedules:     MonthlySchedule[]
@@ -381,6 +382,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const consumeMaterial = useCallback(async (materialId: string, consumedKg: number) => {
     await fs.consumeMaterial(cid(), materialId, consumedKg)
   }, [clientId])
+  const releaseMaterial = useCallback(async (materialId: string, releasedKg: number) => {
+    await fs.releaseMaterial(cid(), materialId, releasedKg)
+  }, [clientId])
 
   // ── Schedules ──────────────────────────────────────────────────────────────
   const addSchedule = useCallback(async (data: Omit<MonthlySchedule, "id" | "createdAt">) => {
@@ -499,7 +503,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         login, logout,
 
         users,        addUser,       updateUser,    deleteUser,
-        materials, materialMasters, addMaterial, updateMaterial, addMaterialMaster, deleteMaterialMaster, deductMaterial, consumeMaterial,
+        materials, materialMasters, addMaterial, updateMaterial, addMaterialMaster, deleteMaterialMaster, deductMaterial, consumeMaterial, releaseMaterial,
         schedules,    addSchedule,   updateSchedule, deleteSchedule,
         ptcs,         addPTC,        deletePTC,
         workOrders,   addWorkOrder,  updateWorkOrder, deleteWorkOrder,

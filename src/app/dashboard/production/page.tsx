@@ -693,7 +693,7 @@ function RecordCard({ record, wo, shifts }: { record: ProcessRecord; wo: WorkOrd
 export default function ProductionPage() {
   const {
     currentUser, workOrders, processRecords, addProcessRecord, updateWorkOrder,
-    consumeMaterial, dailyEntries, addDailyEntry, deleteDailyEntry,
+    releaseMaterial, dailyEntries, addDailyEntry, deleteDailyEntry,
     downtimeEvents, addDowntimeEvent, shifts,
   } = useApp()
   const role = currentUser?.role as UserRole
@@ -745,8 +745,13 @@ export default function ProductionPage() {
       ptcApproval:    data.ptcApprovedBy || wo.ptcApproval,
       qiApproval:     data.qiInspectedBy || wo.qiApproval,
     })
-    // NOTE: Material was already fully deducted via deductMaterial() at WO phase 2.
-    // consumeMaterial for scrap/waste is intentionally removed to prevent double-counting.
+    // Real-time reconciliation: Phase-2 reserves required KG upfront.
+    // At shift end, return leftover unused raw material back to inventory.
+    const consumedKg = data.outputWeightKg + data.scrapWeightKg + data.materialWasteKg
+    const leftoverKg = Math.max(0, wo.requiredQuantityKg - consumedKg)
+    if (wo.rawMaterialId && leftoverKg > 0) {
+      releaseMaterial(wo.rawMaterialId, leftoverKg)
+    }
     setActiveForm(null)
   }
 

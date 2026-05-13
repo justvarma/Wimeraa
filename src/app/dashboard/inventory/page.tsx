@@ -50,7 +50,7 @@ const emptyForm = {
 }
 
 export default function InventoryPage() {
-  const { currentUser, materials, materialMasters, addMaterial, updateMaterial, users } = useApp()
+  const { currentUser, materials, materialMasters, processRecords, addMaterial, updateMaterial, users } = useApp()
   const storekeepers = users.filter(u => u.role === "storekeeper" || u.role === "admin")
   const [showForm, setShowForm] = useState(false)
   const [showUpload, setShowUpload] = useState(false)
@@ -63,6 +63,7 @@ export default function InventoryPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [form, setForm] = useState({ ...emptyForm })
   const [selectedBatchByGroup, setSelectedBatchByGroup] = useState<Record<string, string>>({})
+  const [activeTab, setActiveTab] = useState<"inventory" | "scrap">("inventory")
 
   const role = currentUser?.role as UserRole
   const isAdmin       = role === UserRole.ADMIN
@@ -218,6 +219,29 @@ export default function InventoryPage() {
 
   return (
     <div className="space-y-8">
+      <div className="flex gap-2 p-1 bg-slate-100 rounded-xl w-fit">
+        <button onClick={() => setActiveTab("inventory")} className={`px-4 py-2 rounded-lg text-sm font-bold ${activeTab==="inventory"?"bg-white text-slate-900":"text-slate-600"}`}>Inventory</button>
+        <button onClick={() => setActiveTab("scrap")} className={`px-4 py-2 rounded-lg text-sm font-bold ${activeTab==="scrap"?"bg-white text-slate-900":"text-slate-600"}`}>Scrap</button>
+      </div>
+      {activeTab === "scrap" ? (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="p-5 border-b border-slate-100">
+            <h2 className="text-base font-black text-slate-800">Scrap & Waste Register (Auto from Process)</h2>
+            <p className="text-xs text-slate-400">Updated after each process record submission.</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left min-w-[700px]">
+              <thead className="bg-slate-50 border-b border-slate-200"><tr className="text-slate-600 text-xs font-bold uppercase tracking-wider">{["Date","Process","WO","Scrap KG","Waste KG","Total Loss KG"].map(h=><th key={h} className="px-5 py-3">{h}</th>)}</tr></thead>
+              <tbody className="divide-y divide-slate-100">
+                {processRecords.length === 0 ? <tr><td colSpan={6} className="px-6 py-10 text-slate-400 text-center">No scrap records yet.</td></tr> :
+                  processRecords.map(r => <tr key={r.id}><td className="px-5 py-3">{r.date}</td><td className="px-5 py-3">{r.process}</td><td className="px-5 py-3 font-mono text-xs">{r.workOrderId}</td><td className="px-5 py-3">{r.scrapWeightKg.toFixed(2)}</td><td className="px-5 py-3">{r.materialWasteKg.toFixed(2)}</td><td className="px-5 py-3 font-semibold">{(r.scrapWeightKg+r.materialWasteKg).toFixed(2)}</td></tr>)
+                }
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+      <>
       <header className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-3xl font-black text-slate-900">Raw Material Inventory</h1>
@@ -449,6 +473,8 @@ export default function InventoryPage() {
             </form>
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   )
