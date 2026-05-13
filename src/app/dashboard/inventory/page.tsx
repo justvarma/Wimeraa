@@ -7,7 +7,6 @@ import { Package, Plus, X, Edit2, Search, Upload, FileSpreadsheet, CheckCircle2,
 import * as XLSX from "xlsx"
 
 const GRADES = ["A", "B", "C", "D", "E", "Other"]
-const MATERIAL_OPTIONS = ["Aluminium", "Copper", "Tin", "Steel", "Zinc", "Other"]
 
 function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
@@ -51,7 +50,7 @@ const emptyForm = {
 }
 
 export default function InventoryPage() {
-  const { currentUser, materials, addMaterial, updateMaterial, users } = useApp()
+  const { currentUser, materials, materialMasters, addMaterial, updateMaterial, users } = useApp()
   const storekeepers = users.filter(u => u.role === "storekeeper" || u.role === "admin")
   const [showForm, setShowForm] = useState(false)
   const [showUpload, setShowUpload] = useState(false)
@@ -78,7 +77,7 @@ export default function InventoryPage() {
   // PDC roles: read-only, no add, no approve
   const isViewOnly = isPDC
 
-  const masterItems = Array.from(new Map(materials.map(m => [`${m.material || "Aluminium"}__${m.rawMaterialGrade}`, { rawMaterialId: m.rawMaterialId, material: m.material || "Aluminium", rawMaterialGrade: m.rawMaterialGrade }])).values())
+  const masterItems = materialMasters.map(m => ({ rawMaterialId: `${m.material.toUpperCase().slice(0,3)}-${m.grade}`, material: m.material, rawMaterialGrade: m.grade }))
   const batchesByMaster = new Map<string, string[]>()
   for (const m of materials) {
     const key = `${m.material || "Aluminium"}__${m.rawMaterialGrade}`
@@ -127,7 +126,7 @@ export default function InventoryPage() {
   const openAdd = () => {
     setEditItem(null)
     const first = masterItems[0]
-    setForm({ ...emptyForm, receivedBy: currentUser?.name || "", rawMaterialId: first?.rawMaterialId || "", material: first?.material || "Aluminium", rawMaterialGrade: first?.rawMaterialGrade || "A" })
+    setForm({ ...emptyForm, receivedBy: currentUser?.name || "", rawMaterialId: first?.rawMaterialId || "", material: first?.material || "", rawMaterialGrade: first?.rawMaterialGrade || "" })
     setShowForm(true)
   }
 
@@ -164,6 +163,10 @@ export default function InventoryPage() {
       notes: form.notes,
       status: "pending" as const,
       submittedById: currentUser!.id,
+    }
+    if (!masterItems.some(item => item.material === payload.material && item.rawMaterialGrade === payload.rawMaterialGrade)) {
+      alert("Selected material/grade is not in Material Master.")
+      return
     }
     if (editItem) {
       updateMaterial(editItem.id, { ...payload, approvedBy: null, rejectedReason: null })
@@ -312,7 +315,7 @@ export default function InventoryPage() {
         </div>
         <select value={gradeFilter} onChange={e => setGradeFilter(e.target.value)} className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none">
           <option value="all">All Grades</option>
-          {MATERIAL_OPTIONS.map(m => <option key={m} value={m}>{m}</option>)}
+          {GRADES.map(g => <option key={g} value={g}>{g}</option>)}
         </select>
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none">
           <option value="all">All Status</option>

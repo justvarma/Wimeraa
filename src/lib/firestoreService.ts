@@ -35,7 +35,7 @@ import {
 } from "firebase/firestore"
 import { db } from "./firebase"
 import type {
-  User, RawMaterial, MonthlySchedule, PTC,
+  User, RawMaterial, RawMaterialMaster, MonthlySchedule, PTC,
   WorkOrder, DailyProductionEntry, ProcessRecord,
   DowntimeEvent, QIInspection, FQIInspection,
   ShiftConfig, RoleConfig, MachineDef,
@@ -187,6 +187,26 @@ export async function updateMaterial(
     data: Partial<RawMaterial>,
 ): Promise<void> {
   await updateDoc(clientDoc(clientId, "raw_materials", id), stripUndefined(data))
+}
+
+export function subscribeMaterialMasters(
+    clientId: string,
+    setter: (materials: RawMaterialMaster[]) => void,
+    onError?: (err: Error) => void,
+): Unsub {
+  return subscribeCol<RawMaterialMaster>(
+      clientId, "material_masters", setter,
+      [orderBy("material", "asc"), orderBy("grade", "asc")],
+      onError,
+  )
+}
+
+export async function addMaterialMaster(clientId: string, data: RawMaterialMaster): Promise<void> {
+  await setDoc(clientDoc(clientId, "material_masters", data.id), stripUndefined(data))
+}
+
+export async function deleteMaterialMaster(clientId: string, id: string): Promise<void> {
+  await deleteDoc(clientDoc(clientId, "material_masters", id))
 }
 
 /**

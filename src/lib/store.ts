@@ -176,6 +176,12 @@ export interface RawMaterial {
   rejectedReason?: string | null; notes?: string
 }
 
+export interface RawMaterialMaster {
+  id: string
+  material: string
+  grade: string
+}
+
 export interface MonthlySchedule {
   id: string; serialNumber: number; partId: string; partName: string
   requiredQuantity: number; date: string; submittedById: string; createdAt: string
