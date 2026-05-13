@@ -79,26 +79,28 @@ export default function ReportsPage() {
     [fqiInspections, scopedProcess])
 
   const machineWiseAfterQI = useMemo(() => {
-    const rows = filteredWOs
-      .filter(wo => Boolean(wo.machine) && (wo.goodParts + wo.reworkParts + wo.rejectedParts) > 0)
-      .flatMap(wo => String(wo.machine).split(",").map(m => m.trim()).filter(Boolean).map(machine => ({
-        machine,
-        produced: wo.partsCompleted || 0,
-        good: wo.goodParts || 0,
-        rejected: wo.rejectedParts || 0,
-      })))
+    const rows = filteredRecords
+      .filter(r => Boolean(r.machineName))
+      .map(r => ({
+        machine: r.machineName || "Unknown",
+        process: r.process,
+        produced: r.outputQuantity || 0,
+        good: r.goodParts || 0,
+        rejected: r.rejectedParts || 0,
+      }))
 
-    const map = new Map<string, { machine: string; produced: number; good: number; rejected: number; efficiency: number }>()
+    const map = new Map<string, { machine: string; process: string; produced: number; good: number; rejected: number; efficiency: number }>()
     rows.forEach(r => {
-      const prev = map.get(r.machine) ?? { machine: r.machine, produced: 0, good: 0, rejected: 0, efficiency: 0 }
+      const key = `${r.process}__${r.machine}`
+      const prev = map.get(key) ?? { machine: r.machine, process: r.process, produced: 0, good: 0, rejected: 0, efficiency: 0 }
       prev.produced += r.produced
       prev.good += r.good
       prev.rejected += r.rejected
       prev.efficiency = prev.produced > 0 ? (prev.good / prev.produced) * 100 : 0
-      map.set(r.machine, prev)
+      map.set(key, prev)
     })
     return Array.from(map.values()).sort((a, b) => b.produced - a.produced)
-  }, [filteredWOs])
+  }, [filteredRecords])
 
   // FQI aggregate stats
   const fqiFinishedGoods = filteredFQI.reduce((s, f) => s + f.finishedGoodsCount, 0)
@@ -235,21 +237,22 @@ export default function ReportsPage() {
           <table className="w-full text-sm">
             <thead>
             <tr className="bg-slate-50 border-b border-slate-200">
-              {["Machine", "Produced", "Good", "Rejected", "Efficiency"].map(h => (
-                <th key={h} className="text-left px-3 py-2 text-slate-700 font-semibold">{h}</th>
+              {["Process", "Machine", "Produced", "Good", "Rejected", "Efficiency"].map(h => (
+                <th key={h} className="text-left px-3 py-2 text-slate-800 font-black">{h}</th>
               ))}
             </tr>
             </thead>
             <tbody>
             {machineWiseAfterQI.length === 0 ? (
-              <tr><td colSpan={5} className="px-3 py-4 text-slate-500">No QI-completed machine data yet.</td></tr>
+              <tr><td colSpan={6} className="px-3 py-4 text-slate-600">No machine-wise process records yet.</td></tr>
             ) : machineWiseAfterQI.map(r => (
-              <tr key={r.machine} className="border-b border-slate-100">
+              <tr key={`${r.process}-${r.machine}`} className="border-b border-slate-100">
+                <td className="px-3 py-2 text-slate-900">{PROCESS_STAGE_LABELS[r.process as ProcessStage]}</td>
                 <td className="px-3 py-2 text-slate-900 font-medium">{r.machine}</td>
-                <td className="px-3 py-2">{r.produced}</td>
-                <td className="px-3 py-2">{r.good}</td>
-                <td className="px-3 py-2">{r.rejected}</td>
-                <td className="px-3 py-2 font-semibold">{r.efficiency.toFixed(1)}%</td>
+                <td className="px-3 py-2 text-slate-800">{r.produced}</td>
+                <td className="px-3 py-2 text-emerald-700 font-semibold">{r.good}</td>
+                <td className="px-3 py-2 text-red-700 font-semibold">{r.rejected}</td>
+                <td className="px-3 py-2 text-indigo-700 font-black">{r.efficiency.toFixed(1)}%</td>
               </tr>
             ))}
             </tbody>
