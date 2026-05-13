@@ -440,13 +440,26 @@ function MaterialsTab() {
     alert(`Updated ${unknownRows.length} inventory entries.`)
   }
   return <div className="bg-white border rounded-xl p-4">
-    <h3 className="font-black text-slate-800 mb-3">Material Master List</h3>
+    <h3 className="font-black text-slate-900 mb-3">Material Master List</h3>
     <div className="flex gap-2 mb-3">
-      <input value={material} onChange={e=>setMaterial(e.target.value)} placeholder="Material" className="border rounded px-3 py-2 text-sm text-slate-900 bg-white" />
-      <input value={grade} onChange={e=>setGrade(e.target.value)} placeholder="Grade" className="border rounded px-3 py-2 text-sm text-slate-900 bg-white" />
+      <input value={material} onChange={e=>setMaterial(e.target.value)} placeholder="Material" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
+      <input value={grade} onChange={e=>setGrade(e.target.value)} placeholder="Grade" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
       <button onClick={createMaster} className="px-3 py-2 bg-blue-600 text-white rounded text-sm font-bold">Add</button>
     </div>
-    <table className="w-full text-sm"><thead><tr className="bg-slate-50">{["Material","Grade","Actions"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead><tbody>{sortedMasters.map(g=><tr key={g.id} className="border-t"><td className="px-3 py-2">{g.material}</td><td className="px-3 py-2">{g.grade}</td><td className="px-3 py-2"><button className="text-red-600" onClick={()=>deleteMaterialMaster(g.id)}>Delete</button></td></tr>)}</tbody></table>
+    <table className="w-full text-sm border border-slate-200 rounded-lg overflow-hidden">
+      <thead>
+      <tr className="bg-slate-50">
+        {["Material","Grade","Actions"].map(h=><th key={h} className="text-left px-3 py-2 text-slate-700 font-semibold">{h}</th>)}
+      </tr>
+      </thead>
+      <tbody>
+      {sortedMasters.length === 0 ? (
+        <tr className="border-t">
+          <td colSpan={3} className="px-3 py-4 text-slate-500">No material master records yet.</td>
+        </tr>
+      ) : sortedMasters.map(g=><tr key={g.id} className="border-t"><td className="px-3 py-2 text-slate-900">{g.material}</td><td className="px-3 py-2 text-slate-900">{g.grade}</td><td className="px-3 py-2"><button className="text-red-600 font-medium" onClick={()=>deleteMaterialMaster(g.id)}>Delete</button></td></tr>)}
+      </tbody>
+    </table>
     <div className="mt-4 border-t pt-4">
       <p className="text-sm font-semibold text-slate-700 mb-2">Apply config to existing unknown inventory</p>
       <div className="flex gap-2 items-center">
