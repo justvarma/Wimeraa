@@ -141,6 +141,7 @@ function ProcessRecordForm({ wo, onClose, onSave, currentUser: cu }: {
   const showQI         = cuIsAdmin || cuIsQI                         // Step 4
   const ptcManagerUsers = users.filter(u => u.role === UserRole.PTC_MANAGER || u.role === UserRole.ADMIN)
   const processMachines = machines.filter(m => m.process === wo.process && m.status === "active")
+  const woMachineOptions = wo.machine.split(",").map(m => m.trim()).filter(Boolean)
 
   const shiftOptions = getSelectableShiftOptions(shifts, wo.shift)
   const needsScrap = PROCESS_RULES[wo.process].scrap
@@ -153,6 +154,7 @@ function ProcessRecordForm({ wo, onClose, onSave, currentUser: cu }: {
     process:               wo.process,
     date:                  today,
     shift:                 (wo.shift as Shift) || shiftOptions[0]?.id || "",
+    machineName:           woMachineOptions[0] || processMachines[0]?.name || "",
     inputAcceptanceChecked: false,
     ptcApprovalGiven:      false,
     ptcApprovedBy:         "",
@@ -275,6 +277,12 @@ function ProcessRecordForm({ wo, onClose, onSave, currentUser: cu }: {
               </Field>
               <Field label="Shift">
                 <input readOnly value={getShiftLabel(shifts, wo.shift)} className={`${inputCls} bg-slate-50 text-slate-500 capitalize cursor-not-allowed`}/>
+              </Field>
+              <Field label="Machine (this entry) *">
+                <select required value={form.machineName || ""} onChange={e=>setForm(p=>({...p,machineName:e.target.value}))} className={`${inputCls} bg-white`}>
+                  <option value="">— Select machine —</option>
+                  {woMachineOptions.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
               </Field>
             </div>
 
@@ -650,6 +658,7 @@ function RecordCard({ record, wo, shifts }: { record: ProcessRecord; wo: WorkOrd
           )}
         </div>
         <span className="text-xs text-slate-400 font-mono">{record.date} · {getShiftLabel(shifts, record.shift)}</span>
+        {record.machineName && <span className="text-xs text-slate-500 font-semibold"> · {record.machineName}</span>}
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
         {[

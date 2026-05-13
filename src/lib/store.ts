@@ -275,6 +275,7 @@ export type ProcessRecordStatus = "pre_check"|"in_production"|"post_check"|"qi_i
 export interface ProcessRecord {
   id: string; workOrderId: string; process: ProcessStage
   date: string; shift: Shift
+  machineName?: string
   inputAcceptanceChecked: boolean
   ptcApprovalGiven: boolean; ptcApprovedBy?: string
   isVendorProduction: boolean; vendorName?: string
