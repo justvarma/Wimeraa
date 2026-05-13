@@ -78,6 +78,30 @@ export default function ReportsPage() {
     fqiInspections.filter(f => !scopedProcess || f.process === scopedProcess),
     [fqiInspections, scopedProcess])
 
+  const machineWiseAfterQI = useMemo(() => {
+    const rows = filteredRecords
+      .filter(r => Boolean(r.machineName))
+      .map(r => ({
+        machine: r.machineName || "Unknown",
+        process: r.process,
+        produced: r.outputQuantity || 0,
+        good: r.goodParts || 0,
+        rejected: r.rejectedParts || 0,
+      }))
+
+    const map = new Map<string, { machine: string; process: string; produced: number; good: number; rejected: number; efficiency: number }>()
+    rows.forEach(r => {
+      const key = `${r.process}__${r.machine}`
+      const prev = map.get(key) ?? { machine: r.machine, process: r.process, produced: 0, good: 0, rejected: 0, efficiency: 0 }
+      prev.produced += r.produced
+      prev.good += r.good
+      prev.rejected += r.rejected
+      prev.efficiency = prev.produced > 0 ? (prev.good / prev.produced) * 100 : 0
+      map.set(key, prev)
+    })
+    return Array.from(map.values()).sort((a, b) => b.produced - a.produced)
+  }, [filteredRecords])
+
   // FQI aggregate stats
   const fqiFinishedGoods = filteredFQI.reduce((s, f) => s + f.finishedGoodsCount, 0)
   const fqiReworkLoop    = filteredFQI.reduce((s, f) => s + f.reworkLoopCount, 0)
@@ -207,6 +231,35 @@ export default function ReportsPage() {
       </div>
 
       {/* FQI (Final Quality Inspection) Summary — Issue 9 fix */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-6">
+        <h2 className="text-base font-black text-slate-800 mb-4">Machine-wise Report (After QI)</h2>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+            <tr className="bg-slate-50 border-b border-slate-200">
+              {["Process", "Machine", "Produced", "Good", "Rejected", "Efficiency"].map(h => (
+                <th key={h} className="text-left px-3 py-2 text-slate-800 font-black">{h}</th>
+              ))}
+            </tr>
+            </thead>
+            <tbody>
+            {machineWiseAfterQI.length === 0 ? (
+              <tr><td colSpan={6} className="px-3 py-4 text-slate-600">No machine-wise process records yet.</td></tr>
+            ) : machineWiseAfterQI.map(r => (
+              <tr key={`${r.process}-${r.machine}`} className="border-b border-slate-100">
+                <td className="px-3 py-2 text-slate-900">{PROCESS_STAGE_LABELS[r.process as ProcessStage]}</td>
+                <td className="px-3 py-2 text-slate-900 font-medium">{r.machine}</td>
+                <td className="px-3 py-2 text-slate-800">{r.produced}</td>
+                <td className="px-3 py-2 text-emerald-700 font-semibold">{r.good}</td>
+                <td className="px-3 py-2 text-red-700 font-semibold">{r.rejected}</td>
+                <td className="px-3 py-2 text-indigo-700 font-black">{r.efficiency.toFixed(1)}%</td>
+              </tr>
+            ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       {filteredFQI.length > 0 && (
         <div className="bg-white rounded-2xl border border-slate-200 p-6">
           <h2 className="text-base font-black text-slate-800 mb-4 flex items-center gap-2">

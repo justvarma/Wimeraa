@@ -20,7 +20,7 @@ import {
   type User, type RawMaterial, type WorkOrder, type MonthlySchedule,
   type PTC, type DailyProductionEntry, type ProcessRecord,
   type DowntimeEvent, type QIInspection, type FQIInspection,
-  type ShiftConfig, type RoleConfig, type MachineDef,
+  type ShiftConfig, type RoleConfig, type MachineDef, type RawMaterialMaster,
   UserRole, DEFAULT_SHIFT_CONFIGS, DEFAULT_ROLE_CONFIGS, DEFAULT_MACHINE_CONFIGS,
 } from "@/lib/store"
 import { onAuthStateChange, signIn, signOut, fetchUserProfile, auth } from "@/lib/auth"
@@ -45,10 +45,14 @@ interface AppContextType {
 
   // ── Materials ──────────────────────────────────────────────────────────────
   materials:       RawMaterial[]
+  materialMasters: RawMaterialMaster[]
   addMaterial:     (m: Omit<RawMaterial, "id">)          => Promise<void>
   updateMaterial:  (id: string, d: Partial<RawMaterial>) => Promise<void>
+  addMaterialMaster: (m: RawMaterialMaster) => Promise<void>
+  deleteMaterialMaster: (id: string) => Promise<void>
   deductMaterial:  (materialId: string, requiredKg: number) => Promise<boolean>
   consumeMaterial: (materialId: string, consumedKg: number) => Promise<void>
+  releaseMaterial: (materialId: string, releasedKg: number) => Promise<void>
 
   // ── Schedules ──────────────────────────────────────────────────────────────
   schedules:     MonthlySchedule[]
@@ -133,6 +137,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Collection state
   const [users,           setUsers]           = useState<User[]>([])
   const [materials,       setMaterials]       = useState<RawMaterial[]>([])
+  const [materialMasters, setMaterialMasters] = useState<RawMaterialMaster[]>([])
   const [schedules,       setSchedules]       = useState<MonthlySchedule[]>([])
   const [ptcs,            setPtcs]            = useState<PTC[]>([])
   const [workOrders,      setWorkOrders]      = useState<WorkOrder[]>([])
@@ -243,6 +248,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           unsubsRef.current = [
             fs.subscribeUsers(cid, setUsers, onSnapError),
             fs.subscribeMaterials(cid, setMaterials, onSnapError),
+            fs.subscribeMaterialMasters(cid, setMaterialMasters, onSnapError),
             fs.subscribeSchedules(cid, setSchedules, onSnapError),
             fs.subscribePTCs(cid, setPtcs, onSnapError),
             fs.subscribeWorkOrders(cid, setWorkOrders, onSnapError),
@@ -362,6 +368,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const updateMaterial = useCallback(async (id: string, data: Partial<RawMaterial>) => {
     await fs.updateMaterial(cid(), id, data)
   }, [clientId])
+  const addMaterialMaster = useCallback(async (data: RawMaterialMaster) => {
+    await fs.addMaterialMaster(cid(), data)
+  }, [clientId])
+  const deleteMaterialMaster = useCallback(async (id: string) => {
+    await fs.deleteMaterialMaster(cid(), id)
+  }, [clientId])
 
   const deductMaterial = useCallback(async (materialId: string, requiredKg: number): Promise<boolean> => {
     return fs.deductMaterial(cid(), materialId, requiredKg)
@@ -369,6 +381,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const consumeMaterial = useCallback(async (materialId: string, consumedKg: number) => {
     await fs.consumeMaterial(cid(), materialId, consumedKg)
+  }, [clientId])
+  const releaseMaterial = useCallback(async (materialId: string, releasedKg: number) => {
+    await fs.releaseMaterial(cid(), materialId, releasedKg)
   }, [clientId])
 
   // ── Schedules ──────────────────────────────────────────────────────────────
@@ -488,7 +503,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         login, logout,
 
         users,        addUser,       updateUser,    deleteUser,
-        materials,    addMaterial,   updateMaterial, deductMaterial, consumeMaterial,
+        materials, materialMasters, addMaterial, updateMaterial, addMaterialMaster, deleteMaterialMaster, deductMaterial, consumeMaterial, releaseMaterial,
         schedules,    addSchedule,   updateSchedule, deleteSchedule,
         ptcs,         addPTC,        deletePTC,
         workOrders,   addWorkOrder,  updateWorkOrder, deleteWorkOrder,
