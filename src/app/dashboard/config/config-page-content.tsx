@@ -395,15 +395,30 @@ function MachinesTab() {
 
 
 function MaterialsTab() {
-  const { materialMasters, addMaterialMaster, deleteMaterialMaster } = useApp()
+  const { materialMasters, addMaterialMaster, deleteMaterialMaster, materials, updateMaterial } = useApp()
   const [material, setMaterial] = useState("")
   const [grade, setGrade] = useState("")
+  const [applyMasterId, setApplyMasterId] = useState("")
   const createMaster = async () => {
     if (!material.trim() || !grade.trim()) return
     const id = `${material.trim().toLowerCase().replace(/\s+/g, "_")}__${grade.trim().toUpperCase()}`
     await addMaterialMaster({ id, material: material.trim(), grade: grade.trim().toUpperCase() })
     setMaterial("")
     setGrade("")
+  }
+  const applyMasterToUnknownInventory = async () => {
+    const selected = materialMasters.find(m => m.id === applyMasterId)
+    if (!selected) return
+    const unknownRows = materials.filter(m => {
+      const mat = (m.material || "").trim().toLowerCase()
+      const grd = (m.rawMaterialGrade || "").trim().toLowerCase()
+      return !mat || mat === "unknown" || !grd || grd === "unknown"
+    })
+    await Promise.all(unknownRows.map(row => updateMaterial(row.id, {
+      material: selected.material,
+      rawMaterialGrade: selected.grade,
+    })))
+    alert(`Updated ${unknownRows.length} inventory entries.`)
   }
   return <div className="bg-white border rounded-xl p-4">
     <h3 className="font-black text-slate-800 mb-3">Material Master List</h3>
@@ -413,6 +428,16 @@ function MaterialsTab() {
       <button onClick={createMaster} className="px-3 py-2 bg-blue-600 text-white rounded text-sm font-bold">Add</button>
     </div>
     <table className="w-full text-sm"><thead><tr className="bg-slate-50">{["Material","Grade","Actions"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead><tbody>{materialMasters.map(g=><tr key={g.id} className="border-t"><td className="px-3 py-2">{g.material}</td><td className="px-3 py-2">{g.grade}</td><td className="px-3 py-2"><button className="text-red-600" onClick={()=>deleteMaterialMaster(g.id)}>Delete</button></td></tr>)}</tbody></table>
+    <div className="mt-4 border-t pt-4">
+      <p className="text-sm font-semibold text-slate-700 mb-2">Apply config to existing unknown inventory</p>
+      <div className="flex gap-2 items-center">
+        <select value={applyMasterId} onChange={e=>setApplyMasterId(e.target.value)} className="border rounded px-3 py-2 text-sm text-slate-900 bg-white">
+          <option value="">Select material + grade</option>
+          {materialMasters.map(m => <option key={m.id} value={m.id}>{m.material} · Grade {m.grade}</option>)}
+        </select>
+        <button onClick={applyMasterToUnknownInventory} className="px-3 py-2 bg-slate-800 text-white rounded text-sm font-bold">Apply to Unknown</button>
+      </div>
+    </div>
   </div>
 }
 
