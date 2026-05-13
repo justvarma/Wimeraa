@@ -168,7 +168,7 @@ export interface MachineDef {
 }
 
 export interface RawMaterial {
-  id: string; rawMaterialId: string; rawMaterialGrade: string
+  id: string; rawMaterialId: string; material: string; rawMaterialGrade: string
   receivedQuantity: number; usedQuantity: number; date: string
   receivedBy: string; approvedBy?: string | null; batchNumber: string
   numberOfRequiredComponents: number; weightPerComponent: number
@@ -380,10 +380,10 @@ export const INITIAL_USERS: User[] = [
 ]
 
 export const INITIAL_MATERIALS: RawMaterial[] = [
-  { id:"rm-001", rawMaterialId:"RM-2026-001", rawMaterialGrade:"A", receivedQuantity:500, usedQuantity:120, date:"2026-04-10", receivedBy:"Ravi Kumar", approvedBy:"Priya Nair", batchNumber:"BC-2026-001", numberOfRequiredComponents:400, weightPerComponent:1.2, status:"approved", submittedById:"u-002", notes:"ADC-12 Aluminium alloy, high quality grade A" },
-  { id:"rm-002", rawMaterialId:"RM-2026-002", rawMaterialGrade:"B", receivedQuantity:200, usedQuantity:0,   date:"2026-04-15", receivedBy:"Ravi Kumar", approvedBy:"Priya Nair", batchNumber:"BC-2026-002", numberOfRequiredComponents:150, weightPerComponent:1.3, status:"approved", submittedById:"u-002" },
-  { id:"rm-003", rawMaterialId:"RM-2026-003", rawMaterialGrade:"A", receivedQuantity:300, usedQuantity:0,   date:"2026-04-18", receivedBy:"Ravi Kumar", batchNumber:"BC-2026-003", numberOfRequiredComponents:240, weightPerComponent:1.2, status:"pending",  submittedById:"u-002" },
-  { id:"rm-004", rawMaterialId:"RM-2026-004", rawMaterialGrade:"C", receivedQuantity:150, usedQuantity:0,   date:"2026-04-20", receivedBy:"Ravi Kumar", batchNumber:"BC-2026-004", numberOfRequiredComponents:100, weightPerComponent:1.5, status:"rejected", submittedById:"u-002", rejectedReason:"Grade mismatch — received C instead of B" },
+  { id:"rm-001", rawMaterialId:"RM-2026-001", material:"Aluminium", rawMaterialGrade:"A", receivedQuantity:500, usedQuantity:120, date:"2026-04-10", receivedBy:"Ravi Kumar", approvedBy:"Priya Nair", batchNumber:"BC-2026-001", numberOfRequiredComponents:400, weightPerComponent:1.2, status:"approved", submittedById:"u-002", notes:"ADC-12 Aluminium alloy, high quality grade A" },
+  { id:"rm-002", rawMaterialId:"RM-2026-002", material:"Aluminium", rawMaterialGrade:"B", receivedQuantity:200, usedQuantity:0,   date:"2026-04-15", receivedBy:"Ravi Kumar", approvedBy:"Priya Nair", batchNumber:"BC-2026-002", numberOfRequiredComponents:150, weightPerComponent:1.3, status:"approved", submittedById:"u-002" },
+  { id:"rm-003", rawMaterialId:"RM-2026-003", material:"Copper", rawMaterialGrade:"A", receivedQuantity:300, usedQuantity:0,   date:"2026-04-18", receivedBy:"Ravi Kumar", batchNumber:"BC-2026-003", numberOfRequiredComponents:240, weightPerComponent:1.2, status:"pending",  submittedById:"u-002" },
+  { id:"rm-004", rawMaterialId:"RM-2026-004", material:"Tin", rawMaterialGrade:"C", receivedQuantity:150, usedQuantity:0,   date:"2026-04-20", receivedBy:"Ravi Kumar", batchNumber:"BC-2026-004", numberOfRequiredComponents:100, weightPerComponent:1.5, status:"rejected", submittedById:"u-002", rejectedReason:"Grade mismatch — received C instead of B" },
 ]
 
 export const INITIAL_SCHEDULES: MonthlySchedule[] = [

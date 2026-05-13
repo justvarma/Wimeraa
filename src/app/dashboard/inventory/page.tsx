@@ -7,6 +7,7 @@ import { Package, Plus, X, Edit2, Search, Upload, FileSpreadsheet, CheckCircle2,
 import * as XLSX from "xlsx"
 
 const GRADES = ["A", "B", "C", "D", "E", "Other"]
+const MATERIAL_OPTIONS = ["Aluminium", "Copper", "Tin", "Steel", "Zinc", "Other"]
 
 function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
@@ -31,6 +32,7 @@ function mapExcelRow(row: Record<string, unknown>, index: number, submittedBy: s
   }
   return {
     rawMaterialId: get("rawmaterialid", "materialid", "id") || `RM-IMPORT-${Date.now()}-${index}`,
+    material: get("material", "metal") || "Aluminium",
     rawMaterialGrade: get("rawmaterialgrade", "grade") || "A",
     receivedQuantity: Number(get("receivedquantity", "quantity", "qty")) || 0,
     date: get("date", "receiveddate", "receivedon") || new Date().toISOString().split("T")[0],
@@ -43,7 +45,7 @@ function mapExcelRow(row: Record<string, unknown>, index: number, submittedBy: s
 }
 
 const emptyForm = {
-  rawMaterialId: "", rawMaterialGrade: "A", receivedQuantity: "",
+  rawMaterialId: "", material: "Aluminium", rawMaterialGrade: "A", receivedQuantity: "",
   date: new Date().toISOString().split("T")[0], receivedBy: "",
   batchNumber: "", numberOfRequiredComponents: "", weightPerComponent: "", notes: ""
 }
@@ -61,6 +63,7 @@ export default function InventoryPage() {
   const [importing, setImporting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [form, setForm] = useState({ ...emptyForm })
+  const [selectedBatchByGroup, setSelectedBatchByGroup] = useState<Record<string, string>>({})
 
   const role = currentUser?.role as UserRole
   const isAdmin       = role === UserRole.ADMIN
@@ -75,9 +78,18 @@ export default function InventoryPage() {
   // PDC roles: read-only, no add, no approve
   const isViewOnly = isPDC
 
+  const masterItems = Array.from(new Map(materials.map(m => [`${m.material || "Aluminium"}__${m.rawMaterialGrade}`, { rawMaterialId: m.rawMaterialId, material: m.material || "Aluminium", rawMaterialGrade: m.rawMaterialGrade }])).values())
+  const batchesByMaster = new Map<string, string[]>()
+  for (const m of materials) {
+    const key = `${m.material || "Aluminium"}__${m.rawMaterialGrade}`
+    const arr = batchesByMaster.get(key) ?? []
+    if (!arr.includes(m.batchNumber)) arr.push(m.batchNumber)
+    batchesByMaster.set(key, arr)
+  }
+
   const visible = materials.filter(m => {
     const q = search.toLowerCase()
-    const matchSearch = m.rawMaterialId.toLowerCase().includes(q) || m.batchNumber.toLowerCase().includes(q) || m.rawMaterialGrade.toLowerCase().includes(q)
+    const matchSearch = m.rawMaterialId.toLowerCase().includes(q) || m.batchNumber.toLowerCase().includes(q) || m.rawMaterialGrade.toLowerCase().includes(q) || (m.material || "").toLowerCase().includes(q)
     const matchGrade  = gradeFilter === "all" || m.rawMaterialGrade === gradeFilter
     const matchStatus = statusFilter === "all" || m.status === statusFilter
     // Admin, QI, and PDC see all records; storekeeper sees only own submissions
@@ -85,8 +97,24 @@ export default function InventoryPage() {
     return matchSearch && matchGrade && matchStatus && matchUser
   })
 
+  const groupedVisibleMap = new Map<string, RawMaterial[]>()
+  for (const item of visible) {
+    const key = `${item.rawMaterialId}__${item.material || ""}__${item.rawMaterialGrade}`
+    groupedVisibleMap.set(key, [...(groupedVisibleMap.get(key) || []), item])
+  }
+  const groupedVisible = Array.from(groupedVisibleMap.entries())
+
   // Inventory summary per grade (approved stock only)
   // FIX §4.3: availableKg = receivedQuantity − usedQuantity (not just total received)
+
+  const materialGradeGroups = Array.from(new Map(materials
+    .filter(m => m.status === "approved")
+    .map(m => [`${m.material || "Unknown"}__${m.rawMaterialGrade}`, { material: m.material || "Unknown", grade: m.rawMaterialGrade, entries: [] as RawMaterial[] }]))
+    .values())
+  materialGradeGroups.forEach(group => {
+    group.entries = materials.filter(m => m.status === "approved" && (m.material || "Unknown") === group.material && m.rawMaterialGrade === group.grade)
+  })
+
   const gradeSummary = GRADES.map(g => {
     const items = materials.filter(m => m.rawMaterialGrade === g && m.status === "approved")
     const totalReceivedKg  = items.reduce((s, m) => s + m.receivedQuantity, 0)
@@ -98,7 +126,8 @@ export default function InventoryPage() {
 
   const openAdd = () => {
     setEditItem(null)
-    setForm({ ...emptyForm, receivedBy: currentUser?.name || "", rawMaterialId: `RM-${new Date().toISOString().slice(0,10).replace(/-/g,"")}-${String(materials.length+1).padStart(3,"0")}` })
+    const first = masterItems[0]
+    setForm({ ...emptyForm, receivedBy: currentUser?.name || "", rawMaterialId: first?.rawMaterialId || "", material: first?.material || "Aluminium", rawMaterialGrade: first?.rawMaterialGrade || "A" })
     setShowForm(true)
   }
 
@@ -107,6 +136,7 @@ export default function InventoryPage() {
     setEditItem(item)
     setForm({
       rawMaterialId: item.rawMaterialId,
+      material: item.material || "Aluminium",
       rawMaterialGrade: item.rawMaterialGrade,
       receivedQuantity: String(item.receivedQuantity),
       date: item.date,
@@ -123,6 +153,7 @@ export default function InventoryPage() {
     e.preventDefault()
     const payload = {
       rawMaterialId: form.rawMaterialId,
+      material: form.material,
       rawMaterialGrade: form.rawMaterialGrade,
       receivedQuantity: Number(form.receivedQuantity),
       date: form.date,
@@ -243,7 +274,7 @@ export default function InventoryPage() {
         </div>
       )}
 
-      {/* Excel upload panel */}
+            {/* Excel upload panel */}
       {showUpload && canAdd && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
           <h2 className="text-base font-black text-slate-900 mb-1">Bulk Import via Excel</h2>
@@ -281,7 +312,7 @@ export default function InventoryPage() {
         </div>
         <select value={gradeFilter} onChange={e => setGradeFilter(e.target.value)} className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none">
           <option value="all">All Grades</option>
-          {GRADES.map(g => <option key={g} value={g}>Grade {g}</option>)}
+          {MATERIAL_OPTIONS.map(m => <option key={m} value={m}>{m}</option>)}
         </select>
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none">
           <option value="all">All Status</option>
@@ -298,8 +329,8 @@ export default function InventoryPage() {
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr className="text-slate-600 text-xs font-bold uppercase tracking-wider">
                 <th className="px-5 py-4">Material ID</th>
-                <th className="px-5 py-4">Grade</th>
-                <th className="px-5 py-4">Batch No.</th>
+                <th className="px-5 py-4">Material</th><th className="px-5 py-4">Grade</th>
+                <th className="px-5 py-4">Batch</th>
                 <th className="px-5 py-4">Qty (KG)</th>
                 <th className="px-5 py-4">Date</th>
                 <th className="px-5 py-4">Received By</th>
@@ -310,43 +341,22 @@ export default function InventoryPage() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {visible.length === 0 ? (
-                <tr><td colSpan={9} className="px-6 py-12 text-center text-slate-400">
+                <tr><td colSpan={10} className="px-6 py-12 text-center text-slate-400">
                   <Package size={40} className="mx-auto mb-2 text-slate-200" />No materials found
                 </td></tr>
-              ) : visible.map(item => (
-                <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-5 py-4">
-                    <p className="font-bold text-slate-900 text-sm font-mono">{item.rawMaterialId}</p>
-                    {item.status === "rejected" && item.rejectedReason && (
-                      <p className="text-xs text-red-500 mt-0.5">↩ {item.rejectedReason}</p>
-                    )}
-                  </td>
-                  <td className="px-5 py-4">
-                    <span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-full text-xs font-black">Grade {item.rawMaterialGrade}</span>
-                  </td>
-                  <td className="px-5 py-4 text-sm font-mono text-slate-500">{item.batchNumber}</td>
-                  <td className="px-5 py-4 text-sm font-bold text-slate-800">{item.receivedQuantity.toLocaleString()} KG</td>
-                  <td className="px-5 py-4 text-sm text-slate-500">{item.date}</td>
-                  <td className="px-5 py-4 text-sm text-slate-600">{item.receivedBy}</td>
-                  <td className="px-5 py-4 text-sm text-slate-600">{item.approvedBy || "—"}</td>
-                  <td className="px-5 py-4"><StatusBadge status={item.status} /></td>
-                  <td className="px-5 py-4">
-                    <div className="flex gap-2">
-                      {canAdd && item.status !== "approved" && (
-                        <button onClick={() => openEdit(item)} className="flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800">
-                          <Edit2 size={13} /> Edit
-                        </button>
-                      )}
-                      {canApprove && item.status === "pending" && (
-                        <>
-                          <button onClick={() => handleApprove(item.id)} className="text-xs font-bold text-emerald-600 hover:text-emerald-800">Approve</button>
-                          <button onClick={() => handleReject(item.id)} className="text-xs font-bold text-red-500 hover:text-red-700">Reject</button>
-                        </>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              ) : groupedVisible.map(([groupKey, items]) => {
+                const batchOptions = items.map(i => i.batchNumber)
+                const selectedBatch = selectedBatchByGroup[groupKey] || batchOptions[0]
+                const item = items.find(i => i.batchNumber === selectedBatch) || items[0]
+                return (
+                <tr key={groupKey} className="hover:bg-slate-50 transition-colors">
+                  <td className="px-5 py-4"><p className="font-bold text-slate-900 text-sm font-mono">{item.rawMaterialId}</p>{item.status === "rejected" && item.rejectedReason && (<p className="text-xs text-red-500 mt-0.5">↩ {item.rejectedReason}</p>)}</td>
+                  <td className="px-5 py-4 text-sm text-slate-700">{item.material || "—"}</td><td className="px-5 py-4"><span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-full text-xs font-black">Grade {item.rawMaterialGrade}</span></td>
+                  <td className="px-5 py-4 text-sm font-mono text-slate-500">{batchOptions.length > 1 ? <select value={selectedBatch} onChange={e => setSelectedBatchByGroup(prev => ({ ...prev, [groupKey]: e.target.value }))} className="border border-slate-200 rounded px-2 py-1 bg-white text-slate-700">{batchOptions.map(b => <option key={b} value={b}>{b}</option>)}</select> : selectedBatch}</td>
+                  <td className="px-5 py-4 text-sm font-bold text-slate-800">{item.receivedQuantity.toLocaleString()} KG</td><td className="px-5 py-4 text-sm text-slate-500">{item.date}</td><td className="px-5 py-4 text-sm text-slate-600">{item.receivedBy}</td><td className="px-5 py-4 text-sm text-slate-600">{item.approvedBy || "—"}</td><td className="px-5 py-4"><StatusBadge status={item.status} /></td>
+                  <td className="px-5 py-4"><div className="flex gap-2">{canAdd && item.status !== "approved" && (<button onClick={() => openEdit(item)} className="flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800"><Edit2 size={13} /> Edit</button>)}{canApprove && item.status === "pending" && (<><button onClick={() => handleApprove(item.id)} className="text-xs font-bold text-emerald-600 hover:text-emerald-800">Approve</button><button onClick={() => handleReject(item.id)} className="text-xs font-bold text-red-500 hover:text-red-700">Reject</button></>)}</div></td>
+                </tr>)
+              })}
             </tbody>
           </table>
         </div>
@@ -363,17 +373,23 @@ export default function InventoryPage() {
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Raw Material ID *</label>
-                  <input required value={form.rawMaterialId} readOnly={true} onChange={e => setForm(p => ({ ...p, rawMaterialId: e.target.value }))}
-                    placeholder="e.g. RM-2026-005"
-                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none" />
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Material Master *</label>
+                  <select required value={`${form.material}__${form.rawMaterialGrade}`} onChange={e => { const [material, rawMaterialGrade] = e.target.value.split("__"); const firstMatch = masterItems.find(item => item.material === material && item.rawMaterialGrade === rawMaterialGrade); setForm(p => ({ ...p, material, rawMaterialGrade, rawMaterialId: firstMatch?.rawMaterialId || p.rawMaterialId })) }}
+                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none bg-white">
+                    <option value="">— Select material master —</option>
+                    {masterItems.map(item => <option key={`${item.material}__${item.rawMaterialGrade}`} value={`${item.material}__${item.rawMaterialGrade}`}>{item.material} · Grade {item.rawMaterialGrade}</option>)}
+                  </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Raw Material Grade *</label>
-                  <select required value={form.rawMaterialGrade} onChange={e => setForm(p => ({ ...p, rawMaterialGrade: e.target.value }))}
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Material *</label>
+                  <select required value={form.material} onChange={e => setForm(p => ({ ...p, material: e.target.value }))}
                     className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none bg-white">
                     {GRADES.map(g => <option key={g} value={g}>Grade {g}</option>)}
                   </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Raw Material Grade *</label>
+                  <select required value={form.rawMaterialGrade} onChange={e => setForm(p => ({ ...p, rawMaterialGrade: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none bg-white">{GRADES.map(g => <option key={g} value={g}>Grade {g}</option>)}</select>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Received Quantity (KG) *</label>
@@ -395,9 +411,10 @@ export default function InventoryPage() {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Batch Number *</label>
-                  <input required value={form.batchNumber} onChange={e => setForm(p => ({ ...p, batchNumber: e.target.value }))}
-                    placeholder="e.g. BC-2026-005"
-                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none" />
+                  <select required value={form.batchNumber} onChange={e => setForm(p => ({ ...p, batchNumber: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none bg-white">
+                    <option value="">— Select batch —</option>
+                    {(batchesByMaster.get(`${form.rawMaterialId}__${form.rawMaterialGrade}`) || []).map(b => <option key={b} value={b}>{b}</option>)}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">No. of Required Components *</label>
