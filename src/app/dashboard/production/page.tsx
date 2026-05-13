@@ -154,7 +154,7 @@ function ProcessRecordForm({ wo, onClose, onSave, currentUser: cu }: {
     process:               wo.process,
     date:                  today,
     shift:                 (wo.shift as Shift) || shiftOptions[0]?.id || "",
-    machineName:           woMachineOptions[0] || processMachines[0]?.name || "",
+    machineName:           woMachineOptions.join(", ") || processMachines.map(m => m.name).join(", "),
     inputAcceptanceChecked: false,
     ptcApprovalGiven:      false,
     ptcApprovedBy:         "",
@@ -181,7 +181,7 @@ function ProcessRecordForm({ wo, onClose, onSave, currentUser: cu }: {
 
   // canSubmit is scoped to each role's section so they can save independently
   const preCheckOk  = form.inputAcceptanceChecked && form.ptcApprovalGiven
-  const productionOk = form.outputQuantity > 0
+  const productionOk = form.outputQuantity > 0 && Boolean(String(form.machineName || "").trim())
   const qiOk        = !countMismatch &&
     (form.reworkParts  === 0 || form.reworkEntries.length  > 0) &&
     (form.rejectedParts === 0 || form.rejectionEntries.length > 0)
@@ -278,11 +278,24 @@ function ProcessRecordForm({ wo, onClose, onSave, currentUser: cu }: {
               <Field label="Shift">
                 <input readOnly value={getShiftLabel(shifts, wo.shift)} className={`${inputCls} bg-slate-50 text-slate-500 capitalize cursor-not-allowed`}/>
               </Field>
-              <Field label="Machine (this entry) *">
-                <select required value={form.machineName || ""} onChange={e=>setForm(p=>({...p,machineName:e.target.value}))} className={`${inputCls} bg-white`}>
-                  <option value="">— Select machine —</option>
-                  {woMachineOptions.map(m => <option key={m} value={m}>{m}</option>)}
-                </select>
+              <Field label="Machines (this entry) *">
+                <div className="space-y-2 border border-slate-200 rounded-xl p-3 bg-white">
+                  {(woMachineOptions.length > 0 ? woMachineOptions : processMachines.map(m => m.name)).map(m => {
+                    const selected = String(form.machineName || "").split(",").map(v => v.trim()).filter(Boolean).includes(m)
+                    return (
+                      <label key={m} className="flex items-center gap-2 text-sm text-slate-800">
+                        <input type="checkbox" checked={selected} onChange={e => {
+                          setForm(p => {
+                            const set = new Set(String(p.machineName || "").split(",").map(v => v.trim()).filter(Boolean))
+                            if (e.target.checked) set.add(m); else set.delete(m)
+                            return { ...p, machineName: Array.from(set).join(", ") }
+                          })
+                        }} />
+                        {m}
+                      </label>
+                    )
+                  })}
+                </div>
               </Field>
             </div>
 
