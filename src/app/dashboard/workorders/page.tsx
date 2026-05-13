@@ -469,8 +469,14 @@ export default function WorkOrdersPage() {
                            (typeFilter === "stage"    && w.woType === "stage") ||
                            (typeFilter === "rejection" && w.woType === "rejection") ||
                            (typeFilter === "standard" && (!w.woType || w.woType === "standard"))
-      // Process PDCs see their own process (includes rework SWOs for that process)
-      const matchRole    = !myProcess    || (w.process === myProcess && w.woType !== "standard")
+      // Process PDCs see only actionable SWOs:
+      // - draft (to fill details)
+      // - rejected (for rework loop handling)
+      const matchRole = !myProcess || (
+        w.process === myProcess &&
+        w.woType !== "standard" &&
+        (w.status === "draft" || w.status === "rejected")
+      )
       return matchStatus && matchProcess && matchType && matchRole
     })
     // Sort: parent WOs first, then their SWOs follow immediately (by parentWoId + cycle)
