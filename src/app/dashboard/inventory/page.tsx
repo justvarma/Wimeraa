@@ -317,10 +317,21 @@ export default function InventoryPage() {
                 <thead><tr className="bg-slate-50">{["Material","Grade","Total Waste KG"].map(h => <th key={h} className="text-left px-2 py-1.5 text-slate-800 font-bold">{h}</th>)}</tr></thead>
                 <tbody>
                 {processRecords.length === 0 ? <tr><td colSpan={3} className="px-2 py-2 text-slate-400">No scrap/waste entries yet.</td></tr> :
-                  processRecords.map(r => {
+                  Array.from(new Map(processRecords.map(r => {
                     const wo = workOrders.find(w => w.id === r.workOrderId)
                     const mat = materials.find(m => m.id === wo?.rawMaterialId)
-                    return <tr key={r.id} className="border-t border-slate-100"><td className="px-2 py-1.5 text-slate-900 font-medium">{mat?.material || "—"}</td><td className="px-2 py-1.5 text-slate-800">{mat?.rawMaterialGrade || "—"}</td><td className="px-2 py-1.5 font-semibold text-rose-700">{r.materialWasteKg.toFixed(2)}</td></tr>
+                    const material = mat?.material || "—"
+                    const grade = mat?.rawMaterialGrade || "—"
+                    return [`${material}__${grade}`, { material, grade, wasteKg: 0 }]
+                  })).values()).map(group => {
+                    const wasteKg = processRecords.reduce((sum, r) => {
+                      const wo = workOrders.find(w => w.id === r.workOrderId)
+                      const mat = materials.find(m => m.id === wo?.rawMaterialId)
+                      return ((mat?.material || "—") === group.material && (mat?.rawMaterialGrade || "—") === group.grade)
+                        ? sum + r.materialWasteKg
+                        : sum
+                    }, 0)
+                    return <tr key={`${group.material}-${group.grade}`} className="border-t border-slate-100"><td className="px-2 py-1.5 text-slate-900 font-medium">{group.material}</td><td className="px-2 py-1.5 text-slate-800">{group.grade}</td><td className="px-2 py-1.5 font-semibold text-rose-700">{wasteKg.toFixed(2)}</td></tr>
                   })}
                 </tbody>
               </table>
