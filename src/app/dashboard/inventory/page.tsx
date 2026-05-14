@@ -311,16 +311,16 @@ export default function InventoryPage() {
             <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Total Scrap</p>
             <p className="text-2xl font-black text-rose-700">{totalScrapKg.toFixed(1)} <span className="text-sm text-slate-400">KG</span></p>
             <p className="text-xs text-slate-500 mt-1">Click for detailed breakdown</p>
-            <div className="hidden group-hover:block absolute z-30 top-full left-0 mt-2 w-[520px] max-w-[90vw] bg-white border border-slate-200 rounded-xl shadow-xl p-3">
+            <div className="hidden group-hover:block absolute z-30 top-full left-0 mt-2 w-[520px] max-w-[90vw] bg-white border border-slate-300 rounded-xl shadow-xl p-3">
               <p className="text-xs font-black text-slate-700 uppercase tracking-wider mb-2">Scrap Hover Summary</p>
               <table className="w-full text-xs">
-                <thead><tr className="bg-slate-50">{["Material","Grade","Total Waste KG"].map(h => <th key={h} className="text-left px-2 py-1.5 text-slate-600">{h}</th>)}</tr></thead>
+                <thead><tr className="bg-slate-50">{["Material","Grade","Total Waste KG"].map(h => <th key={h} className="text-left px-2 py-1.5 text-slate-800 font-bold">{h}</th>)}</tr></thead>
                 <tbody>
                 {processRecords.length === 0 ? <tr><td colSpan={3} className="px-2 py-2 text-slate-400">No scrap/waste entries yet.</td></tr> :
                   processRecords.map(r => {
                     const wo = workOrders.find(w => w.id === r.workOrderId)
                     const mat = materials.find(m => m.id === wo?.rawMaterialId)
-                    return <tr key={r.id} className="border-t border-slate-100"><td className="px-2 py-1.5">{mat?.material || "—"}</td><td className="px-2 py-1.5">{mat?.rawMaterialGrade || "—"}</td><td className="px-2 py-1.5 font-semibold text-rose-700">{r.materialWasteKg.toFixed(2)}</td></tr>
+                    return <tr key={r.id} className="border-t border-slate-100"><td className="px-2 py-1.5 text-slate-900 font-medium">{mat?.material || "—"}</td><td className="px-2 py-1.5 text-slate-800">{mat?.rawMaterialGrade || "—"}</td><td className="px-2 py-1.5 font-semibold text-rose-700">{r.materialWasteKg.toFixed(2)}</td></tr>
                   })}
                 </tbody>
               </table>
@@ -511,8 +511,16 @@ export default function InventoryPage() {
             </div>
             <div className="p-5 overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="bg-slate-50"><tr>{["Date","Process","WO","Scrap KG","Waste KG","Total Loss KG"].map(h => <th key={h} className="px-3 py-2 text-left">{h}</th>)}</tr></thead>
-                <tbody>{processRecords.map(r => <tr key={r.id} className="border-t"><td className="px-3 py-2">{r.date}</td><td className="px-3 py-2">{r.process}</td><td className="px-3 py-2 font-mono text-xs">{r.workOrderId}</td><td className="px-3 py-2">{r.scrapWeightKg.toFixed(2)}</td><td className="px-3 py-2">{r.materialWasteKg.toFixed(2)}</td><td className="px-3 py-2 font-semibold">{(r.scrapWeightKg+r.materialWasteKg).toFixed(2)}</td></tr>)}</tbody>
+                <thead className="bg-slate-50"><tr>{["Date","Process","Material","Grade","WO","Scrap KG","Waste KG","Total Loss KG"].map(h => <th key={h} className="px-3 py-2 text-left text-slate-800 font-bold">{h}</th>)}</tr></thead>
+                <tbody>
+                {processRecords.length === 0 ? (
+                  <tr><td colSpan={8} className="px-3 py-6 text-center text-slate-500">No scrap/waste records yet.</td></tr>
+                ) : processRecords.map(r => {
+                  const wo = workOrders.find(w => w.id === r.workOrderId)
+                  const mat = materials.find(m => m.id === wo?.rawMaterialId)
+                  return <tr key={r.id} className="border-t"><td className="px-3 py-2 text-slate-900">{r.date}</td><td className="px-3 py-2 text-slate-900">{r.process}</td><td className="px-3 py-2 text-slate-900">{mat?.material || "—"}</td><td className="px-3 py-2 text-slate-900">{mat?.rawMaterialGrade || "—"}</td><td className="px-3 py-2 font-mono text-xs text-slate-700">{r.workOrderId}</td><td className="px-3 py-2 text-slate-900">{r.scrapWeightKg.toFixed(2)}</td><td className="px-3 py-2 text-slate-900">{r.materialWasteKg.toFixed(2)}</td><td className="px-3 py-2 font-semibold text-slate-900">{(r.scrapWeightKg+r.materialWasteKg).toFixed(2)}</td></tr>
+                })}
+                </tbody>
               </table>
             </div>
           </div>
