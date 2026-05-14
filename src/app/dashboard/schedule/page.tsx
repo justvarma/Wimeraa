@@ -270,9 +270,11 @@ export default function SchedulePage() {
                   <td className="px-5 py-4 text-sm font-bold text-slate-900">{item.requiredQuantity.toLocaleString()}</td>
                   <td className="px-5 py-4 text-sm text-slate-500">{item.date.slice(0, 7)}</td>
                   <td className="px-5 py-4 text-sm">
-                    <select value={p.step} disabled className="border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-700 bg-slate-50">
-                      <option value={p.step}>{p.produced} produced · {p.step}</option>
-                    </select>
+                    <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200">
+                      <span className="text-slate-700 font-semibold">{p.produced} produced</span>
+                      <span className="text-slate-300">•</span>
+                      <span className="text-slate-600 capitalize">{p.step.replace("_", " ")}</span>
+                    </div>
                   </td>
                   {canManage && (
                     <td className="px-5 py-4">
