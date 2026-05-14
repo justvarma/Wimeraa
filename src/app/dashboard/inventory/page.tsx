@@ -277,7 +277,6 @@ export default function InventoryPage() {
                 <span className="text-slate-300">|</span>
                 <span>Used: <span className="font-bold text-slate-700">{s.totalUsedKg.toFixed(1)}</span></span>
               </div>
-              <p className="text-xs text-slate-400 mt-0.5">{s.totalComponents.toLocaleString()} components</p>
               {s.availableKg <= 0 && <p className="text-[10px] font-black text-red-600 mt-1 uppercase tracking-wider">⚠ Out of stock</p>}
 
               {/* Hover panel: material master + approved/assigned details */}
