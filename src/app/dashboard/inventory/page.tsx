@@ -50,7 +50,7 @@ const emptyForm = {
 }
 
 export default function InventoryPage() {
-  const { currentUser, materials, materialMasters, processRecords, addMaterial, updateMaterial, users } = useApp()
+  const { currentUser, materials, materialMasters, processRecords, workOrders, addMaterial, updateMaterial, users } = useApp()
   const storekeepers = users.filter(u => u.role === "storekeeper" || u.role === "admin")
   const [showForm, setShowForm] = useState(false)
   const [showUpload, setShowUpload] = useState(false)
@@ -63,7 +63,8 @@ export default function InventoryPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [form, setForm] = useState({ ...emptyForm })
   const [selectedBatchByGroup, setSelectedBatchByGroup] = useState<Record<string, string>>({})
-  const [activeTab, setActiveTab] = useState<"inventory" | "scrap">("inventory")
+  const [showScrapDetails, setShowScrapDetails] = useState(false)
+  const [showOutsourceDetails, setShowOutsourceDetails] = useState(false)
 
   const role = currentUser?.role as UserRole
   const isAdmin       = role === UserRole.ADMIN
@@ -123,6 +124,10 @@ export default function InventoryPage() {
     const totalComponents  = items.reduce((s, m) => s + m.numberOfRequiredComponents, 0)
     return { grade: g, totalReceivedKg, totalUsedKg, availableKg, totalComponents, count: items.length }
   }).filter(s => s.count > 0)
+  const totalScrapKg = processRecords.reduce((sum, r) => sum + r.scrapWeightKg, 0)
+  const totalWasteKg = processRecords.reduce((sum, r) => sum + r.materialWasteKg, 0)
+  const outsourcedWOs = workOrders.filter(wo => wo.isExternal)
+  const totalOutsourcedMaterialKg = outsourcedWOs.reduce((sum, wo) => sum + (wo.requiredQuantityKg || 0), 0)
 
   const openAdd = () => {
     setEditItem(null)
@@ -219,29 +224,7 @@ export default function InventoryPage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex gap-2 p-1 bg-slate-100 rounded-xl w-fit">
-        <button onClick={() => setActiveTab("inventory")} className={`px-4 py-2 rounded-lg text-sm font-bold ${activeTab==="inventory"?"bg-white text-slate-900":"text-slate-600"}`}>Inventory</button>
-        <button onClick={() => setActiveTab("scrap")} className={`px-4 py-2 rounded-lg text-sm font-bold ${activeTab==="scrap"?"bg-white text-slate-900":"text-slate-600"}`}>Scrap</button>
-      </div>
-      {activeTab === "scrap" ? (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="p-5 border-b border-slate-100">
-            <h2 className="text-base font-black text-slate-800">Scrap & Waste Register (Auto from Process)</h2>
-            <p className="text-xs text-slate-400">Updated after each process record submission.</p>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left min-w-[700px]">
-              <thead className="bg-slate-50 border-b border-slate-200"><tr className="text-slate-600 text-xs font-bold uppercase tracking-wider">{["Date","Process","WO","Scrap KG","Waste KG","Total Loss KG"].map(h=><th key={h} className="px-5 py-3">{h}</th>)}</tr></thead>
-              <tbody className="divide-y divide-slate-100">
-                {processRecords.length === 0 ? <tr><td colSpan={6} className="px-6 py-10 text-slate-400 text-center">No scrap records yet.</td></tr> :
-                  processRecords.map(r => <tr key={r.id}><td className="px-5 py-3">{r.date}</td><td className="px-5 py-3">{r.process}</td><td className="px-5 py-3 font-mono text-xs">{r.workOrderId}</td><td className="px-5 py-3">{r.scrapWeightKg.toFixed(2)}</td><td className="px-5 py-3">{r.materialWasteKg.toFixed(2)}</td><td className="px-5 py-3 font-semibold">{(r.scrapWeightKg+r.materialWasteKg).toFixed(2)}</td></tr>)
-                }
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : (
-      <>
+
       <header className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-3xl font-black text-slate-900">Raw Material Inventory</h1>
@@ -294,6 +277,7 @@ export default function InventoryPage() {
                 <span className="text-slate-300">|</span>
                 <span>Used: <span className="font-bold text-slate-700">{s.totalUsedKg.toFixed(1)}</span></span>
               </div>
+              <p className="text-xs text-slate-400 mt-0.5">{s.totalComponents.toLocaleString()} components</p>
               {s.availableKg <= 0 && <p className="text-[10px] font-black text-red-600 mt-1 uppercase tracking-wider">⚠ Out of stock</p>}
 
               {/* Hover panel: material master + approved/assigned details */}
@@ -326,6 +310,66 @@ export default function InventoryPage() {
               </div>
             </div>
           ))}
+          <button onClick={() => setShowScrapDetails(true)} className="relative group text-left bg-white rounded-2xl border border-slate-200 p-4 shadow-sm hover:border-rose-200">
+            <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Total Scrap</p>
+            <p className="text-2xl font-black text-rose-700">{totalScrapKg.toFixed(1)} <span className="text-sm text-slate-400">KG</span></p>
+            <p className="text-xs text-slate-500 mt-1">Click for detailed breakdown</p>
+            <div className="hidden group-hover:block absolute z-30 top-full left-0 mt-2 w-[520px] max-w-[90vw] bg-white border border-slate-300 rounded-xl shadow-xl p-3">
+              <p className="text-xs font-black text-slate-700 uppercase tracking-wider mb-2">Scrap Hover Summary</p>
+              <table className="w-full text-xs">
+                <thead><tr className="bg-slate-50">{["Material","Grade","Total Waste KG"].map(h => <th key={h} className="text-left px-2 py-1.5 text-slate-800 font-bold">{h}</th>)}</tr></thead>
+                <tbody>
+                {processRecords.length === 0 ? <tr><td colSpan={3} className="px-2 py-2 text-slate-400">No scrap/waste entries yet.</td></tr> :
+                  Array.from(new Map(processRecords.map(r => {
+                    const wo = workOrders.find(w => w.id === r.workOrderId)
+                    const mat = materials.find(m => m.id === wo?.rawMaterialId)
+                    const material = mat?.material || "—"
+                    const grade = mat?.rawMaterialGrade || "—"
+                    return [`${material}__${grade}`, { material, grade, wasteKg: 0 }]
+                  })).values()).map(group => {
+                    const wasteKg = processRecords.reduce((sum, r) => {
+                      const wo = workOrders.find(w => w.id === r.workOrderId)
+                      const mat = materials.find(m => m.id === wo?.rawMaterialId)
+                      return ((mat?.material || "—") === group.material && (mat?.rawMaterialGrade || "—") === group.grade)
+                        ? sum + r.materialWasteKg
+                        : sum
+                    }, 0)
+                    return <tr key={`${group.material}-${group.grade}`} className="border-t border-slate-100"><td className="px-2 py-1.5 text-slate-900 font-medium">{group.material}</td><td className="px-2 py-1.5 text-slate-800">{group.grade}</td><td className="px-2 py-1.5 font-semibold text-rose-700">{wasteKg.toFixed(2)}</td></tr>
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </button>
+          <button onClick={() => setShowOutsourceDetails(true)} className="relative group text-left bg-white rounded-2xl border border-slate-200 p-4 shadow-sm hover:border-violet-200">
+            <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Outsourced Material</p>
+            <p className="text-2xl font-black text-violet-700">{totalOutsourcedMaterialKg.toFixed(1)} <span className="text-sm text-slate-400">KG</span></p>
+            <p className="text-xs text-slate-500 mt-1">Click for outsourced WO details</p>
+            <div className="hidden group-hover:block absolute z-30 top-full left-0 mt-2 w-[520px] max-w-[90vw] bg-white border border-slate-300 rounded-xl shadow-xl p-3">
+              <p className="text-xs font-black text-slate-700 uppercase tracking-wider mb-2">Outsourced Material Summary</p>
+              <table className="w-full text-xs">
+                <thead><tr className="bg-slate-50">{["Material","Grade","Total Qty KG"].map(h => <th key={h} className="text-left px-2 py-1.5 text-slate-800 font-bold">{h}</th>)}</tr></thead>
+                <tbody>
+                {outsourcedWOs.length === 0 ? <tr><td colSpan={3} className="px-2 py-2 text-slate-400">No outsourced work orders.</td></tr> :
+                  Array.from(new Map(outsourcedWOs.map(wo => {
+                    const mat = materials.find(m => m.id === wo.rawMaterialId)
+                    const material = mat?.material || "—"
+                    const grade = wo.rawMaterialGrade || mat?.rawMaterialGrade || "—"
+                    return [`${material}__${grade}`, { material, grade }]
+                  })).values()).map(group => {
+                    const totalQty = outsourcedWOs
+                      .filter(wo => {
+                        const mat = materials.find(m => m.id === wo.rawMaterialId)
+                        const material = mat?.material || "—"
+                        const grade = wo.rawMaterialGrade || mat?.rawMaterialGrade || "—"
+                        return material === group.material && grade === group.grade
+                      })
+                      .reduce((sum, wo) => sum + (wo.requiredQuantityKg || 0), 0)
+                    return <tr key={`${group.material}-${group.grade}`} className="border-t border-slate-100"><td className="px-2 py-1.5 text-slate-900 font-medium">{group.material}</td><td className="px-2 py-1.5 text-slate-800">{group.grade}</td><td className="px-2 py-1.5 font-semibold text-violet-700">{totalQty.toFixed(2)}</td></tr>
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </button>
         </div>
       )}
 
@@ -502,7 +546,70 @@ export default function InventoryPage() {
           </div>
         </div>
       )}
-      </>
+      {showScrapDetails && (
+        <div className="fixed inset-0 z-50 bg-black/40 p-4 flex items-center justify-center">
+          <div className="bg-white rounded-2xl border border-slate-200 w-full max-w-5xl max-h-[90vh] overflow-y-auto">
+            <div className="p-5 border-b flex items-center justify-between">
+              <h3 className="font-black text-slate-900">Scrap & Waste Detailed Breakdown</h3>
+              <button onClick={() => setShowScrapDetails(false)} className="text-slate-500 hover:text-slate-800">Close</button>
+            </div>
+            <div className="p-5 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50"><tr>{["Date","Process","Material","Grade","WO","Scrap KG","Waste KG","Total Loss KG"].map(h => <th key={h} className="px-3 py-2 text-left text-slate-800 font-bold">{h}</th>)}</tr></thead>
+                <tbody>
+                {processRecords.length === 0 ? (
+                  <tr><td colSpan={8} className="px-3 py-6 text-center text-slate-500">No scrap/waste records yet.</td></tr>
+                ) : processRecords.map(r => {
+                  const wo = workOrders.find(w => w.id === r.workOrderId)
+                  const mat = materials.find(m => m.id === wo?.rawMaterialId)
+                  return <tr key={r.id} className="border-t"><td className="px-3 py-2 text-slate-900">{r.date}</td><td className="px-3 py-2 text-slate-900">{r.process}</td><td className="px-3 py-2 text-slate-900">{mat?.material || "—"}</td><td className="px-3 py-2 text-slate-900">{mat?.rawMaterialGrade || "—"}</td><td className="px-3 py-2 font-mono text-xs text-slate-700">{r.workOrderId}</td><td className="px-3 py-2 text-slate-900">{r.scrapWeightKg.toFixed(2)}</td><td className="px-3 py-2 text-slate-900">{r.materialWasteKg.toFixed(2)}</td><td className="px-3 py-2 font-semibold text-slate-900">{(r.scrapWeightKg+r.materialWasteKg).toFixed(2)}</td></tr>
+                })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+      {showOutsourceDetails && (
+        <div className="fixed inset-0 z-50 bg-black/40 p-4 flex items-center justify-center">
+          <div className="bg-white rounded-2xl border border-slate-200 w-full max-w-6xl max-h-[90vh] overflow-y-auto">
+            <div className="p-5 border-b flex items-center justify-between">
+              <h3 className="font-black text-slate-900">Outsourced Work Orders — Material Assignment</h3>
+              <button onClick={() => setShowOutsourceDetails(false)} className="text-slate-500 hover:text-slate-800">Close</button>
+            </div>
+            <div className="p-5 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50"><tr>{["WO","Part","Material","Grade","Qty Assigned KG","Date Given","Expected Return","Expected Parts","Vendor ID","Vendor Name","Status"].map(h => <th key={h} className="px-3 py-2 text-left text-slate-800 font-bold">{h}</th>)}</tr></thead>
+                <tbody>
+                {outsourcedWOs.length === 0 ? (
+                  <tr><td colSpan={11} className="px-3 py-6 text-center text-slate-500">No outsourced work orders yet.</td></tr>
+                ) : outsourcedWOs.map(wo => (
+                  <tr key={wo.id} className="border-t">
+                    {(() => {
+                      const mat = materials.find(m => m.id === wo.rawMaterialId)
+                      return (
+                        <>
+                    <td className="px-3 py-2 font-mono text-xs text-slate-700">{wo.id}</td>
+                    <td className="px-3 py-2 text-slate-900">{wo.partName}</td>
+                    <td className="px-3 py-2 text-slate-900">{mat?.material || "—"}</td>
+                    <td className="px-3 py-2 text-slate-900">{wo.rawMaterialGrade || mat?.rawMaterialGrade || "—"}</td>
+                    <td className="px-3 py-2 text-slate-900 font-semibold">{(wo.requiredQuantityKg || 0).toFixed(2)}</td>
+                    <td className="px-3 py-2 text-slate-900">{wo.vendorProductionDate || wo.workOrderStartDate || "—"}</td>
+                    <td className="px-3 py-2 text-slate-900">{wo.dueDate || "—"}</td>
+                    <td className="px-3 py-2 text-slate-900">{wo.targetPartNos || 0}</td>
+                    <td className="px-3 py-2 text-slate-900">{wo.vendorId || "—"}</td>
+                    <td className="px-3 py-2 text-slate-900">{wo.vendorName || "—"}</td>
+                    <td className="px-3 py-2 text-slate-900">{wo.status}</td>
+                        </>
+                      )
+                    })()}
+                  </tr>
+                ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

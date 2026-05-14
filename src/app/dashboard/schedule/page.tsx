@@ -102,6 +102,11 @@ export default function SchedulePage() {
   }
 
   const handleDelete = (id: string) => {
+    const hasAssignedWO = workOrders.some(wo => wo.masterId === id)
+    if (hasAssignedWO) {
+      alert("This schedule entry is already assigned to a Work Order and cannot be deleted.")
+      return
+    }
     if (!confirm("Delete this schedule entry?")) return
     deleteSchedule(id)
   }
@@ -238,7 +243,7 @@ export default function SchedulePage() {
                 <tr><td colSpan={7} className="px-6 py-12 text-center text-slate-400">
                   <CalendarDays size={40} className="mx-auto mb-2 text-slate-200" />No schedule entries found
                 </td></tr>
-              ) : visible.map(item => { const p = scheduleProgress(item.id); return (
+              ) : visible.map(item => { const p = scheduleProgress(item.id); const isAssignedToWO = workOrders.some(wo => wo.masterId === item.id); return (
                 <tr key={item.id} className="hover:bg-slate-50 transition-colors">
                   <td className="px-5 py-4 text-sm font-bold text-slate-500">{item.serialNumber}</td>
                   <td className="px-5 py-4 text-sm font-mono text-indigo-600 font-bold">{item.partId}</td>
@@ -253,10 +258,10 @@ export default function SchedulePage() {
                   {canManage && (
                     <td className="px-5 py-4">
                       <div className="flex gap-3">
-                        <button onClick={() => openEdit(item)} className="flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800">
+                        <button disabled={isAssignedToWO} onClick={() => openEdit(item)} className="flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800 disabled:opacity-40 disabled:cursor-not-allowed" title={isAssignedToWO ? "Assigned to WO — cannot edit" : ""}>
                           <Edit2 size={13} /> Edit
                         </button>
-                        <button onClick={() => handleDelete(item.id)} className="flex items-center gap-1 text-xs font-bold text-red-500 hover:text-red-700">
+                        <button disabled={isAssignedToWO} onClick={() => handleDelete(item.id)} className="flex items-center gap-1 text-xs font-bold text-red-500 hover:text-red-700 disabled:opacity-40 disabled:cursor-not-allowed" title={isAssignedToWO ? "Assigned to WO — cannot delete" : ""}>
                           <Trash2 size={13} /> Delete
                         </button>
                       </div>
@@ -280,9 +285,16 @@ export default function SchedulePage() {
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Serial Number *</label>
-                  <input type="number" required min="1" value={form.serialNumber} onChange={e => setForm(p => ({ ...p, serialNumber: e.target.value }))}
-                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none" />
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                    Serial Number *
+                  </label>
+
+                  <input
+                    type="number"
+                    value={form.serialNumber}
+                    readOnly
+                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 bg-slate-100 cursor-not-allowed outline-none"
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Part ID *</label>
