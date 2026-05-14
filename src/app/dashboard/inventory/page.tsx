@@ -281,7 +281,7 @@ export default function InventoryPage() {
       {gradeSummary.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {gradeSummary.map(s => (
-            <div key={s.grade} className={`bg-white rounded-2xl border p-4 shadow-sm ${s.availableKg <= 0 ? "border-red-200 bg-red-50/30" : "border-slate-200"}`}>
+            <div key={s.grade} className={`relative group bg-white rounded-2xl border p-4 shadow-sm ${s.availableKg <= 0 ? "border-red-200 bg-red-50/30" : "border-slate-200"}`}>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Grade {s.grade}</span>
                 <span className="w-7 h-7 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-black">{s.count}</span>
@@ -294,8 +294,36 @@ export default function InventoryPage() {
                 <span className="text-slate-300">|</span>
                 <span>Used: <span className="font-bold text-slate-700">{s.totalUsedKg.toFixed(1)}</span></span>
               </div>
-              <p className="text-xs text-slate-400 mt-0.5">{s.totalComponents.toLocaleString()} components</p>
               {s.availableKg <= 0 && <p className="text-[10px] font-black text-red-600 mt-1 uppercase tracking-wider">⚠ Out of stock</p>}
+
+              {/* Hover panel: material master + approved/assigned details */}
+              <div className="hidden group-hover:block absolute z-30 top-full left-0 mt-2 w-[520px] max-w-[90vw] bg-white border border-slate-200 rounded-xl shadow-xl p-3">
+                <p className="text-xs font-black text-slate-700 uppercase tracking-wider mb-2">Configured Materials — Grade {s.grade}</p>
+                <table className="w-full text-xs">
+                  <thead>
+                  <tr className="bg-slate-50">
+                    {["Material", "Grade", "Approved KG", "Assigned KG"].map(h => <th key={h} className="text-left px-2 py-1.5 text-slate-600">{h}</th>)}
+                  </tr>
+                  </thead>
+                  <tbody>
+                  {materialMasters.filter(mm => mm.grade === s.grade).length === 0 ? (
+                    <tr><td colSpan={4} className="px-2 py-2 text-slate-400">No configured material for this grade.</td></tr>
+                  ) : materialMasters.filter(mm => mm.grade === s.grade).map(mm => {
+                    const relevant = materials.filter(m => m.status === "approved" && (m.material || "").toLowerCase() === mm.material.toLowerCase() && m.rawMaterialGrade === mm.grade)
+                    const approvedKg = relevant.reduce((sum, m) => sum + m.receivedQuantity, 0)
+                    const assignedKg = relevant.reduce((sum, m) => sum + (m.usedQuantity || 0), 0)
+                    return (
+                      <tr key={mm.id} className="border-t border-slate-100">
+                        <td className="px-2 py-1.5 text-slate-800">{mm.material}</td>
+                        <td className="px-2 py-1.5 text-slate-700">{mm.grade}</td>
+                        <td className="px-2 py-1.5 text-emerald-700 font-semibold">{approvedKg.toFixed(1)}</td>
+                        <td className="px-2 py-1.5 text-indigo-700 font-semibold">{assignedKg.toFixed(1)}</td>
+                      </tr>
+                    )
+                  })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           ))}
         </div>
@@ -408,16 +436,15 @@ export default function InventoryPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
-                    Raw Material Grade
-                  </label>
-
-                  <input
-                    type="text"
-                    value={`Grade ${form.rawMaterialGrade}`}
-                    readOnly
-                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 bg-slate-100 cursor-not-allowed"
-                  />
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Material *</label>
+                  <select required value={form.material} onChange={e => setForm(p => ({ ...p, material: e.target.value }))}
+                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none bg-white">
+                    {GRADES.map(g => <option key={g} value={g}>Grade {g}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Raw Material Grade *</label>
+                  <select required value={form.rawMaterialGrade} onChange={e => setForm(p => ({ ...p, rawMaterialGrade: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none bg-white">{GRADES.map(g => <option key={g} value={g}>Grade {g}</option>)}</select>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Received Quantity (KG) *</label>
@@ -436,6 +463,23 @@ export default function InventoryPage() {
                     <option value="">— Select receiver —</option>
                     {storekeepers.map(u => <option key={u.id} value={u.name}>{u.name} ({u.role})</option>)}
                   </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Batch Number *</label>
+                  <select required value={form.batchNumber} onChange={e => setForm(p => ({ ...p, batchNumber: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none bg-white">
+                    <option value="">— Select batch —</option>
+                    {(batchesByMaster.get(`${form.rawMaterialId}__${form.rawMaterialGrade}`) || []).map(b => <option key={b} value={b}>{b}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">No. of Required Components *</label>
+                  <input type="number" required min="0" value={form.numberOfRequiredComponents} onChange={e => setForm(p => ({ ...p, numberOfRequiredComponents: e.target.value }))}
+                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Weight per Component (KG) *</label>
+                  <input type="number" required min="0" step="any" value={form.weightPerComponent} onChange={e => setForm(p => ({ ...p, weightPerComponent: e.target.value }))}
+                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none" />
                 </div>
               </div>
               <div>
