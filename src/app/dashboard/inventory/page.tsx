@@ -350,9 +350,19 @@ export default function InventoryPage() {
                 <thead><tr className="bg-slate-50">{["Material","Grade","Total Qty KG"].map(h => <th key={h} className="text-left px-2 py-1.5 text-slate-800 font-bold">{h}</th>)}</tr></thead>
                 <tbody>
                 {outsourcedWOs.length === 0 ? <tr><td colSpan={3} className="px-2 py-2 text-slate-400">No outsourced work orders.</td></tr> :
-                  Array.from(new Map(outsourcedWOs.map(wo => [`${wo.materialGrade}__${wo.rawMaterialGrade}`, { material: wo.materialGrade || "—", grade: wo.rawMaterialGrade || "—" }])).values()).map(group => {
+                  Array.from(new Map(outsourcedWOs.map(wo => {
+                    const mat = materials.find(m => m.id === wo.rawMaterialId)
+                    const material = mat?.material || "—"
+                    const grade = wo.rawMaterialGrade || mat?.rawMaterialGrade || "—"
+                    return [`${material}__${grade}`, { material, grade }]
+                  })).values()).map(group => {
                     const totalQty = outsourcedWOs
-                      .filter(wo => (wo.materialGrade || "—") === group.material && (wo.rawMaterialGrade || "—") === group.grade)
+                      .filter(wo => {
+                        const mat = materials.find(m => m.id === wo.rawMaterialId)
+                        const material = mat?.material || "—"
+                        const grade = wo.rawMaterialGrade || mat?.rawMaterialGrade || "—"
+                        return material === group.material && grade === group.grade
+                      })
                       .reduce((sum, wo) => sum + (wo.requiredQuantityKg || 0), 0)
                     return <tr key={`${group.material}-${group.grade}`} className="border-t border-slate-100"><td className="px-2 py-1.5 text-slate-900 font-medium">{group.material}</td><td className="px-2 py-1.5 text-slate-800">{group.grade}</td><td className="px-2 py-1.5 font-semibold text-violet-700">{totalQty.toFixed(2)}</td></tr>
                   })}
@@ -575,10 +585,14 @@ export default function InventoryPage() {
                   <tr><td colSpan={11} className="px-3 py-6 text-center text-slate-500">No outsourced work orders yet.</td></tr>
                 ) : outsourcedWOs.map(wo => (
                   <tr key={wo.id} className="border-t">
+                    {(() => {
+                      const mat = materials.find(m => m.id === wo.rawMaterialId)
+                      return (
+                        <>
                     <td className="px-3 py-2 font-mono text-xs text-slate-700">{wo.id}</td>
                     <td className="px-3 py-2 text-slate-900">{wo.partName}</td>
-                    <td className="px-3 py-2 text-slate-900">{wo.materialGrade || "—"}</td>
-                    <td className="px-3 py-2 text-slate-900">{wo.rawMaterialGrade || "—"}</td>
+                    <td className="px-3 py-2 text-slate-900">{mat?.material || "—"}</td>
+                    <td className="px-3 py-2 text-slate-900">{wo.rawMaterialGrade || mat?.rawMaterialGrade || "—"}</td>
                     <td className="px-3 py-2 text-slate-900 font-semibold">{(wo.requiredQuantityKg || 0).toFixed(2)}</td>
                     <td className="px-3 py-2 text-slate-900">{wo.vendorProductionDate || wo.workOrderStartDate || "—"}</td>
                     <td className="px-3 py-2 text-slate-900">{wo.dueDate || "—"}</td>
@@ -586,6 +600,9 @@ export default function InventoryPage() {
                     <td className="px-3 py-2 text-slate-900">{wo.vendorId || "—"}</td>
                     <td className="px-3 py-2 text-slate-900">{wo.vendorName || "—"}</td>
                     <td className="px-3 py-2 text-slate-900">{wo.status}</td>
+                        </>
+                      )
+                    })()}
                   </tr>
                 ))}
                 </tbody>
