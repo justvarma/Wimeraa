@@ -64,6 +64,7 @@ export default function InventoryPage() {
   const [form, setForm] = useState({ ...emptyForm })
   const [selectedBatchByGroup, setSelectedBatchByGroup] = useState<Record<string, string>>({})
   const [showScrapDetails, setShowScrapDetails] = useState(false)
+  const [showOutsourceDetails, setShowOutsourceDetails] = useState(false)
 
   const role = currentUser?.role as UserRole
   const isAdmin       = role === UserRole.ADMIN
@@ -125,6 +126,8 @@ export default function InventoryPage() {
   }).filter(s => s.count > 0)
   const totalScrapKg = processRecords.reduce((sum, r) => sum + r.scrapWeightKg, 0)
   const totalWasteKg = processRecords.reduce((sum, r) => sum + r.materialWasteKg, 0)
+  const outsourcedWOs = workOrders.filter(wo => wo.isExternal)
+  const totalOutsourcedMaterialKg = outsourcedWOs.reduce((sum, wo) => sum + (wo.requiredQuantityKg || 0), 0)
 
   const openAdd = () => {
     setEditItem(null)
@@ -337,6 +340,26 @@ export default function InventoryPage() {
               </table>
             </div>
           </button>
+          <button onClick={() => setShowOutsourceDetails(true)} className="relative group text-left bg-white rounded-2xl border border-slate-200 p-4 shadow-sm hover:border-violet-200">
+            <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Outsourced Material</p>
+            <p className="text-2xl font-black text-violet-700">{totalOutsourcedMaterialKg.toFixed(1)} <span className="text-sm text-slate-400">KG</span></p>
+            <p className="text-xs text-slate-500 mt-1">Click for outsourced WO details</p>
+            <div className="hidden group-hover:block absolute z-30 top-full left-0 mt-2 w-[520px] max-w-[90vw] bg-white border border-slate-300 rounded-xl shadow-xl p-3">
+              <p className="text-xs font-black text-slate-700 uppercase tracking-wider mb-2">Outsourced Material Summary</p>
+              <table className="w-full text-xs">
+                <thead><tr className="bg-slate-50">{["Material","Grade","Total Qty KG"].map(h => <th key={h} className="text-left px-2 py-1.5 text-slate-800 font-bold">{h}</th>)}</tr></thead>
+                <tbody>
+                {outsourcedWOs.length === 0 ? <tr><td colSpan={3} className="px-2 py-2 text-slate-400">No outsourced work orders.</td></tr> :
+                  Array.from(new Map(outsourcedWOs.map(wo => [`${wo.materialGrade}__${wo.rawMaterialGrade}`, { material: wo.materialGrade || "—", grade: wo.rawMaterialGrade || "—" }])).values()).map(group => {
+                    const totalQty = outsourcedWOs
+                      .filter(wo => (wo.materialGrade || "—") === group.material && (wo.rawMaterialGrade || "—") === group.grade)
+                      .reduce((sum, wo) => sum + (wo.requiredQuantityKg || 0), 0)
+                    return <tr key={`${group.material}-${group.grade}`} className="border-t border-slate-100"><td className="px-2 py-1.5 text-slate-900 font-medium">{group.material}</td><td className="px-2 py-1.5 text-slate-800">{group.grade}</td><td className="px-2 py-1.5 font-semibold text-violet-700">{totalQty.toFixed(2)}</td></tr>
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </button>
         </div>
       )}
 
@@ -531,6 +554,40 @@ export default function InventoryPage() {
                   const mat = materials.find(m => m.id === wo?.rawMaterialId)
                   return <tr key={r.id} className="border-t"><td className="px-3 py-2 text-slate-900">{r.date}</td><td className="px-3 py-2 text-slate-900">{r.process}</td><td className="px-3 py-2 text-slate-900">{mat?.material || "—"}</td><td className="px-3 py-2 text-slate-900">{mat?.rawMaterialGrade || "—"}</td><td className="px-3 py-2 font-mono text-xs text-slate-700">{r.workOrderId}</td><td className="px-3 py-2 text-slate-900">{r.scrapWeightKg.toFixed(2)}</td><td className="px-3 py-2 text-slate-900">{r.materialWasteKg.toFixed(2)}</td><td className="px-3 py-2 font-semibold text-slate-900">{(r.scrapWeightKg+r.materialWasteKg).toFixed(2)}</td></tr>
                 })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+      {showOutsourceDetails && (
+        <div className="fixed inset-0 z-50 bg-black/40 p-4 flex items-center justify-center">
+          <div className="bg-white rounded-2xl border border-slate-200 w-full max-w-6xl max-h-[90vh] overflow-y-auto">
+            <div className="p-5 border-b flex items-center justify-between">
+              <h3 className="font-black text-slate-900">Outsourced Work Orders — Material Assignment</h3>
+              <button onClick={() => setShowOutsourceDetails(false)} className="text-slate-500 hover:text-slate-800">Close</button>
+            </div>
+            <div className="p-5 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50"><tr>{["WO","Part","Material","Grade","Qty Assigned KG","Date Given","Expected Return","Expected Parts","Vendor ID","Vendor Name","Status"].map(h => <th key={h} className="px-3 py-2 text-left text-slate-800 font-bold">{h}</th>)}</tr></thead>
+                <tbody>
+                {outsourcedWOs.length === 0 ? (
+                  <tr><td colSpan={11} className="px-3 py-6 text-center text-slate-500">No outsourced work orders yet.</td></tr>
+                ) : outsourcedWOs.map(wo => (
+                  <tr key={wo.id} className="border-t">
+                    <td className="px-3 py-2 font-mono text-xs text-slate-700">{wo.id}</td>
+                    <td className="px-3 py-2 text-slate-900">{wo.partName}</td>
+                    <td className="px-3 py-2 text-slate-900">{wo.materialGrade || "—"}</td>
+                    <td className="px-3 py-2 text-slate-900">{wo.rawMaterialGrade || "—"}</td>
+                    <td className="px-3 py-2 text-slate-900 font-semibold">{(wo.requiredQuantityKg || 0).toFixed(2)}</td>
+                    <td className="px-3 py-2 text-slate-900">{wo.vendorProductionDate || wo.workOrderStartDate || "—"}</td>
+                    <td className="px-3 py-2 text-slate-900">{wo.dueDate || "—"}</td>
+                    <td className="px-3 py-2 text-slate-900">{wo.targetPartNos || 0}</td>
+                    <td className="px-3 py-2 text-slate-900">{wo.vendorId || "—"}</td>
+                    <td className="px-3 py-2 text-slate-900">{wo.vendorName || "—"}</td>
+                    <td className="px-3 py-2 text-slate-900">{wo.status}</td>
+                  </tr>
+                ))}
                 </tbody>
               </table>
             </div>
