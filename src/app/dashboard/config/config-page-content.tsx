@@ -482,6 +482,12 @@ function PartsTab() {
   const [materialRequired, setMaterialRequired] = useState("")
   const [grade, setGrade] = useState("")
   const [quantityPerPart, setQuantityPerPart] = useState("")
+  const materialOptions = [...materialMasters].sort((a, b) => (
+    a.material.localeCompare(b.material) || a.grade.localeCompare(b.grade)
+  ))
+  const gradeOptions = materialRequired
+    ? materialOptions.filter(m => m.material === materialRequired).map(m => m.grade)
+    : []
 
   const createPartMaster = async () => {
     if (!partId.trim() || !partName.trim() || !materialRequired.trim() || !grade.trim() || Number(quantityPerPart) <= 0) return
@@ -508,12 +514,18 @@ function PartsTab() {
     <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
       <input value={partId} onChange={e => setPartId(e.target.value)} placeholder="Part ID *" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
       <input value={partName} onChange={e => setPartName(e.target.value)} placeholder="Part Name *" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
-      <input value={materialRequired} onChange={e => setMaterialRequired(e.target.value)} placeholder="Material Required *" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
-      <input value={grade} onChange={e => setGrade(e.target.value)} placeholder="Grade *" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
+      <select value={materialRequired} onChange={e => { setMaterialRequired(e.target.value); setGrade("") }} className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 bg-white">
+        <option value="">Material Required *</option>
+        {Array.from(new Set(materialOptions.map(m => m.material))).map(m => <option key={m} value={m}>{m}</option>)}
+      </select>
+      <select value={grade} onChange={e => setGrade(e.target.value)} disabled={!materialRequired} className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 bg-white disabled:bg-slate-100 disabled:text-slate-400">
+        <option value="">Grade *</option>
+        {gradeOptions.map(g => <option key={g} value={g}>{g}</option>)}
+      </select>
       <input type="number" min="0.001" step="0.001" value={quantityPerPart} onChange={e => setQuantityPerPart(e.target.value)} placeholder="Quantity Per Part (KG) *" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
       <button onClick={createPartMaster} className="px-3 py-2 bg-blue-600 text-white rounded text-sm font-bold">Add Part Master</button>
     </div>
-    <p className="text-xs text-slate-500 mb-3">Configured material master rows: {materialMasters.length}. Ensure material & grade are aligned while creating part masters.</p>
+    <p className="text-xs text-slate-500 mb-3">Material and grade are now selected from Config → Materials master rows ({materialMasters.length} configured).</p>
     <table className="w-full text-sm border border-slate-200 rounded-lg overflow-hidden">
       <thead>
       <tr className="bg-slate-50">
