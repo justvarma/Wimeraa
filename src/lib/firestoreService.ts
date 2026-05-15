@@ -38,7 +38,7 @@ import type {
   User, RawMaterial, RawMaterialMaster, PartMaster, MonthlySchedule, PTC,
   WorkOrder, DailyProductionEntry, ProcessRecord,
   DowntimeEvent, QIInspection, FQIInspection,
-  ShiftConfig, RoleConfig, MachineDef, DeviceConfig,
+  ShiftConfig, RoleConfig, MachineDef, DeviceConfig, OperationConfig,
 } from "./store"
 
 // ─── Path helpers ─────────────────────────────────────────────────────────────
@@ -595,6 +595,22 @@ export async function updateDeviceConfig(clientId: string, id: string, data: Par
 
 export async function deleteDeviceConfig(clientId: string, id: string): Promise<void> {
   await deleteDoc(clientDoc(clientId, "devices", id))
+}
+
+export function subscribeOperations(
+    clientId: string,
+    setter: (operations: OperationConfig[]) => void,
+    onError?: (err: Error) => void,
+): Unsub {
+  return subscribeCol<OperationConfig>(clientId, "operations", setter, [orderBy("operationId", "asc")], onError)
+}
+
+export async function addOperationConfig(clientId: string, operation: OperationConfig): Promise<void> {
+  await setDoc(clientDoc(clientId, "operations", operation.id), stripUndefined(operation))
+}
+
+export async function deleteOperationConfig(clientId: string, id: string): Promise<void> {
+  await deleteDoc(clientDoc(clientId, "operations", id))
 }
 // ─── Role Configs ─────────────────────────────────────────────────────────────
 // Stored at clients/{clientId}/roles/{id}

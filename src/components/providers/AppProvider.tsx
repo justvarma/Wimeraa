@@ -20,7 +20,7 @@ import {
   type User, type RawMaterial, type WorkOrder, type MonthlySchedule,
   type PTC, type DailyProductionEntry, type ProcessRecord,
   type DowntimeEvent, type QIInspection, type FQIInspection,
-  type ShiftConfig, type RoleConfig, type MachineDef, type RawMaterialMaster, type PartMaster, type DeviceConfig,
+  type ShiftConfig, type RoleConfig, type MachineDef, type RawMaterialMaster, type PartMaster, type DeviceConfig, type OperationConfig,
   UserRole, DEFAULT_SHIFT_CONFIGS, DEFAULT_ROLE_CONFIGS, DEFAULT_MACHINE_CONFIGS,
 } from "@/lib/store"
 import { onAuthStateChange, signIn, signOut, fetchUserProfile, auth } from "@/lib/auth"
@@ -111,6 +111,9 @@ interface AppContextType {
   addDevice: (device: DeviceConfig) => Promise<void>
   updateDevice: (id: string, data: Partial<DeviceConfig>) => Promise<void>
   deleteDevice: (id: string) => Promise<void>
+  operations: OperationConfig[]
+  addOperation: (operation: OperationConfig) => Promise<void>
+  deleteOperation: (id: string) => Promise<void>
 
   // ── Config: Shifts ─────────────────────────────────────────────────────────
   shifts:       ShiftConfig[]
@@ -159,6 +162,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [shifts,          setShifts]          = useState<ShiftConfig[]>([])
   const [machines,        setMachines]        = useState<MachineDef[]>([])
   const [devices,         setDevices]         = useState<DeviceConfig[]>([])
+  const [operations,      setOperations]      = useState<OperationConfig[]>([])
 
   const unsubsRef = useRef<Array<() => void>>([])
 
@@ -271,6 +275,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             fs.subscribeShifts(cid, handleShifts, onSnapError),
             fs.subscribeMachines(cid, handleMachines, onSnapError),
             fs.subscribeDevices(cid, setDevices, onSnapError),
+            fs.subscribeOperations(cid, setOperations, onSnapError),
           ]
         }
       } catch (err) {
@@ -510,6 +515,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const addDevice = useCallback(async (device: DeviceConfig) => { if (!clientId) return; await fs.addDeviceConfig(clientId, device) }, [clientId])
   const updateDevice = useCallback(async (id: string, data: Partial<DeviceConfig>) => { if (!clientId) return; await fs.updateDeviceConfig(clientId, id, data) }, [clientId])
   const deleteDevice = useCallback(async (id: string) => { if (!clientId) return; await fs.deleteDeviceConfig(clientId, id) }, [clientId])
+  const addOperation = useCallback(async (operation: OperationConfig) => { if (!clientId) return; await fs.addOperationConfig(clientId, operation) }, [clientId])
+  const deleteOperation = useCallback(async (id: string) => { if (!clientId) return; await fs.deleteOperationConfig(clientId, id) }, [clientId])
 
   const confirmShifts = useCallback(async () => {
     await fs.confirmShiftConfigs(cid())
@@ -536,6 +543,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         roles,  addRole,  updateRole,  deleteRole,
         machines, addMachine, updateMachine, deleteMachine,
         devices, addDevice, updateDevice, deleteDevice,
+        operations, addOperation, deleteOperation,
     shifts, addShift, deleteShift, updateShift, reorderShift, confirmShifts,
 
         sidebarCollapsed, setSidebarCollapsed,

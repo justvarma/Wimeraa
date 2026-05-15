@@ -59,7 +59,7 @@ function TimeInput({ value, onChange }: { value: string; onChange: (v: string) =
 
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
-type Tab = "users" | "roles" | "shifts" | "machines" | "materials" | "parts" | "devices"
+type Tab = "users" | "roles" | "shifts" | "machines" | "materials" | "parts" | "devices" | "operations"
 
 export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
   const {
@@ -72,7 +72,7 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const tabParam = searchParams.get("tab")
-  const queryTab: Tab = tabParam === "roles" || tabParam === "shifts" || tabParam === "users" || tabParam === "machines" || tabParam === "materials" || tabParam === "parts" || tabParam === "devices" ? tabParam : "users"
+  const queryTab: Tab = tabParam === "roles" || tabParam === "shifts" || tabParam === "users" || tabParam === "machines" || tabParam === "materials" || tabParam === "parts" || tabParam === "devices" || tabParam === "operations" ? tabParam : "users"
   const initialTab: Tab = forcedTab ?? queryTab
   const [activeTab, setActiveTab] = useState<Tab>(initialTab)
   const isSystemAdmin = currentUser?.role === UserRole.SYSTEM_ADMIN
@@ -120,6 +120,7 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
             ["materials", Package,    "Materials"],
             ["parts", Package,    "Part Master"],
             ["devices", Settings, "Devices"],
+            ["operations", Settings, "Operations"],
           ] as const)
             .filter(([tab]) => !isSystemAdmin || tab === "users")
             .map(([tab, Icon, label]) => (
@@ -141,8 +142,39 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
         {activeTab === "materials" && <MaterialsTab />}
         {activeTab === "parts" && <PartsTab />}
         {activeTab === "devices" && <DevicesTab />}
+        {activeTab === "operations" && <OperationsTab />}
       </div>
   )
+}
+
+function OperationsTab() {
+  const { operations, addOperation, deleteOperation } = useApp()
+  const [operationId, setOperationId] = useState("")
+  const [processName, setProcessName] = useState("Milling")
+  const add = async () => {
+    if (!operationId.trim()) return
+    await addOperation({ id: `${operationId.trim()}-${Date.now()}`, operationId: operationId.trim(), processName: processName as any, createdAt: new Date().toISOString().split("T")[0] })
+    setOperationId("")
+    setProcessName("Milling")
+  }
+  return <div className="space-y-4">
+    <div className="bg-white border border-slate-200 rounded-xl p-4">
+      <h3 className="font-black text-slate-900 mb-3">Add Operation Config</h3>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+        <input value={operationId} onChange={e => setOperationId(e.target.value)} placeholder="Operations ID" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 bg-white" />
+        <select value={processName} onChange={e => setProcessName(e.target.value)} className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 bg-white">
+          {["Milling","Face Turning","Drilling","Boring","Chamfering","Tapping","Sloting","Back Facing","Groovine","Thredening"].map(p => <option key={p} value={p}>{p}</option>)}
+        </select>
+        <button onClick={add} className="px-3 py-2 bg-blue-600 text-white rounded text-sm font-bold">Add</button>
+      </div>
+    </div>
+    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+      <table className="w-full text-sm text-slate-900">
+        <thead><tr className="bg-slate-100">{["Operations ID","Process Name","Actions"].map(h => <th key={h} className="text-left px-3 py-2 text-slate-700 font-bold">{h}</th>)}</tr></thead>
+        <tbody>{operations.map(o => <tr key={o.id} className="border-t border-slate-200"><td className="px-3 py-2">{o.operationId}</td><td className="px-3 py-2">{o.processName}</td><td className="px-3 py-2"><button onClick={() => deleteOperation(o.id)} className="text-red-700 font-semibold">Delete</button></td></tr>)}</tbody>
+      </table>
+    </div>
+  </div>
 }
 
 function DevicesTab() {
