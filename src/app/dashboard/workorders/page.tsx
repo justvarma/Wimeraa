@@ -78,6 +78,10 @@ function Phase1Form({ onClose, onSave, initial }: {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     const selectedSchedule = schedules.find(s => s.id === form.masterId)
+    if (selectedSchedule && Number(form.targetPartNos) > Number(selectedSchedule.requiredQuantity)) {
+      alert(`Required Qty (Nos) cannot exceed monthly schedule quantity (${selectedSchedule.requiredQuantity}).`)
+      return
+    }
     if (form.workOrderStartDate > form.dueDate) {
       alert("WO start date cannot be after due date")
       return
@@ -226,7 +230,7 @@ function Phase2Form({ wo, onClose, onSave }: {
 
   const selectedMachineNames = form.machine.split(",").map(m => m.trim()).filter(Boolean)
   const selectedQi = qiUsers.find(u => u.id === form.assignedQiId)
-  const vendorReady = !form.isExternal || Boolean(form.vendorName.trim() && form.vendorProductionDate && form.vendorMachine.trim() && form.vendorShift && form.assignedQiId)
+  const vendorReady = !form.isExternal || Boolean(form.vendorName.trim() && form.vendorProductionDate && form.vendorMachine.trim() && form.assignedQiId)
 
   const selectedMat = approvedMats.find(m => m.id === form.rawMaterialId)
   const availableKg = selectedMat ? selectedMat.receivedQuantity - (selectedMat.usedQuantity || 0) : 0
@@ -242,15 +246,15 @@ function Phase2Form({ wo, onClose, onSave }: {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (shortfall) { alert(`Insufficient stock! Available: ${availableKg.toFixed(1)} KG, Required: ${wo.requiredQuantityKg} KG`); return }
-    if (selectedMachineNames.length===0) { alert("At least one machine is required."); return }
-    if (selectedMachineNames.some(machine => reservedMachines.has(machine))) { alert("One or more machines are already occupied for this shift"); return }
-    if (!vendorReady) { alert("Vendor production requires vendor name, date, machine, shift, and assigned QI user."); return }
+    if (!form.isExternal && selectedMachineNames.length===0) { alert("At least one machine is required."); return }
+    if (!form.isExternal && selectedMachineNames.some(machine => reservedMachines.has(machine))) { alert("One or more machines are already occupied for this shift"); return }
+    if (!vendorReady) { alert("Vendor production requires vendor name, date, machine, and assigned QI user."); return }
     onSave({
       ...form,
-      machine: selectedMachineNames.join(", "),
+      machine: form.isExternal ? "" : selectedMachineNames.join(", "),
       vendorMachine: form.isExternal ? form.vendorMachine.trim() : "",
       vendorProductionDate: form.isExternal ? form.vendorProductionDate : "",
-      vendorShift: form.isExternal ? form.vendorShift : "" as Shift,
+      vendorShift: "" as Shift,
       assignedQiId: form.isExternal ? form.assignedQiId : "",
       assignedQiName: form.isExternal ? selectedQi?.name || "" : "",
       rawMaterialGrade: selectedMat?.rawMaterialGrade || form.materialGrade,
@@ -399,12 +403,6 @@ function Phase2Form({ wo, onClose, onSave }: {
                 <Field label="Vendor Machine" req>
                   <input required value={form.vendorMachine} onChange={e => setForm(p=>({...p,vendorMachine:e.target.value}))} placeholder="Vendor machine / line" className={cls}/>
                 </Field>
-                <Field label="Vendor Shift" req>
-                  <select required value={form.vendorShift} onChange={e => setForm(p=>({...p,vendorShift:e.target.value as Shift}))} className={selectCls}>
-                    <option value="">— Select vendor shift —</option>
-                    {shiftOptions.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-                  </select>
-                </Field>
                 <Field label="Assigned QI User" req>
                   <select required value={form.assignedQiId} onChange={e => setForm(p=>({...p,assignedQiId:e.target.value}))} className={selectCls}>
                     <option value="">— Select QI user —</option>
@@ -418,8 +416,8 @@ function Phase2Form({ wo, onClose, onSave }: {
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-50">Cancel</button>
             <button type="submit"
-              disabled={selectedMachineNames.length===0 || !form.operator || !form.rawMaterialId || shortfall || !form.ptcId || selectedMachineNames.some(machine => reservedMachines.has(machine)) || !vendorReady}
-              title={!form.ptcId ? "A valid PDC code must be selected" : selectedMachineNames.some(machine => reservedMachines.has(machine)) ? "One or more machines are already occupied for this shift" : !vendorReady ? "Vendor production requires vendor name, date, machine, shift, and assigned QI user" : shortfall ? "Insufficient material stock" : ""}
+              disabled={(!form.isExternal && selectedMachineNames.length===0) || !form.operator || !form.rawMaterialId || shortfall || !form.ptcId || (!form.isExternal && selectedMachineNames.some(machine => reservedMachines.has(machine))) || !vendorReady}
+              title={!form.ptcId ? "A valid PDC code must be selected" : (!form.isExternal && selectedMachineNames.some(machine => reservedMachines.has(machine))) ? "One or more machines are already occupied for this shift" : !vendorReady ? "Vendor production requires vendor name, date, machine, and assigned QI user" : shortfall ? "Insufficient material stock" : ""}
               className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
               <CheckCircle2 size={16}/> Activate Work Order
             </button>
