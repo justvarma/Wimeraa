@@ -176,6 +176,11 @@ function OperationsTab() {
       }
     }
   }
+  const rows = operations.map((o: any) => ({
+    id: o.id,
+    operationId: o.operationId || o.operationID || o.opId || "—",
+    processName: o.processName || o.process || "—",
+  }))
   return <div className="space-y-4">
     <div className="bg-white border border-slate-200 rounded-xl p-4">
       <h3 className="font-black text-slate-900 mb-3">addOperationConfig</h3>
@@ -189,7 +194,11 @@ function OperationsTab() {
     <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
       <table className="w-full text-sm text-slate-900">
         <thead><tr className="bg-slate-100">{["Operations ID","Process Name","Actions"].map(h => <th key={h} className="text-left px-3 py-2 text-slate-700 font-bold">{h}</th>)}</tr></thead>
-        <tbody>{operations.map(o => <tr key={o.id} className="border-t border-slate-200"><td className="px-3 py-2">{o.operationId}</td><td className="px-3 py-2">{o.processName}</td><td className="px-3 py-2"><button onClick={() => deleteOperation(o.id)} className="text-red-700 font-semibold">Delete</button></td></tr>)}</tbody>
+        <tbody>
+          {rows.length === 0 ? (
+            <tr className="border-t border-slate-200"><td colSpan={3} className="px-3 py-4 text-slate-500">No operations found in DB.</td></tr>
+          ) : rows.map(o => <tr key={o.id} className="border-t border-slate-200"><td className="px-3 py-2">{o.operationId}</td><td className="px-3 py-2">{o.processName}</td><td className="px-3 py-2"><button onClick={() => deleteOperation(o.id)} className="text-red-700 font-semibold">Delete</button></td></tr>)}
+        </tbody>
       </table>
     </div>
   </div>
@@ -226,6 +235,13 @@ function DevicesTab() {
     const blob = new Blob([lines], { type: "text/plain" })
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `${d.deviceId}.txt`; a.click()
   }
+  const deviceRows = devices.map((d: any) => ({
+    id: d.id,
+    gatewayId: d.gatewayId || d.gatewayID || "—",
+    gatewayName: d.gatewayName || d.name || "—",
+    licensing: d.licensing || "—",
+    machineType: d.machineType || d.process || "—",
+  }))
   return <div className="space-y-4">
     <div className="flex justify-end">
       <button onClick={() => { setEditingId(null); setForm(empty); setShowForm(true) }} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-bold">Add Device</button>
@@ -245,7 +261,9 @@ function DevicesTab() {
     </div>}
     <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
       <table className="w-full text-sm text-slate-900"><thead><tr className="bg-slate-100 border-b border-slate-200">{["Gateway ID","Name","Licensing","Machine Type","Actions"].map(h => <th key={h} className="text-left px-3 py-2 font-bold text-slate-700">{h}</th>)}</tr></thead>
-      <tbody>{devices.map(d => <tr key={d.id} className="border-t border-slate-200"><td className="px-3 py-2 font-mono text-slate-900">{d.gatewayId}</td><td className="px-3 py-2 text-slate-900">{d.gatewayName}</td><td className="px-3 py-2 text-slate-900">{d.licensing}</td><td className="px-3 py-2 text-slate-900">{d.machineType}</td><td className="px-3 py-2 space-x-2"><button onClick={() => { setEditingId(d.id); setForm({ ...d }); setShowForm(true) }} className="text-blue-700 font-semibold">Edit</button><button onClick={() => deleteDevice(d.id)} className="text-red-700 font-semibold">Delete</button><button onClick={() => downloadTxt(d)} className="text-emerald-700 font-semibold">Download .txt</button></td></tr>)}</tbody></table>
+      <tbody>{deviceRows.length === 0 ? (
+        <tr className="border-t border-slate-200"><td colSpan={5} className="px-3 py-4 text-slate-500">No devices found in DB.</td></tr>
+      ) : deviceRows.map(d => <tr key={d.id} className="border-t border-slate-200"><td className="px-3 py-2 font-mono text-slate-900">{d.gatewayId}</td><td className="px-3 py-2 text-slate-900">{d.gatewayName}</td><td className="px-3 py-2 text-slate-900">{d.licensing}</td><td className="px-3 py-2 text-slate-900">{d.machineType}</td><td className="px-3 py-2 space-x-2"><button onClick={() => { const full = devices.find(x => x.id === d.id); if (!full) return; setEditingId(full.id); setForm({ ...(full as any) }); setShowForm(true) }} className="text-blue-700 font-semibold">Edit</button><button onClick={() => deleteDevice(d.id)} className="text-red-700 font-semibold">Delete</button><button onClick={() => { const full = devices.find(x => x.id === d.id); if (full) downloadTxt(full as any) }} className="text-emerald-700 font-semibold">Download .txt</button></td></tr>)}</tbody></table>
     </div>
   </div>
 }
