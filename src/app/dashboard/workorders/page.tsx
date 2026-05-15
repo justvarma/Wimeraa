@@ -599,18 +599,27 @@ export default function WorkOrdersPage() {
 
       {/* Simplified filters */}
       <div className="bg-white rounded-2xl border border-slate-200 p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white">
-          <option value="all">All Status</option>
-          {["draft","not_started","in_progress","awaiting_qi","completed","rejected","finished_goods"].map(s => <option key={s} value={s}>{statusLabel(s as WOStatus)}</option>)}
-        </select>
-        {!myProcess ? (
-          <select value={processFilter} onChange={e => setProcessFilter(e.target.value)} className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white">
-            <option value="all">All Process</option>
-            {(["die_casting","coating","cnc_vmc"] as ProcessStage[]).map(p => <option key={p} value={p}>{PROCESS_STAGE_LABELS[p]}</option>)}
+        <div className="space-y-1">
+          <p className="text-[11px] font-black text-slate-500 uppercase tracking-wider">Status</p>
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-900 bg-white">
+            <option value="all">All Status</option>
+            {["draft","not_started","in_progress","awaiting_qi","completed","rejected","finished_goods"].map(s => <option key={s} value={s}>{statusLabel(s as WOStatus)}</option>)}
           </select>
-        ) : <div className="px-3 py-2.5 text-sm rounded-xl bg-slate-50 border border-slate-200 text-slate-600">{PROCESS_STAGE_LABELS[myProcess]} view</div>}
-        <div className="px-3 py-2.5 text-xs rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-700 font-medium">
-          Showing {visibleGrouped.length} parent WO(s). Expand a parent to view SWO branches.
+        </div>
+        {!myProcess ? (
+          <div className="space-y-1">
+            <p className="text-[11px] font-black text-slate-500 uppercase tracking-wider">Process</p>
+            <select value={processFilter} onChange={e => setProcessFilter(e.target.value)} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-900 bg-white">
+              <option value="all">All Process</option>
+              {(["die_casting","coating","cnc_vmc"] as ProcessStage[]).map(p => <option key={p} value={p}>{PROCESS_STAGE_LABELS[p]}</option>)}
+            </select>
+          </div>
+        ) : <div className="space-y-1"><p className="text-[11px] font-black text-slate-500 uppercase tracking-wider">Process</p><div className="px-3 py-2.5 text-sm rounded-xl bg-slate-50 border border-slate-200 text-slate-700">{PROCESS_STAGE_LABELS[myProcess]} view</div></div>}
+        <div className="space-y-1">
+          <p className="text-[11px] font-black text-slate-500 uppercase tracking-wider">View Summary</p>
+          <div className="px-3 py-2.5 text-xs rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-700 font-medium">
+            Showing {visibleGrouped.length} parent WO(s). Expand a parent to view SWO branches.
+          </div>
         </div>
       </div>
 
