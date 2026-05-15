@@ -7,7 +7,6 @@ import { Package, Plus, X, Edit2, Search, Upload, FileSpreadsheet, CheckCircle2,
 import * as XLSX from "xlsx"
 
 const GRADES = ["A", "B", "C", "D", "E", "Other"]
-const MATERIAL_OPTIONS = ["Aluminium", "Copper", "Tin", "Steel", "Zinc", "Other"]
 
 function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
@@ -51,7 +50,7 @@ const emptyForm = {
 }
 
 export default function InventoryPage() {
-  const { currentUser, materials, addMaterial, updateMaterial, users } = useApp()
+  const { currentUser, materials, materialMasters, processRecords, workOrders, addMaterial, updateMaterial, users } = useApp()
   const storekeepers = users.filter(u => u.role === "storekeeper" || u.role === "admin")
   const [showForm, setShowForm] = useState(false)
   const [showUpload, setShowUpload] = useState(false)
@@ -64,6 +63,8 @@ export default function InventoryPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [form, setForm] = useState({ ...emptyForm })
   const [selectedBatchByGroup, setSelectedBatchByGroup] = useState<Record<string, string>>({})
+  const [showScrapDetails, setShowScrapDetails] = useState(false)
+  const [showOutsourceDetails, setShowOutsourceDetails] = useState(false)
 
   const role = currentUser?.role as UserRole
   const isAdmin       = role === UserRole.ADMIN
@@ -78,7 +79,7 @@ export default function InventoryPage() {
   // PDC roles: read-only, no add, no approve
   const isViewOnly = isPDC
 
-  const masterItems = Array.from(new Map(materials.map(m => [`${m.material || "Aluminium"}__${m.rawMaterialGrade}`, { rawMaterialId: m.rawMaterialId, material: m.material || "Aluminium", rawMaterialGrade: m.rawMaterialGrade }])).values())
+  const masterItems = materialMasters.map(m => ({ rawMaterialId: `${m.material.toUpperCase().slice(0,3)}-${m.grade}`, material: m.material, rawMaterialGrade: m.grade }))
   const batchesByMaster = new Map<string, string[]>()
   for (const m of materials) {
     const key = `${m.material || "Aluminium"}__${m.rawMaterialGrade}`
@@ -123,11 +124,15 @@ export default function InventoryPage() {
     const totalComponents  = items.reduce((s, m) => s + m.numberOfRequiredComponents, 0)
     return { grade: g, totalReceivedKg, totalUsedKg, availableKg, totalComponents, count: items.length }
   }).filter(s => s.count > 0)
+  const totalScrapKg = processRecords.reduce((sum, r) => sum + r.scrapWeightKg, 0)
+  const totalWasteKg = processRecords.reduce((sum, r) => sum + r.materialWasteKg, 0)
+  const outsourcedWOs = workOrders.filter(wo => wo.isExternal)
+  const totalOutsourcedMaterialKg = outsourcedWOs.reduce((sum, wo) => sum + (wo.requiredQuantityKg || 0), 0)
 
   const openAdd = () => {
     setEditItem(null)
     const first = masterItems[0]
-    setForm({ ...emptyForm, receivedBy: currentUser?.name || "", rawMaterialId: first?.rawMaterialId || "", material: first?.material || "Aluminium", rawMaterialGrade: first?.rawMaterialGrade || "A" })
+    setForm({ ...emptyForm, receivedBy: currentUser?.name || "", rawMaterialId: first?.rawMaterialId || "", material: first?.material || "", rawMaterialGrade: first?.rawMaterialGrade || "" })
     setShowForm(true)
   }
 
@@ -164,6 +169,10 @@ export default function InventoryPage() {
       notes: form.notes,
       status: "pending" as const,
       submittedById: currentUser!.id,
+    }
+    if (!masterItems.some(item => item.material === payload.material && item.rawMaterialGrade === payload.rawMaterialGrade)) {
+      alert("Selected material/grade is not in Material Master.")
+      return
     }
     if (editItem) {
       updateMaterial(editItem.id, { ...payload, approvedBy: null, rejectedReason: null })
@@ -215,6 +224,7 @@ export default function InventoryPage() {
 
   return (
     <div className="space-y-8">
+
       <header className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-3xl font-black text-slate-900">Raw Material Inventory</h1>
@@ -254,7 +264,7 @@ export default function InventoryPage() {
       {gradeSummary.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {gradeSummary.map(s => (
-            <div key={s.grade} className={`bg-white rounded-2xl border p-4 shadow-sm ${s.availableKg <= 0 ? "border-red-200 bg-red-50/30" : "border-slate-200"}`}>
+            <div key={s.grade} className={`relative group bg-white rounded-2xl border p-4 shadow-sm ${s.availableKg <= 0 ? "border-red-200 bg-red-50/30" : "border-slate-200"}`}>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Grade {s.grade}</span>
                 <span className="w-7 h-7 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-black">{s.count}</span>
@@ -269,8 +279,97 @@ export default function InventoryPage() {
               </div>
               <p className="text-xs text-slate-400 mt-0.5">{s.totalComponents.toLocaleString()} components</p>
               {s.availableKg <= 0 && <p className="text-[10px] font-black text-red-600 mt-1 uppercase tracking-wider">⚠ Out of stock</p>}
+
+              {/* Hover panel: material master + approved/assigned details */}
+              <div className="hidden group-hover:block absolute z-30 top-full left-0 mt-2 w-[520px] max-w-[90vw] bg-white border border-slate-200 rounded-xl shadow-xl p-3">
+                <p className="text-xs font-black text-slate-700 uppercase tracking-wider mb-2">Configured Materials — Grade {s.grade}</p>
+                <table className="w-full text-xs">
+                  <thead>
+                  <tr className="bg-slate-50">
+                    {["Material", "Grade", "Approved KG", "Assigned KG"].map(h => <th key={h} className="text-left px-2 py-1.5 text-slate-600">{h}</th>)}
+                  </tr>
+                  </thead>
+                  <tbody>
+                  {materialMasters.filter(mm => mm.grade === s.grade).length === 0 ? (
+                    <tr><td colSpan={4} className="px-2 py-2 text-slate-400">No configured material for this grade.</td></tr>
+                  ) : materialMasters.filter(mm => mm.grade === s.grade).map(mm => {
+                    const relevant = materials.filter(m => m.status === "approved" && (m.material || "").toLowerCase() === mm.material.toLowerCase() && m.rawMaterialGrade === mm.grade)
+                    const approvedKg = relevant.reduce((sum, m) => sum + m.receivedQuantity, 0)
+                    const assignedKg = relevant.reduce((sum, m) => sum + (m.usedQuantity || 0), 0)
+                    return (
+                      <tr key={mm.id} className="border-t border-slate-100">
+                        <td className="px-2 py-1.5 text-slate-800">{mm.material}</td>
+                        <td className="px-2 py-1.5 text-slate-700">{mm.grade}</td>
+                        <td className="px-2 py-1.5 text-emerald-700 font-semibold">{approvedKg.toFixed(1)}</td>
+                        <td className="px-2 py-1.5 text-indigo-700 font-semibold">{assignedKg.toFixed(1)}</td>
+                      </tr>
+                    )
+                  })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           ))}
+          <button onClick={() => setShowScrapDetails(true)} className="relative group text-left bg-white rounded-2xl border border-slate-200 p-4 shadow-sm hover:border-rose-200">
+            <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Total Scrap</p>
+            <p className="text-2xl font-black text-rose-700">{totalScrapKg.toFixed(1)} <span className="text-sm text-slate-400">KG</span></p>
+            <p className="text-xs text-slate-500 mt-1">Click for detailed breakdown</p>
+            <div className="hidden group-hover:block absolute z-30 top-full left-0 mt-2 w-[520px] max-w-[90vw] bg-white border border-slate-300 rounded-xl shadow-xl p-3">
+              <p className="text-xs font-black text-slate-700 uppercase tracking-wider mb-2">Scrap Hover Summary</p>
+              <table className="w-full text-xs">
+                <thead><tr className="bg-slate-50">{["Material","Grade","Total Waste KG"].map(h => <th key={h} className="text-left px-2 py-1.5 text-slate-800 font-bold">{h}</th>)}</tr></thead>
+                <tbody>
+                {processRecords.length === 0 ? <tr><td colSpan={3} className="px-2 py-2 text-slate-400">No scrap/waste entries yet.</td></tr> :
+                  Array.from(new Map(processRecords.map(r => {
+                    const wo = workOrders.find(w => w.id === r.workOrderId)
+                    const mat = materials.find(m => m.id === wo?.rawMaterialId)
+                    const material = mat?.material || "—"
+                    const grade = mat?.rawMaterialGrade || "—"
+                    return [`${material}__${grade}`, { material, grade, wasteKg: 0 }]
+                  })).values()).map(group => {
+                    const wasteKg = processRecords.reduce((sum, r) => {
+                      const wo = workOrders.find(w => w.id === r.workOrderId)
+                      const mat = materials.find(m => m.id === wo?.rawMaterialId)
+                      return ((mat?.material || "—") === group.material && (mat?.rawMaterialGrade || "—") === group.grade)
+                        ? sum + r.materialWasteKg
+                        : sum
+                    }, 0)
+                    return <tr key={`${group.material}-${group.grade}`} className="border-t border-slate-100"><td className="px-2 py-1.5 text-slate-900 font-medium">{group.material}</td><td className="px-2 py-1.5 text-slate-800">{group.grade}</td><td className="px-2 py-1.5 font-semibold text-rose-700">{wasteKg.toFixed(2)}</td></tr>
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </button>
+          <button onClick={() => setShowOutsourceDetails(true)} className="relative group text-left bg-white rounded-2xl border border-slate-200 p-4 shadow-sm hover:border-violet-200">
+            <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Outsourced Material</p>
+            <p className="text-2xl font-black text-violet-700">{totalOutsourcedMaterialKg.toFixed(1)} <span className="text-sm text-slate-400">KG</span></p>
+            <p className="text-xs text-slate-500 mt-1">Click for outsourced WO details</p>
+            <div className="hidden group-hover:block absolute z-30 top-full left-0 mt-2 w-[520px] max-w-[90vw] bg-white border border-slate-300 rounded-xl shadow-xl p-3">
+              <p className="text-xs font-black text-slate-700 uppercase tracking-wider mb-2">Outsourced Material Summary</p>
+              <table className="w-full text-xs">
+                <thead><tr className="bg-slate-50">{["Material","Grade","Total Qty KG"].map(h => <th key={h} className="text-left px-2 py-1.5 text-slate-800 font-bold">{h}</th>)}</tr></thead>
+                <tbody>
+                {outsourcedWOs.length === 0 ? <tr><td colSpan={3} className="px-2 py-2 text-slate-400">No outsourced work orders.</td></tr> :
+                  Array.from(new Map(outsourcedWOs.map(wo => {
+                    const mat = materials.find(m => m.id === wo.rawMaterialId)
+                    const material = mat?.material || "—"
+                    const grade = wo.rawMaterialGrade || mat?.rawMaterialGrade || "—"
+                    return [`${material}__${grade}`, { material, grade }]
+                  })).values()).map(group => {
+                    const totalQty = outsourcedWOs
+                      .filter(wo => {
+                        const mat = materials.find(m => m.id === wo.rawMaterialId)
+                        const material = mat?.material || "—"
+                        const grade = wo.rawMaterialGrade || mat?.rawMaterialGrade || "—"
+                        return material === group.material && grade === group.grade
+                      })
+                      .reduce((sum, wo) => sum + (wo.requiredQuantityKg || 0), 0)
+                    return <tr key={`${group.material}-${group.grade}`} className="border-t border-slate-100"><td className="px-2 py-1.5 text-slate-900 font-medium">{group.material}</td><td className="px-2 py-1.5 text-slate-800">{group.grade}</td><td className="px-2 py-1.5 font-semibold text-violet-700">{totalQty.toFixed(2)}</td></tr>
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </button>
         </div>
       )}
 
@@ -312,7 +411,7 @@ export default function InventoryPage() {
         </div>
         <select value={gradeFilter} onChange={e => setGradeFilter(e.target.value)} className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none">
           <option value="all">All Grades</option>
-          {MATERIAL_OPTIONS.map(m => <option key={m} value={m}>{m}</option>)}
+          {GRADES.map(g => <option key={g} value={g}>{g}</option>)}
         </select>
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none">
           <option value="all">All Status</option>
@@ -382,14 +481,15 @@ export default function InventoryPage() {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Material *</label>
-                  <select required value={form.material} onChange={e => setForm(p => ({ ...p, material: e.target.value }))}
-                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none bg-white">
-                    {GRADES.map(g => <option key={g} value={g}>Grade {g}</option>)}
-                  </select>
+                  <input required value={form.material} readOnly
+                    placeholder="Auto-filled from material master"
+                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-500 bg-slate-50" />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Raw Material Grade *</label>
-                  <select required value={form.rawMaterialGrade} onChange={e => setForm(p => ({ ...p, rawMaterialGrade: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none bg-white">{GRADES.map(g => <option key={g} value={g}>Grade {g}</option>)}</select>
+                  <input required value={form.rawMaterialGrade} readOnly
+                    placeholder="Auto-filled from material master"
+                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-500 bg-slate-50" />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Received Quantity (KG) *</label>
@@ -444,6 +544,71 @@ export default function InventoryPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {showScrapDetails && (
+        <div className="fixed inset-0 z-50 bg-black/40 p-4 flex items-center justify-center">
+          <div className="bg-white rounded-2xl border border-slate-200 w-full max-w-5xl max-h-[90vh] overflow-y-auto">
+            <div className="p-5 border-b flex items-center justify-between">
+              <h3 className="font-black text-slate-900">Scrap & Waste Detailed Breakdown</h3>
+              <button onClick={() => setShowScrapDetails(false)} className="text-slate-500 hover:text-slate-800">Close</button>
+            </div>
+            <div className="p-5 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50"><tr>{["Date","Process","Material","Grade","WO","Scrap KG","Waste KG","Total Loss KG"].map(h => <th key={h} className="px-3 py-2 text-left text-slate-800 font-bold">{h}</th>)}</tr></thead>
+                <tbody>
+                {processRecords.length === 0 ? (
+                  <tr><td colSpan={8} className="px-3 py-6 text-center text-slate-500">No scrap/waste records yet.</td></tr>
+                ) : processRecords.map(r => {
+                  const wo = workOrders.find(w => w.id === r.workOrderId)
+                  const mat = materials.find(m => m.id === wo?.rawMaterialId)
+                  return <tr key={r.id} className="border-t"><td className="px-3 py-2 text-slate-900">{r.date}</td><td className="px-3 py-2 text-slate-900">{r.process}</td><td className="px-3 py-2 text-slate-900">{mat?.material || "—"}</td><td className="px-3 py-2 text-slate-900">{mat?.rawMaterialGrade || "—"}</td><td className="px-3 py-2 font-mono text-xs text-slate-700">{r.workOrderId}</td><td className="px-3 py-2 text-slate-900">{r.scrapWeightKg.toFixed(2)}</td><td className="px-3 py-2 text-slate-900">{r.materialWasteKg.toFixed(2)}</td><td className="px-3 py-2 font-semibold text-slate-900">{(r.scrapWeightKg+r.materialWasteKg).toFixed(2)}</td></tr>
+                })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+      {showOutsourceDetails && (
+        <div className="fixed inset-0 z-50 bg-black/40 p-4 flex items-center justify-center">
+          <div className="bg-white rounded-2xl border border-slate-200 w-full max-w-6xl max-h-[90vh] overflow-y-auto">
+            <div className="p-5 border-b flex items-center justify-between">
+              <h3 className="font-black text-slate-900">Outsourced Work Orders — Material Assignment</h3>
+              <button onClick={() => setShowOutsourceDetails(false)} className="text-slate-500 hover:text-slate-800">Close</button>
+            </div>
+            <div className="p-5 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50"><tr>{["WO","Part","Material","Grade","Qty Assigned KG","Date Given","Expected Return","Expected Parts","Vendor ID","Vendor Name","Status"].map(h => <th key={h} className="px-3 py-2 text-left text-slate-800 font-bold">{h}</th>)}</tr></thead>
+                <tbody>
+                {outsourcedWOs.length === 0 ? (
+                  <tr><td colSpan={11} className="px-3 py-6 text-center text-slate-500">No outsourced work orders yet.</td></tr>
+                ) : outsourcedWOs.map(wo => (
+                  <tr key={wo.id} className="border-t">
+                    {(() => {
+                      const mat = materials.find(m => m.id === wo.rawMaterialId)
+                      return (
+                        <>
+                    <td className="px-3 py-2 font-mono text-xs text-slate-700">{wo.id}</td>
+                    <td className="px-3 py-2 text-slate-900">{wo.partName}</td>
+                    <td className="px-3 py-2 text-slate-900">{mat?.material || "—"}</td>
+                    <td className="px-3 py-2 text-slate-900">{wo.rawMaterialGrade || mat?.rawMaterialGrade || "—"}</td>
+                    <td className="px-3 py-2 text-slate-900 font-semibold">{(wo.requiredQuantityKg || 0).toFixed(2)}</td>
+                    <td className="px-3 py-2 text-slate-900">{wo.vendorProductionDate || wo.workOrderStartDate || "—"}</td>
+                    <td className="px-3 py-2 text-slate-900">{wo.dueDate || "—"}</td>
+                    <td className="px-3 py-2 text-slate-900">{wo.targetPartNos || 0}</td>
+                    <td className="px-3 py-2 text-slate-900">{wo.vendorId || "—"}</td>
+                    <td className="px-3 py-2 text-slate-900">{wo.vendorName || "—"}</td>
+                    <td className="px-3 py-2 text-slate-900">{wo.status}</td>
+                        </>
+                      )
+                    })()}
+                  </tr>
+                ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
