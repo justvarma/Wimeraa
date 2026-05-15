@@ -602,7 +602,7 @@ export function subscribeOperations(
     setter: (operations: OperationConfig[]) => void,
     onError?: (err: Error) => void,
 ): Unsub {
-  return subscribeCol<OperationConfig>(clientId, "operations", setter, [orderBy("operationId", "asc")], onError)
+  return subscribeCol<OperationConfig>(clientId, "operations", setter, [], onError)
 }
 
 export async function addOperationConfig(clientId: string, operation: OperationConfig): Promise<void> {
