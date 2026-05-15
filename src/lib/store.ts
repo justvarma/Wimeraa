@@ -409,6 +409,13 @@ export const INITIAL_SCHEDULES: MonthlySchedule[] = [
   { id:"sch-004", serialNumber:4, partId:"RE-PT-0062", partName:"Engine Mount Bracket — RE Hunter 350", requiredQuantity:320, date:"2026-04-01", submittedById:"u-001", createdAt:"2026-04-01" },
 ]
 
+export const INITIAL_PART_MASTERS: PartMaster[] = [
+  { id: "re-pt-0062__default", partId: "RE-PT-0062", partName: "Engine Mount Bracket", materialRequired: "Aluminium", grade: "A", quantityPerPart: 1 },
+  { id: "re-pt-0047__default", partId: "RE-PT-0047", partName: "Gear Box Housing", materialRequired: "Aluminium", grade: "A", quantityPerPart: 1 },
+  { id: "re-pt-0035__default", partId: "RE-PT-0035", partName: "Crankcase Left", materialRequired: "Aluminium", grade: "A", quantityPerPart: 1 },
+  { id: "re-pt-0021__default", partId: "RE-PT-0021", partName: "Cylinder Head Cover", materialRequired: "Aluminium", grade: "A", quantityPerPart: 1 },
+]
+
 export const INITIAL_PTCS: PTC[] = [
   { id:"ptc-001", process:"die_casting", shift:DEFAULT_SHIFT_CONFIGS[0].id, date:"2026-04-15", createdBy:"Suresh Babu", createdById:"u-003", createdAt:"2026-04-15" },
   { id:"ptc-002", process:"coating",     shift:DEFAULT_SHIFT_CONFIGS[1].id, date:"2026-04-20", createdBy:"Suresh Babu", createdById:"u-003", createdAt:"2026-04-20" },
