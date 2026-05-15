@@ -3,7 +3,7 @@ import { useState, useMemo } from "react"
 import { useApp } from "@/components/providers/AppProvider"
 import {
   UserRole, PROCESS_STAGE_LABELS, PROCESS_PTC_ROLE_MAP, QI_ROLE_PROCESS_MAP, 
-  type ProcessStage, type Shift, type WorkOrder,
+  type ProcessStage, type Shift, type WorkOrder, type WOStatus,
 } from "@/lib/store"
 import { getSelectableShiftOptions, getShiftLabel } from "@/lib/shiftUtils"
 import { buildStageSubWorkOrder, hasOpenMachineAssignment } from "@/lib/workflow"
@@ -445,7 +445,6 @@ export default function WorkOrdersPage() {
   const [expanded, setExpanded]     = useState<string | null>(null)
   const [statusFilter, setStatusFilter]   = useState("all")
   const [processFilter, setProcessFilter] = useState("all")
-  const [typeFilter, setTypeFilter]       = useState<"all" | "standard" | "stage" | "rework" | "rejection">("all")
 
   const isPDCManager   = role === UserRole.PTC_MANAGER
   const isAdmin        = role === UserRole.ADMIN
@@ -462,11 +461,6 @@ export default function WorkOrdersPage() {
     const filtered = workOrders.filter(w => {
       const matchStatus  = statusFilter  === "all" || w.status  === statusFilter
       const matchProcess = processFilter === "all" || w.process === processFilter
-      const matchType    = typeFilter === "all" ||
-                           (typeFilter === "rework"   && w.woType === "rework") ||
-                           (typeFilter === "stage"    && w.woType === "stage") ||
-                           (typeFilter === "rejection" && w.woType === "rejection") ||
-                           (typeFilter === "standard" && (!w.woType || w.woType === "standard"))
       // Process PDCs see only actionable SWOs:
       // - draft (to fill details)
       // - rejected (for rework loop handling)
@@ -475,7 +469,7 @@ export default function WorkOrdersPage() {
         w.woType !== "standard" &&
         (w.status === "draft" || w.status === "rejected")
       )
-      return matchStatus && matchProcess && matchType && matchRole
+      return matchStatus && matchProcess && matchRole
     })
     // Sort: parent WOs first, then their SWOs follow immediately (by parentWoId + cycle)
     return [...filtered].sort((a, b) => {
@@ -488,7 +482,15 @@ export default function WorkOrdersPage() {
       if (aIsSWO !== bIsSWO) return aIsSWO - bIsSWO
       return (a.reworkCycleNumber ?? 0) - (b.reworkCycleNumber ?? 0)
     })
-  }, [workOrders, statusFilter, processFilter, typeFilter, myProcess])
+  }, [workOrders, statusFilter, processFilter, myProcess])
+
+  const visibleGrouped = useMemo(() => {
+    const roots = visible.filter(w => !w.parentWoId)
+    return roots.map(root => ({
+      root,
+      children: visible.filter(w => w.parentWoId === root.id),
+    }))
+  }, [visible])
 
   // Build a lookup: parentWoId → child SWOs (for expanded view)
   const swoByParent = useMemo(() => {
@@ -595,34 +597,21 @@ export default function WorkOrdersPage() {
         </div>
       )}
 
-      {/* Filters */}
-      <div className="flex gap-2 flex-wrap">
-        {["all","draft","not_started","in_progress","awaiting_qi","completed","rejected","finished_goods"].map(s => (
-          <button key={s} onClick={() => setStatusFilter(s)}
-            className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${statusFilter===s?"bg-slate-900 text-white":"bg-white border border-slate-200 text-slate-700 hover:bg-slate-50"}`}>
-            {s === "all" ? "All" : s === "draft" ? "Draft" : s === "not_started" ? "Active" : s === "in_progress" ? "In Progress" : s === "awaiting_qi" ? "Awaiting QI" : s === "rejected" ? "Rejected" : s === "finished_goods" ? "FG" : "Completed"}
-          </button>
-        ))}
-        {!myProcess && (
-          <>
-            <span className="w-px bg-slate-200 mx-1"/>
-            {["all","die_casting","coating","cnc_vmc"].map(p => (
-              <button key={p} onClick={() => setProcessFilter(p)}
-                className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${processFilter===p?"bg-slate-900 text-white":"bg-white border border-slate-200 text-slate-700 hover:bg-slate-50"}`}>
-                {p === "all" ? "All Process" : `${processIcon(p as ProcessStage)} ${PROCESS_STAGE_LABELS[p as ProcessStage]}`}
-              </button>
-            ))}
-          </>
-        )}
-        {/* WO Type filter */}
-        <span className="w-px bg-slate-200 mx-1"/>
-        {(["all", "standard", "stage", "rework", "rejection"] as const).map(t => (
-          <button key={t} onClick={() => setTypeFilter(t)}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold transition-all ${typeFilter===t?"bg-slate-900 text-white":"bg-white border border-slate-200 text-slate-700 hover:bg-slate-50"}`}>
-            {t === "rework" && <GitBranch size={12}/>}
-            {t === "all" ? "All Types" : t === "standard" ? "Primary WO" : t === "stage" ? "Process SWO" : t === "rejection" ? "Rejection WO" : "Rework SWO"}
-          </button>
-        ))}
+      {/* Simplified filters */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white">
+          <option value="all">All Status</option>
+          {["draft","not_started","in_progress","awaiting_qi","completed","rejected","finished_goods"].map(s => <option key={s} value={s}>{statusLabel(s as WOStatus)}</option>)}
+        </select>
+        {!myProcess ? (
+          <select value={processFilter} onChange={e => setProcessFilter(e.target.value)} className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white">
+            <option value="all">All Process</option>
+            {(["die_casting","coating","cnc_vmc"] as ProcessStage[]).map(p => <option key={p} value={p}>{PROCESS_STAGE_LABELS[p]}</option>)}
+          </select>
+        ) : <div className="px-3 py-2.5 text-sm rounded-xl bg-slate-50 border border-slate-200 text-slate-600">{PROCESS_STAGE_LABELS[myProcess]} view</div>}
+        <div className="px-3 py-2.5 text-xs rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-700 font-medium">
+          Showing {visibleGrouped.length} parent WO(s). Expand a parent to view SWO branches.
+        </div>
       </div>
 
       {/* Work Order Cards */}
@@ -632,13 +621,13 @@ export default function WorkOrdersPage() {
             <ClipboardList size={40} className="mx-auto text-slate-200 mb-3"/>
             <p className="text-slate-400 font-medium">No work orders found</p>
           </div>
-        ) : visible.map(wo => {
+        ) : visibleGrouped.map(({ root: wo, children: childSWOs }) => {
           const progress = wo.targetPartNos > 0 ? Math.round((wo.partsCompleted / wo.targetPartNos) * 100) : 0
           const isDraft  = wo.status === "draft"
 
           const isSWO = wo.woType === "rework"
           const parentWo = isSWO && wo.parentWoId ? workOrders.find(w => w.id === wo.parentWoId) : null
-          const childSWOs = swoByParent[wo.id] ?? []
+          const treeChildren = childSWOs.length > 0 ? childSWOs : (swoByParent[wo.id] ?? [])
 
           return (
             <div key={wo.id} className={`bg-white rounded-2xl border shadow-sm overflow-hidden ${isSWO ? "border-l-4 border-l-amber-400 border-t border-r border-b border-slate-200 ml-4" : isDraft ? "border-amber-200" : "border-slate-200"}`}>
@@ -663,9 +652,9 @@ export default function WorkOrdersPage() {
                         <ArrowUpRight size={9}/> Parent: {parentWo.id}
                       </span>
                     )}
-                    {!isSWO && childSWOs.length > 0 && (
+                    {!isSWO && treeChildren.length > 0 && (
                       <span className="flex items-center gap-1 text-[10px] bg-indigo-100 text-indigo-700 font-bold px-2 py-0.5 rounded-full border border-indigo-200">
-                        <GitBranch size={9}/> {childSWOs.length} Rework SWO{childSWOs.length > 1 ? "s" : ""}
+                        <GitBranch size={9}/> {treeChildren.length} Rework SWO{treeChildren.length > 1 ? "s" : ""}
                       </span>
                     )}
                     {wo.status !== "draft" && wo.status !== "not_started" && <Lock size={11} className="text-slate-300"/>}
@@ -787,13 +776,13 @@ export default function WorkOrdersPage() {
                   )}
 
                   {/* Child SWO list — shown on parent WOs */}
-                  {!isSWO && childSWOs.length > 0 && (
+                  {!isSWO && treeChildren.length > 0 && (
                     <div className="mt-3 p-4 bg-indigo-50 border border-indigo-200 rounded-xl">
                       <p className="text-[10px] font-black text-indigo-700 uppercase tracking-wider mb-2 flex items-center gap-1">
-                        <GitBranch size={11}/> Rework Sub Work Orders ({childSWOs.length})
+                        <GitBranch size={11}/> Rework Sub Work Orders ({treeChildren.length})
                       </p>
                       <div className="space-y-2">
-                        {childSWOs.map(swo => (
+                        {treeChildren.map(swo => (
                           <div key={swo.id} className="flex items-center gap-3 bg-white border border-indigo-100 rounded-xl p-3 text-xs">
                             <GitBranch size={12} className="text-amber-500 shrink-0"/>
                             <span className="font-mono font-bold text-indigo-700">{swo.id}</span>
