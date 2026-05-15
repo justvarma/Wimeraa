@@ -87,7 +87,7 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
     router.replace(`/dashboard/config?tab=${tab}`)
   }
 
-  if (currentUser?.role !== UserRole.ADMIN && currentUser?.role !== UserRole.SYSTEM_ADMIN) {
+  if (currentUser?.role !== UserRole.ADMIN) {
     return (
         <div className="flex flex-col items-center justify-center h-80 gap-4">
           <ShieldAlert size={48} className="text-red-400" />
@@ -476,7 +476,7 @@ function MaterialsTab() {
 }
 
 function PartsTab() {
-  const { partMasters, addPartMaster, deletePartMaster, materialMasters } = useApp()
+  const { currentUser, partMasters, addPartMaster, deletePartMaster, materialMasters } = useApp()
   const [partId, setPartId] = useState("")
   const [partName, setPartName] = useState("")
   const [materialRequired, setMaterialRequired] = useState("")
@@ -510,9 +510,18 @@ function PartsTab() {
   const sorted = [...partMasters].sort((a, b) => a.partName.localeCompare(b.partName))
   const displayRows = sorted.length > 0 ? sorted : INITIAL_PART_MASTERS
   const seedDefaultParts = async () => {
-    await Promise.all(INITIAL_PART_MASTERS.map(async (p) => {
-      await addPartMaster(p)
-    }))
+    if (currentUser?.role !== UserRole.ADMIN) {
+      alert("Only Admin users can seed Part Masters for a client.")
+      return
+    }
+    try {
+      await Promise.all(INITIAL_PART_MASTERS.map(async (p) => {
+        await addPartMaster(p)
+      }))
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Unable to seed part masters."
+      alert(message)
+    }
   }
 
   return <div className="bg-white border rounded-xl p-4">
