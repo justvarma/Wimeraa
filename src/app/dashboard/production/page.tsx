@@ -141,6 +141,7 @@ function ProcessRecordForm({ wo, onClose, onSave, currentUser: cu }: {
   const showQI         = cuIsAdmin || cuIsQI                         // Step 4
   const ptcManagerUsers = users.filter(u => u.role === UserRole.PTC_MANAGER || u.role === UserRole.ADMIN)
   const processMachines = machines.filter(m => m.process === wo.process && m.status === "active")
+  const woMachineOptions = wo.machine.split(",").map(m => m.trim()).filter(Boolean)
 
   const shiftOptions = getSelectableShiftOptions(shifts, wo.shift)
   const needsScrap = PROCESS_RULES[wo.process].scrap
@@ -153,6 +154,7 @@ function ProcessRecordForm({ wo, onClose, onSave, currentUser: cu }: {
     process:               wo.process,
     date:                  today,
     shift:                 (wo.shift as Shift) || shiftOptions[0]?.id || "",
+    machineName:           woMachineOptions.join(", ") || processMachines.map(m => m.name).join(", "),
     inputAcceptanceChecked: false,
     ptcApprovalGiven:      false,
     ptcApprovedBy:         "",
@@ -179,7 +181,7 @@ function ProcessRecordForm({ wo, onClose, onSave, currentUser: cu }: {
 
   // canSubmit is scoped to each role's section so they can save independently
   const preCheckOk  = form.inputAcceptanceChecked && form.ptcApprovalGiven
-  const productionOk = form.outputQuantity > 0
+  const productionOk = form.outputQuantity > 0 && Boolean(String(form.machineName || "").trim())
   const qiOk        = !countMismatch &&
     (form.reworkParts  === 0 || form.reworkEntries.length  > 0) &&
     (form.rejectedParts === 0 || form.rejectionEntries.length > 0)
@@ -275,6 +277,25 @@ function ProcessRecordForm({ wo, onClose, onSave, currentUser: cu }: {
               </Field>
               <Field label="Shift">
                 <input readOnly value={getShiftLabel(shifts, wo.shift)} className={`${inputCls} bg-slate-50 text-slate-500 capitalize cursor-not-allowed`}/>
+              </Field>
+              <Field label="Machines (this entry) *">
+                <div className="space-y-2 border border-slate-200 rounded-xl p-3 bg-white">
+                  {(woMachineOptions.length > 0 ? woMachineOptions : processMachines.map(m => m.name)).map(m => {
+                    const selected = String(form.machineName || "").split(",").map(v => v.trim()).filter(Boolean).includes(m)
+                    return (
+                      <label key={m} className="flex items-center gap-2 text-sm text-slate-800">
+                        <input type="checkbox" checked={selected} onChange={e => {
+                          setForm(p => {
+                            const set = new Set(String(p.machineName || "").split(",").map(v => v.trim()).filter(Boolean))
+                            if (e.target.checked) set.add(m); else set.delete(m)
+                            return { ...p, machineName: Array.from(set).join(", ") }
+                          })
+                        }} />
+                        {m}
+                      </label>
+                    )
+                  })}
+                </div>
               </Field>
             </div>
 
@@ -650,6 +671,7 @@ function RecordCard({ record, wo, shifts }: { record: ProcessRecord; wo: WorkOrd
           )}
         </div>
         <span className="text-xs text-slate-400 font-mono">{record.date} · {getShiftLabel(shifts, record.shift)}</span>
+        {record.machineName && <span className="text-xs text-slate-500 font-semibold"> · {record.machineName}</span>}
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
         {[
@@ -693,7 +715,7 @@ function RecordCard({ record, wo, shifts }: { record: ProcessRecord; wo: WorkOrd
 export default function ProductionPage() {
   const {
     currentUser, workOrders, processRecords, addProcessRecord, updateWorkOrder,
-    consumeMaterial, dailyEntries, addDailyEntry, deleteDailyEntry,
+    releaseMaterial, dailyEntries, addDailyEntry, deleteDailyEntry,
     downtimeEvents, addDowntimeEvent, shifts,
   } = useApp()
   const role = currentUser?.role as UserRole
@@ -745,8 +767,13 @@ export default function ProductionPage() {
       ptcApproval:    data.ptcApprovedBy || wo.ptcApproval,
       qiApproval:     data.qiInspectedBy || wo.qiApproval,
     })
-    // NOTE: Material was already fully deducted via deductMaterial() at WO phase 2.
-    // consumeMaterial for scrap/waste is intentionally removed to prevent double-counting.
+    // Real-time reconciliation: Phase-2 reserves required KG upfront.
+    // At shift end, return leftover unused raw material back to inventory.
+    const consumedKg = data.outputWeightKg + data.scrapWeightKg + data.materialWasteKg
+    const leftoverKg = Math.max(0, wo.requiredQuantityKg - consumedKg)
+    if (wo.rawMaterialId && leftoverKg > 0) {
+      releaseMaterial(wo.rawMaterialId, leftoverKg)
+    }
     setActiveForm(null)
   }
 

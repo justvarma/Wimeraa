@@ -166,21 +166,37 @@ service cloud.firestore {
           && request.resource.data.status == "pending"
           && resource.data.submittedById == request.auth.uid
           && request.resource.data.diff(resource.data).affectedKeys()
-               .hasOnly(["rawMaterialId","rawMaterialGrade","receivedQuantity",
+               .hasOnly(["rawMaterialId","material","rawMaterialGrade","receivedQuantity",
                          "batchNumber","numberOfRequiredComponents",
                          "weightPerComponent","notes","date","receivedBy",
                          "status","approvedBy","rejectedReason"])
         ) || (
           (isAdminOrAbove(clientId) || isAnyQI(clientId) || isFQI(clientId))
           && request.resource.data.diff(resource.data).affectedKeys()
-               .hasOnly(["status","approvedBy","rejectedReason"])
+               .hasOnly(["status","approvedBy","rejectedReason","material","rawMaterialGrade"])
         ) || (
-          isAnyPTC(clientId)
+          (isAnyPTC(clientId) || isAdminOrAbove(clientId))
           && request.resource.data.diff(resource.data).affectedKeys()
                .hasOnly(["usedQuantity"])
-          && request.resource.data.usedQuantity >= resource.data.usedQuantity
+          && request.resource.data.usedQuantity >= 0
         );
 
+        allow delete: if isAdminOrAbove(clientId);
+      }
+
+      // ── Material Master Config ─────────────────────────────────────────────
+      match /material_masters/{masterId} {
+        allow read:   if belongsToClient(clientId);
+        allow create: if isAdminOrAbove(clientId);
+        allow update: if isAdminOrAbove(clientId);
+        allow delete: if isAdminOrAbove(clientId);
+      }
+
+      // ── Part Master Config ───────────────────────────────────────────────
+      match /part_masters/{masterId} {
+        allow read:   if belongsToClient(clientId);
+        allow create: if isAdminOrAbove(clientId);
+        allow update: if isAdminOrAbove(clientId);
         allow delete: if isAdminOrAbove(clientId);
       }
 

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useApp } from "@/components/providers/AppProvider"
 import { orderedShiftConfigs } from "@/lib/shiftUtils"
@@ -395,12 +395,81 @@ function MachinesTab() {
 
 
 function MaterialsTab() {
-  const { materials } = useApp()
-  const groups = Array.from(new Map(materials.map(m => [`${m.material || "Unknown"}__${m.rawMaterialGrade}`, { material: m.material || "Unknown", grade: m.rawMaterialGrade, entries: [] as typeof materials }])).values())
-  groups.forEach(g => { g.entries = materials.filter(m => (m.material || "Unknown")===g.material && m.rawMaterialGrade===g.grade) })
+  const { materialMasters, addMaterialMaster, deleteMaterialMaster, materials, updateMaterial } = useApp()
+  const [material, setMaterial] = useState("")
+  const [grade, setGrade] = useState("")
+  const [applyMasterId, setApplyMasterId] = useState("")
+  const sortedMasters = [...materialMasters].sort((a, b) => (
+    a.material.localeCompare(b.material) || a.grade.localeCompare(b.grade)
+  ))
+  useEffect(() => {
+    if (materialMasters.length > 0 || materials.length === 0) return
+    const unique = Array.from(new Map(
+      materials
+        .filter(m => (m.material || "").trim() && (m.rawMaterialGrade || "").trim())
+        .map(m => {
+          const mat = (m.material || "").trim()
+          const grd = (m.rawMaterialGrade || "").trim().toUpperCase()
+          return [`${mat.toLowerCase().replace(/\s+/g, "_")}__${grd}`, { material: mat, grade: grd }]
+        }),
+    ).values())
+    unique.forEach(item => {
+      const id = `${item.material.toLowerCase().replace(/\s+/g, "_")}__${item.grade}`
+      addMaterialMaster({ id, material: item.material, grade: item.grade }).catch(console.error)
+    })
+  }, [materialMasters, materials, addMaterialMaster])
+  const createMaster = async () => {
+    if (!material.trim() || !grade.trim()) return
+    const id = `${material.trim().toLowerCase().replace(/\s+/g, "_")}__${grade.trim().toUpperCase()}`
+    await addMaterialMaster({ id, material: material.trim(), grade: grade.trim().toUpperCase() })
+    setMaterial("")
+    setGrade("")
+  }
+  const applyMasterToUnknownInventory = async () => {
+    const selected = materialMasters.find(m => m.id === applyMasterId)
+    if (!selected) return
+    const unknownRows = materials.filter(m => {
+      const mat = (m.material || "").trim().toLowerCase()
+      const grd = (m.rawMaterialGrade || "").trim().toLowerCase()
+      return !mat || mat === "unknown" || !grd || grd === "unknown"
+    })
+    await Promise.all(unknownRows.map(row => updateMaterial(row.id, {
+      material: selected.material,
+      rawMaterialGrade: selected.grade,
+    })))
+    alert(`Updated ${unknownRows.length} inventory entries.`)
+  }
   return <div className="bg-white border rounded-xl p-4">
-    <h3 className="font-black text-slate-800 mb-3">Material Master List</h3>
-    <table className="w-full text-sm"><thead><tr className="bg-slate-50">{["Material","Grade","Entries","Total KG"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead><tbody>{groups.map(g=>{const total=g.entries.reduce((s,m)=>s+m.receivedQuantity,0); return <tr key={`${g.material}-${g.grade}`} className="border-t"><td className="px-3 py-2">{g.material}</td><td className="px-3 py-2">{g.grade}</td><td className="px-3 py-2">{g.entries.length}</td><td className="px-3 py-2">{total.toFixed(1)}</td></tr>})}</tbody></table>
+    <h3 className="font-black text-slate-900 mb-3">Material Master List</h3>
+    <div className="flex gap-2 mb-3">
+      <input value={material} onChange={e=>setMaterial(e.target.value)} placeholder="Material" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
+      <input value={grade} onChange={e=>setGrade(e.target.value)} placeholder="Grade" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
+      <button onClick={createMaster} className="px-3 py-2 bg-blue-600 text-white rounded text-sm font-bold">Add</button>
+    </div>
+    <table className="w-full text-sm border border-slate-200 rounded-lg overflow-hidden">
+      <thead>
+      <tr className="bg-slate-50">
+        {["Material","Grade","Actions"].map(h=><th key={h} className="text-left px-3 py-2 text-slate-700 font-semibold">{h}</th>)}
+      </tr>
+      </thead>
+      <tbody>
+      {sortedMasters.length === 0 ? (
+        <tr className="border-t">
+          <td colSpan={3} className="px-3 py-4 text-slate-500">No material master records yet.</td>
+        </tr>
+      ) : sortedMasters.map(g=><tr key={g.id} className="border-t"><td className="px-3 py-2 text-slate-900">{g.material}</td><td className="px-3 py-2 text-slate-900">{g.grade}</td><td className="px-3 py-2"><button className="text-red-600 font-medium" onClick={()=>deleteMaterialMaster(g.id)}>Delete</button></td></tr>)}
+      </tbody>
+    </table>
+    <div className="mt-4 border-t pt-4">
+      <p className="text-sm font-semibold text-slate-700 mb-2">Apply config to existing unknown inventory</p>
+      <div className="flex gap-2 items-center">
+        <select value={applyMasterId} onChange={e=>setApplyMasterId(e.target.value)} className="border rounded px-3 py-2 text-sm text-slate-900 bg-white">
+          <option value="">Select material + grade</option>
+          {sortedMasters.map(m => <option key={m.id} value={m.id}>{m.material} · Grade {m.grade}</option>)}
+        </select>
+        <button onClick={applyMasterToUnknownInventory} className="px-3 py-2 bg-slate-800 text-white rounded text-sm font-bold">Apply to Unknown</button>
+      </div>
+    </div>
   </div>
 }
 

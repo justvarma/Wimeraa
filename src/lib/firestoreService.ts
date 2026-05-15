@@ -35,7 +35,7 @@ import {
 } from "firebase/firestore"
 import { db } from "./firebase"
 import type {
-  User, RawMaterial, MonthlySchedule, PTC,
+  User, RawMaterial, RawMaterialMaster, PartMaster, MonthlySchedule, PTC,
   WorkOrder, DailyProductionEntry, ProcessRecord,
   DowntimeEvent, QIInspection, FQIInspection,
   ShiftConfig, RoleConfig, MachineDef,
@@ -189,6 +189,46 @@ export async function updateMaterial(
   await updateDoc(clientDoc(clientId, "raw_materials", id), stripUndefined(data))
 }
 
+export function subscribeMaterialMasters(
+    clientId: string,
+    setter: (materials: RawMaterialMaster[]) => void,
+    onError?: (err: Error) => void,
+): Unsub {
+  return subscribeCol<RawMaterialMaster>(
+      clientId, "material_masters", setter,
+      [orderBy("material", "asc")],
+      onError,
+  )
+}
+
+export async function addMaterialMaster(clientId: string, data: RawMaterialMaster): Promise<void> {
+  await setDoc(clientDoc(clientId, "material_masters", data.id), stripUndefined(data))
+}
+
+export async function deleteMaterialMaster(clientId: string, id: string): Promise<void> {
+  await deleteDoc(clientDoc(clientId, "material_masters", id))
+}
+
+export function subscribePartMasters(
+    clientId: string,
+    setter: (parts: PartMaster[]) => void,
+    onError?: (err: Error) => void,
+): Unsub {
+  return subscribeCol<PartMaster>(
+      clientId, "part_masters", setter,
+      [orderBy("partName", "asc")],
+      onError,
+  )
+}
+
+export async function addPartMaster(clientId: string, data: PartMaster): Promise<void> {
+  await setDoc(clientDoc(clientId, "part_masters", data.id), stripUndefined(data))
+}
+
+export async function deletePartMaster(clientId: string, id: string): Promise<void> {
+  await deleteDoc(clientDoc(clientId, "part_masters", id))
+}
+
 /**
  * Atomically deduct `requiredKg` from a material's available stock.
  * Returns false without mutating if stock is insufficient.
@@ -229,6 +269,22 @@ export async function consumeMaterial(
     if (!snap.exists()) return
     const mat = snap.data() as RawMaterial
     tx.update(ref, { usedQuantity: (mat.usedQuantity ?? 0) + consumedKg })
+  })
+}
+
+export async function releaseMaterial(
+    clientId: string,
+    materialId: string,
+    releasedKg: number,
+): Promise<void> {
+  if (!materialId || releasedKg <= 0) return
+  const ref = clientDoc(clientId, "raw_materials", materialId)
+  await runTransaction(db, async tx => {
+    const snap = await tx.get(ref)
+    if (!snap.exists()) return
+    const mat = snap.data() as RawMaterial
+    const current = mat.usedQuantity ?? 0
+    tx.update(ref, { usedQuantity: Math.max(0, current - releasedKg) })
   })
 }
 
