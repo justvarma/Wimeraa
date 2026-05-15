@@ -59,7 +59,7 @@ function TimeInput({ value, onChange }: { value: string; onChange: (v: string) =
 
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
-type Tab = "users" | "roles" | "shifts" | "machines" | "materials" | "parts"
+type Tab = "users" | "roles" | "shifts" | "machines" | "materials" | "parts" | "devices"
 
 export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
   const {
@@ -72,7 +72,7 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const tabParam = searchParams.get("tab")
-  const queryTab: Tab = tabParam === "roles" || tabParam === "shifts" || tabParam === "users" || tabParam === "machines" || tabParam === "materials" || tabParam === "parts" ? tabParam : "users"
+  const queryTab: Tab = tabParam === "roles" || tabParam === "shifts" || tabParam === "users" || tabParam === "machines" || tabParam === "materials" || tabParam === "parts" || tabParam === "devices" ? tabParam : "users"
   const initialTab: Tab = forcedTab ?? queryTab
   const [activeTab, setActiveTab] = useState<Tab>(initialTab)
   const isSystemAdmin = currentUser?.role === UserRole.SYSTEM_ADMIN
@@ -119,6 +119,7 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
             ["machines", Settings,    "Machines"],
             ["materials", Package,    "Materials"],
             ["parts", Package,    "Part Master"],
+            ["devices", Settings, "Devices"],
           ] as const)
             .filter(([tab]) => !isSystemAdmin || tab === "users")
             .map(([tab, Icon, label]) => (
@@ -139,8 +140,69 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
         {activeTab === "machines" && <MachinesTab />}
         {activeTab === "materials" && <MaterialsTab />}
         {activeTab === "parts" && <PartsTab />}
+        {activeTab === "devices" && <DevicesTab />}
       </div>
   )
+}
+
+function DevicesTab() {
+  const { devices, addDevice, updateDevice, deleteDevice } = useApp()
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [depInputA, setDepInputA] = useState("")
+  const [depInputP, setDepInputP] = useState("")
+  const [depInputE, setDepInputE] = useState("")
+  const empty = {
+    id: "", custId: "CUST-001", plantId: "PLANT-001", deviceId: "", deviceName: "", machineType: "die_casting",
+    gatewayId: "", gatewayName: "", licensing: "1m" as const, gatewayType: "Edj10" as const,
+    availabilityPostTime: "", availabilityDutyCycle: "", availabilityRunDuration: "", interlock: "enable" as const, algorithm: "0",
+    availabilityDepValues: [] as string[], performancePostTime: "", debounceTime: "", partCountType: "digital" as const, otherPartCountType: "" as "" | "OTH1" | "OTH2",
+    partCountPins: [] as string[], performanceDepValues: [] as string[], pinScanTime: "", pinPostTime: "", emicPostTime: "", frequency: "50hz" as const, phaseSequence: "1-1P2W" as const, emicConfigValues: [] as string[],
+  }
+  const [form, setForm] = useState(empty)
+  const max10Push = (arr: string[], value: string) => arr.length >= 10 || !value.trim() ? arr : [...arr, value.trim()]
+  const pins = form.gatewayType === "Edj10" ? ["Pin1","Pin2","Pin3","Pin4"] : ["Pin1","Pin2","Pin3","Pin4","Pin5","Pin6","Pin7","Pin8"]
+  const save = async () => {
+    if (!/^[a-z0-9]{12}$/i.test(form.deviceId) || !/^[a-z0-9]{12}$/i.test(form.gatewayId)) { alert("Device ID and Gateway ID must be 12-char alphanumeric."); return }
+    const payload = { ...form, id: editingId || `${form.deviceId}-${Date.now()}`, createdAt: new Date().toISOString().split("T")[0] }
+    if (editingId) await updateDevice(editingId, payload); else await addDevice(payload as any)
+    setForm(empty); setEditingId(null)
+  }
+  const downloadTxt = (d: any) => {
+    const lines = Object.entries(d).map(([k,v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : v}`).join("\n")
+    const blob = new Blob([lines], { type: "text/plain" })
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `${d.deviceId}.txt`; a.click()
+  }
+  return <div className="space-y-4">
+    <div className="bg-white border rounded-xl p-4 space-y-3">
+      <h3 className="font-black text-slate-900">Add / Edit Device</h3>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">{[
+        ["Customer ID","custId"],["Plant ID","plantId"],["Device ID (12)","deviceId"],["Device Name","deviceName"],["Gateway ID (12)","gatewayId"],["Gateway Name","gatewayName"],
+        ["Avail Post Time","availabilityPostTime"],["Duty Cycle","availabilityDutyCycle"],["Run Duration","availabilityRunDuration"],["Perf Post Time","performancePostTime"],["Debounce Time","debounceTime"],["Pin Scan Time","pinScanTime"],["Pin Post Time","pinPostTime"],["eMIC Post Time","emicPostTime"],
+      ].map(([label,key]) => <input key={key} value={(form as any)[key]} onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))} placeholder={label} className="border rounded px-3 py-2 text-sm bg-white text-slate-900" />)}</div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        <select value={form.machineType} onChange={e => setForm(p => ({ ...p, machineType: e.target.value }))} className="border rounded px-3 py-2 text-sm bg-white"><option value="die_casting">Die Casting</option><option value="coating">Coating</option><option value="cnc_vmc">CNC/VMC</option></select>
+        <select value={form.licensing} onChange={e => setForm(p => ({ ...p, licensing: e.target.value as any }))} className="border rounded px-3 py-2 text-sm bg-white"><option>1m</option><option>3m</option><option>6m</option><option>1yr</option></select>
+        <select value={form.gatewayType} onChange={e => setForm(p => ({ ...p, gatewayType: e.target.value as any, partCountPins: [] }))} className="border rounded px-3 py-2 text-sm bg-white"><option>Edj10</option><option>Edj20</option></select>
+        <select value={form.interlock} onChange={e => setForm(p => ({ ...p, interlock: e.target.value as any }))} className="border rounded px-3 py-2 text-sm bg-white"><option value="enable">enable</option><option value="disable">disable</option></select>
+        <select value={form.algorithm} onChange={e => setForm(p => ({ ...p, algorithm: e.target.value }))} className="border rounded px-3 py-2 text-sm bg-white">{["0 — Undefined","1 — 1x Digital Pin Based","2 — 2x Digital Pin Based","3 — 3x Digital Pin Based","4 — CT with Threshold","5 — CT with Variation","255 — Cloud Based"].map(v => <option key={v} value={v.split(" ")[0]}>{v}</option>)}</select>
+        <select value={form.partCountType} onChange={e => setForm(p => ({ ...p, partCountType: e.target.value as any }))} className="border rounded px-3 py-2 text-sm bg-white"><option value="digital">digital</option><option value="ai">ai</option><option value="other">other</option></select>
+        {form.partCountType === "other" && <select value={form.otherPartCountType || ""} onChange={e => setForm(p => ({ ...p, otherPartCountType: e.target.value as any }))} className="border rounded px-3 py-2 text-sm bg-white"><option value="">OTH</option><option value="OTH1">OTH1</option><option value="OTH2">OTH2</option></select>}
+        <select value={form.frequency} onChange={e => setForm(p => ({ ...p, frequency: e.target.value as any }))} className="border rounded px-3 py-2 text-sm bg-white"><option>50hz</option><option>60hz</option></select>
+        <select value={form.phaseSequence} onChange={e => setForm(p => ({ ...p, phaseSequence: e.target.value as any }))} className="border rounded px-3 py-2 text-sm bg-white"><option>1-1P2W</option><option>2-2P2W</option><option>3-3P3W</option><option>4-4P4W</option></select>
+      </div>
+      <div className="text-xs text-slate-600">Part Count Pins: {pins.map(pin => <label key={pin} className="ml-2"><input type="checkbox" checked={form.partCountPins.includes(pin)} onChange={e => setForm(p => ({ ...p, partCountPins: e.target.checked ? [...p.partCountPins, pin] : p.partCountPins.filter(x => x !== pin) }))} /> {pin}</label>)}</div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+        <div><input value={depInputA} onChange={e => setDepInputA(e.target.value)} placeholder="Availability dep value" className="border rounded px-2 py-1 text-sm"/><button onClick={() => { setForm(p => ({ ...p, availabilityDepValues: max10Push(p.availabilityDepValues, depInputA) })); setDepInputA("") }} className="ml-2 text-xs bg-slate-800 text-white px-2 py-1 rounded">Add</button></div>
+        <div><input value={depInputP} onChange={e => setDepInputP(e.target.value)} placeholder="Performance dep value" className="border rounded px-2 py-1 text-sm"/><button onClick={() => { setForm(p => ({ ...p, performanceDepValues: max10Push(p.performanceDepValues, depInputP) })); setDepInputP("") }} className="ml-2 text-xs bg-slate-800 text-white px-2 py-1 rounded">Add</button></div>
+        <div><input value={depInputE} onChange={e => setDepInputE(e.target.value)} placeholder="eMIC config value" className="border rounded px-2 py-1 text-sm"/><button onClick={() => { setForm(p => ({ ...p, emicConfigValues: max10Push(p.emicConfigValues, depInputE) })); setDepInputE("") }} className="ml-2 text-xs bg-slate-800 text-white px-2 py-1 rounded">Add</button></div>
+      </div>
+      <button onClick={save} className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-bold">{editingId ? "Update Device" : "Add Device"}</button>
+    </div>
+    <div className="bg-white border rounded-xl overflow-hidden">
+      <table className="w-full text-sm"><thead><tr className="bg-slate-50">{["Gateway ID","Name","Licensing","Machine Type","Actions"].map(h => <th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
+      <tbody>{devices.map(d => <tr key={d.id} className="border-t"><td className="px-3 py-2 font-mono">{d.gatewayId}</td><td className="px-3 py-2">{d.gatewayName}</td><td className="px-3 py-2">{d.licensing}</td><td className="px-3 py-2">{d.machineType}</td><td className="px-3 py-2 space-x-2"><button onClick={() => { setEditingId(d.id); setForm({ ...d }) }} className="text-blue-600">Edit</button><button onClick={() => deleteDevice(d.id)} className="text-red-600">Delete</button><button onClick={() => downloadTxt(d)} className="text-emerald-700">Download .txt</button></td></tr>)}</tbody></table>
+    </div>
+  </div>
 }
 
 

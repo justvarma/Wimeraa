@@ -38,7 +38,7 @@ import type {
   User, RawMaterial, RawMaterialMaster, PartMaster, MonthlySchedule, PTC,
   WorkOrder, DailyProductionEntry, ProcessRecord,
   DowntimeEvent, QIInspection, FQIInspection,
-  ShiftConfig, RoleConfig, MachineDef,
+  ShiftConfig, RoleConfig, MachineDef, DeviceConfig,
 } from "./store"
 
 // ─── Path helpers ─────────────────────────────────────────────────────────────
@@ -575,6 +575,26 @@ export async function updateMachineConfig(clientId: string, id: string, data: Pa
 
 export async function deleteMachineConfig(clientId: string, id: string): Promise<void> {
   await deleteDoc(clientDoc(clientId, "machines", id))
+}
+
+export function subscribeDevices(
+    clientId: string,
+    setter: (devices: DeviceConfig[]) => void,
+    onError?: (err: Error) => void,
+): Unsub {
+  return subscribeCol<DeviceConfig>(clientId, "devices", setter, [orderBy("deviceName", "asc")], onError)
+}
+
+export async function addDeviceConfig(clientId: string, device: DeviceConfig): Promise<void> {
+  await setDoc(clientDoc(clientId, "devices", device.id), stripUndefined(device))
+}
+
+export async function updateDeviceConfig(clientId: string, id: string, data: Partial<DeviceConfig>): Promise<void> {
+  await updateDoc(clientDoc(clientId, "devices", id), stripUndefined(data))
+}
+
+export async function deleteDeviceConfig(clientId: string, id: string): Promise<void> {
+  await deleteDoc(clientDoc(clientId, "devices", id))
 }
 // ─── Role Configs ─────────────────────────────────────────────────────────────
 // Stored at clients/{clientId}/roles/{id}

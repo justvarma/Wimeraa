@@ -167,6 +167,38 @@ export interface MachineDef {
   id: string; name: string; process: ProcessStage; type: string; status: "active"|"maintenance"|"inactive"
 }
 
+export interface DeviceConfig {
+  id: string
+  custId: string
+  plantId: string
+  deviceId: string
+  deviceName: string
+  machineType: string
+  gatewayId: string
+  gatewayName: string
+  licensing: "1m" | "3m" | "6m" | "1yr"
+  gatewayType: "Edj10" | "Edj20"
+  availabilityPostTime: string
+  availabilityDutyCycle: string
+  availabilityRunDuration: string
+  interlock: "enable" | "disable"
+  algorithm: string
+  availabilityDepValues: string[]
+  performancePostTime: string
+  debounceTime: string
+  partCountType: "digital" | "ai" | "other"
+  otherPartCountType?: "OTH1" | "OTH2" | ""
+  partCountPins: string[]
+  performanceDepValues: string[]
+  pinScanTime: string
+  pinPostTime: string
+  emicPostTime: string
+  frequency: "50hz" | "60hz"
+  phaseSequence: "1-1P2W" | "2-2P2W" | "3-3P3W" | "4-4P4W"
+  emicConfigValues: string[]
+  createdAt: string
+}
+
 export interface RawMaterial {
   id: string; rawMaterialId: string; material: string; rawMaterialGrade: string
   receivedQuantity: number; usedQuantity: number; date: string
