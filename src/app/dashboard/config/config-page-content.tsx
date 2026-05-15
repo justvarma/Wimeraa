@@ -476,7 +476,7 @@ function MaterialsTab() {
 }
 
 function PartsTab() {
-  const { currentUser, partMasters, addPartMaster, deletePartMaster, materialMasters } = useApp()
+  const { currentUser, partMasters, addPartMaster, deletePartMaster, materialMasters, schedules } = useApp()
   const [partId, setPartId] = useState("")
   const [partName, setPartName] = useState("")
   const [materialRequired, setMaterialRequired] = useState("")
@@ -509,6 +509,7 @@ function PartsTab() {
 
   const sorted = [...partMasters].sort((a, b) => a.partName.localeCompare(b.partName))
   const displayRows = sorted.length > 0 ? sorted : INITIAL_PART_MASTERS
+  const hasAssignedSchedule = (partMasterId: string) => schedules.some(s => s.partMasterId === partMasterId)
   const seedDefaultParts = async () => {
     if (currentUser?.role !== UserRole.ADMIN) {
       alert("Only Admin users can seed Part Masters for a client.")
@@ -563,7 +564,17 @@ function PartsTab() {
           <td className="px-3 py-2 text-slate-900">{p.quantityPerPart}</td>
           <td className="px-3 py-2">
             {sorted.length > 0
-              ? <button className="text-red-600 font-medium" onClick={() => deletePartMaster(p.id)}>Delete</button>
+              ? <button
+                  className="text-red-600 font-medium"
+                  onClick={() => {
+                    if (hasAssignedSchedule(p.id)) {
+                      alert("This Part Master is assigned in Monthly Schedule and cannot be deleted.")
+                      return
+                    }
+                    deletePartMaster(p.id)
+                  }}>
+                  Delete
+                </button>
               : <span className="text-slate-400 text-xs">Seed to enable</span>}
           </td>
         </tr>
