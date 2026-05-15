@@ -199,6 +199,13 @@ export interface DeviceConfig {
   createdAt: string
 }
 
+export interface OperationConfig {
+  id: string
+  operationId: string
+  processName: "Milling" | "Face Turning" | "Drilling" | "Boring" | "Chamfering" | "Tapping" | "Sloting" | "Back Facing" | "Groovine" | "Thredening"
+  createdAt: string
+}
+
 export interface RawMaterial {
   id: string; rawMaterialId: string; material: string; rawMaterialGrade: string
   receivedQuantity: number; usedQuantity: number; date: string

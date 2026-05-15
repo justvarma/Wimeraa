@@ -207,6 +207,13 @@ service cloud.firestore {
         allow delete: if isAdminOrAbove(clientId);
       }
 
+      match /operations/{operationId} {
+        allow read:   if belongsToClient(clientId);
+        allow create: if belongsToClient(clientId);
+        allow update: if belongsToClient(clientId);
+        allow delete: if belongsToClient(clientId);
+      }
+
       // ── Monthly Schedules ─────────────────────────────────────────────────
       match /schedules/{scheduleId} {
         allow read:   if belongsToClient(clientId);

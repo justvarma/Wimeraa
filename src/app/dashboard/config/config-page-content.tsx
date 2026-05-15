@@ -59,7 +59,7 @@ function TimeInput({ value, onChange }: { value: string; onChange: (v: string) =
 
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
-type Tab = "users" | "roles" | "shifts" | "machines" | "materials" | "parts" | "devices"
+type Tab = "users" | "roles" | "shifts" | "machines" | "materials" | "parts" | "devices" | "operations"
 
 export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
   const {
@@ -72,7 +72,7 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const tabParam = searchParams.get("tab")
-  const queryTab: Tab = tabParam === "roles" || tabParam === "shifts" || tabParam === "users" || tabParam === "machines" || tabParam === "materials" || tabParam === "parts" || tabParam === "devices" ? tabParam : "users"
+  const queryTab: Tab = tabParam === "roles" || tabParam === "shifts" || tabParam === "users" || tabParam === "machines" || tabParam === "materials" || tabParam === "parts" || tabParam === "devices" || tabParam === "operations" ? tabParam : "users"
   const initialTab: Tab = forcedTab ?? queryTab
   const [activeTab, setActiveTab] = useState<Tab>(initialTab)
   const isSystemAdmin = currentUser?.role === UserRole.SYSTEM_ADMIN
@@ -120,6 +120,7 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
             ["materials", Package,    "Materials"],
             ["parts", Package,    "Part Master"],
             ["devices", Settings, "Devices"],
+            ["operations", Settings, "Operations"],
           ] as const)
             .filter(([tab]) => !isSystemAdmin || tab === "users")
             .map(([tab, Icon, label]) => (
@@ -141,8 +142,51 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
         {activeTab === "materials" && <MaterialsTab />}
         {activeTab === "parts" && <PartsTab />}
         {activeTab === "devices" && <DevicesTab />}
+        {activeTab === "operations" && <OperationsTab />}
       </div>
   )
+}
+
+function OperationsTab() {
+  const { operations, addOperation, deleteOperation } = useApp()
+  const [operationId, setOperationId] = useState("")
+  const [processName, setProcessName] = useState("")
+  const add = async () => {
+    if (!operationId.trim()) return
+    const normalized = operationId.trim().toLowerCase()
+    if (operations.some(o => String((o as any).operationId || (o as any).operationID || (o as any).opId || "").trim().toLowerCase() === normalized)) {
+      alert("OPID must be unique. This OPID already exists.")
+      return
+    }
+    await addOperation({ id: `${operationId.trim()}-${Date.now()}`, operationId: operationId.trim(), processName: processName as any, createdAt: new Date().toISOString().split("T")[0] })
+    setOperationId("")
+    setProcessName("")
+  }
+  const rows = operations.map((o: any) => ({
+    id: o.id,
+    operationId: o.operationId || o.operationID || o.opId || "—",
+    processName: o.processName || o.process || "—",
+  }))
+  return <div className="space-y-4">
+    <div className="bg-white border border-slate-200 rounded-xl p-4">
+      <h3 className="font-black text-slate-900 mb-3">addOperationConfig</h3>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+        <input value={operationId} onChange={e => setOperationId(e.target.value)} placeholder="Operations ID" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 bg-white" />
+        <input value={processName} onChange={e => setProcessName(e.target.value)} placeholder="processName" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 bg-white" />
+        <button onClick={add} className="px-3 py-2 bg-blue-600 text-white rounded text-sm font-bold">Add</button>
+      </div>
+    </div>
+    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+      <table className="w-full text-sm text-slate-900">
+        <thead><tr className="bg-slate-100">{["Operations ID","Process Name","Actions"].map(h => <th key={h} className="text-left px-3 py-2 text-slate-700 font-bold">{h}</th>)}</tr></thead>
+        <tbody>
+          {rows.length === 0 ? (
+            <tr className="border-t border-slate-200"><td colSpan={3} className="px-3 py-4 text-slate-500">No operations found in DB.</td></tr>
+          ) : rows.map(o => <tr key={o.id} className="border-t border-slate-200"><td className="px-3 py-2">{o.operationId}</td><td className="px-3 py-2">{o.processName}</td><td className="px-3 py-2"><button onClick={() => deleteOperation(o.id)} className="text-red-700 font-semibold">Delete</button></td></tr>)}
+        </tbody>
+      </table>
+    </div>
+  </div>
 }
 
 function DevicesTab() {
@@ -176,18 +220,25 @@ function DevicesTab() {
     const blob = new Blob([lines], { type: "text/plain" })
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `${d.deviceId}.txt`; a.click()
   }
+  const deviceRows = devices.map((d: any) => ({
+    id: d.id,
+    gatewayId: d.gatewayId || d.gatewayID || "—",
+    gatewayName: d.gatewayName || d.name || "—",
+    licensing: d.licensing || "—",
+    machineType: d.machineType || d.process || "—",
+  }))
   return <div className="space-y-4">
     <div className="flex justify-end">
       <button onClick={() => { setEditingId(null); setForm(empty); setShowForm(true) }} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-bold">Add Device</button>
     </div>
     {showForm && <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-4">
       <h3 className="font-black text-slate-900">{editingId ? "Edit Device" : "Add Device"}</h3>
-      <div className={sectionCls}><p className="font-bold text-slate-800 mb-2">1. Device Identity</p><div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-        {["custId","plantId","Device ID","Device Name"].map(key => <input key={key} value={(form as any)[key]} onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))} placeholder={key} className={inputCls} />)}
-        <select value={form.machineType} onChange={e => setForm(p => ({ ...p, machineType: e.target.value }))} className={selectCls}><option value="die_casting">Die Casting</option><option value="coating">Coating</option><option value="cnc_vmc">CNC/VMC</option></select>
+      <div className={sectionCls}><p className="font-bold text-slate-800 mb-2">deviceIdentity</p><div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+        {["custId","plantId","deviceId","deviceName"].map(key => <input required key={key} value={(form as any)[key]} onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))} placeholder={key} className={inputCls} />)}
+        <select required value={form.machineType} onChange={e => setForm(p => ({ ...p, machineType: e.target.value }))} className={selectCls}><option value="die_casting">Die Casting</option><option value="coating">Coating</option><option value="cnc_vmc">CNC/VMC</option></select>
       </div></div>
-      <div className={sectionCls}><p className="font-bold text-slate-800 mb-2">2. Gateway Identity</p><div className="grid grid-cols-2 md:grid-cols-4 gap-2"><input value={form.gatewayId} onChange={e => setForm(p => ({ ...p, gatewayId: e.target.value }))} placeholder="gatewayId" className={inputCls}/><input value={form.gatewayName} onChange={e => setForm(p => ({ ...p, gatewayName: e.target.value }))} placeholder="gatewayName" className={inputCls}/><select value={form.licensing} onChange={e => setForm(p => ({ ...p, licensing: e.target.value as any }))} className={selectCls}><option>1m</option><option>3m</option><option>6m</option><option>1yr</option></select><select value={form.gatewayType} onChange={e => setForm(p => ({ ...p, gatewayType: e.target.value as any, partCountPins: [] }))} className={selectCls}><option>Edj10</option><option>Edj20</option></select></div></div>
-      <div className={sectionCls}><p className="font-bold text-slate-800 mb-2">3. Availability Factor</p><div className="grid grid-cols-2 md:grid-cols-4 gap-2"><input value={form.availabilityPostTime} onChange={e => setForm(p => ({ ...p, availabilityPostTime: e.target.value }))} placeholder="post time" className={inputCls}/><input value={form.availabilityDutyCycle} onChange={e => setForm(p => ({ ...p, availabilityDutyCycle: e.target.value }))} placeholder="duty cycle" className={inputCls}/><input value={form.availabilityRunDuration} onChange={e => setForm(p => ({ ...p, availabilityRunDuration: e.target.value }))} placeholder="run duration" className={inputCls}/><div><p className="text-xs font-bold text-slate-600 mb-1">Interlock</p><select value={form.interlock} onChange={e => setForm(p => ({ ...p, interlock: e.target.value as any }))} className={selectCls}><option value="enable">enable</option><option value="disable">disable</option></select></div><div><p className="text-xs font-bold text-slate-600 mb-1">Algorithm</p><select value={form.algorithm} onChange={e => setForm(p => ({ ...p, algorithm: e.target.value }))} className={selectCls}>{["0 — Undefined","1 — 1x Digital Pin Based","2 — 2x Digital Pin Based","3 — 3x Digital Pin Based","4 — CT with Threshold","5 — CT with Variation","255 — Cloud Based"].map(v => <option key={v} value={v.split(" ")[0]}>{v}</option>)}</select></div></div><div className="mt-2"><p className="text-xs font-bold text-slate-600 mb-1">List dep value (max 10)</p><div className="flex gap-2"><input value={depInputA} onChange={e => setDepInputA(e.target.value)} placeholder="enter value" className={inputCls}/><button type="button" onClick={() => { setForm(p => ({ ...p, availabilityDepValues: max10Push(p.availabilityDepValues, depInputA) })); setDepInputA("") }} className="text-xs bg-slate-800 text-white px-3 py-2 rounded font-bold shrink-0">Add</button></div><p className="text-xs text-slate-500 mt-1">{form.availabilityDepValues.length}/10 added</p><div className="flex flex-wrap gap-1 mt-1">{form.availabilityDepValues.map((v,i)=><span key={`${v}-${i}`} className="px-2 py-0.5 text-xs bg-slate-200 rounded inline-flex items-center gap-1">{v}<button type="button" onClick={() => setForm(p => ({ ...p, availabilityDepValues: p.availabilityDepValues.filter((_,idx)=>idx!==i) }))} className="text-red-600 font-black">×</button></span>)}</div></div></div>
+      <div className={sectionCls}><p className="font-bold text-slate-800 mb-2">gatewayIdentity</p><div className="grid grid-cols-2 md:grid-cols-4 gap-2"><input required value={form.gatewayId} onChange={e => setForm(p => ({ ...p, gatewayId: e.target.value }))} placeholder="gatewayId" className={inputCls}/><input required value={form.gatewayName} onChange={e => setForm(p => ({ ...p, gatewayName: e.target.value }))} placeholder="gatewayName" className={inputCls}/><select required value={form.licensing} onChange={e => setForm(p => ({ ...p, licensing: e.target.value as any }))} className={selectCls}><option>1m</option><option>3m</option><option>6m</option><option>1yr</option></select><select required value={form.gatewayType} onChange={e => setForm(p => ({ ...p, gatewayType: e.target.value as any, partCountPins: [] }))} className={selectCls}><option>Edj10</option><option>Edj20</option></select></div></div>
+      <div className={sectionCls}><p className="font-bold text-slate-800 mb-2">availabilityFactor</p><div className="grid grid-cols-2 md:grid-cols-4 gap-2"><input required value={form.availabilityPostTime} onChange={e => setForm(p => ({ ...p, availabilityPostTime: e.target.value }))} placeholder="postTime" className={inputCls}/><input required value={form.availabilityDutyCycle} onChange={e => setForm(p => ({ ...p, availabilityDutyCycle: e.target.value }))} placeholder="dutyCycle" className={inputCls}/><input required value={form.availabilityRunDuration} onChange={e => setForm(p => ({ ...p, availabilityRunDuration: e.target.value }))} placeholder="runDuration" className={inputCls}/><div><p className="text-xs font-bold text-slate-600 mb-1">interlock</p><select required value={form.interlock} onChange={e => setForm(p => ({ ...p, interlock: e.target.value as any }))} className={selectCls}><option value="enable">enable</option><option value="disable">disable</option></select></div><div><p className="text-xs font-bold text-slate-600 mb-1">algorithm</p><select required value={form.algorithm} onChange={e => setForm(p => ({ ...p, algorithm: e.target.value }))} className={selectCls}>{["0 — Undefined","1 — 1x Digital Pin Based","2 — 2x Digital Pin Based","3 — 3x Digital Pin Based","4 — CT with Threshold","5 — CT with Variation","255 — Cloud Based"].map(v => <option key={v} value={v.split(" ")[0]}>{v}</option>)}</select></div></div><div className="mt-2"><p className="text-xs font-bold text-slate-600 mb-1">listDepValue (max 10)</p><div className="flex gap-2"><input value={depInputA} onChange={e => setDepInputA(e.target.value)} placeholder="enterValue" className={inputCls}/><button type="button" onClick={() => { setForm(p => ({ ...p, availabilityDepValues: max10Push(p.availabilityDepValues, depInputA) })); setDepInputA("") }} className="text-xs bg-slate-800 text-white px-3 py-2 rounded font-bold shrink-0">Add</button></div><p className="text-xs text-slate-500 mt-1">{form.availabilityDepValues.length}/10 added</p><div className="flex flex-wrap gap-1 mt-1">{form.availabilityDepValues.map((v,i)=><span key={`${v}-${i}`} className="px-2 py-0.5 text-xs bg-slate-200 rounded inline-flex items-center gap-1">{v}<button type="button" onClick={() => setForm(p => ({ ...p, availabilityDepValues: p.availabilityDepValues.filter((_,idx)=>idx!==i) }))} className="text-red-600 font-black">×</button></span>)}</div></div></div>
       <div className={sectionCls}><p className="font-bold text-slate-800 mb-2">4. Performance Factor</p><div className="grid grid-cols-2 md:grid-cols-4 gap-2"><input value={form.performancePostTime} onChange={e => setForm(p => ({ ...p, performancePostTime: e.target.value }))} placeholder="post time" className={inputCls}/><input value={form.debounceTime} onChange={e => setForm(p => ({ ...p, debounceTime: e.target.value }))} placeholder="debounce time" className={inputCls}/><div><p className="text-xs font-bold text-slate-600 mb-1">Part count type</p><select value={form.partCountType} onChange={e => setForm(p => ({ ...p, partCountType: e.target.value as any }))} className={selectCls}><option value="digital">digital</option><option value="ai">ai</option><option value="other">other</option></select></div>{form.partCountType === "other" && <div><p className="text-xs font-bold text-slate-600 mb-1">Other type</p><select value={form.otherPartCountType || ""} onChange={e => setForm(p => ({ ...p, otherPartCountType: e.target.value as any }))} className={selectCls}><option value="">OTH</option><option value="OTH1">OTH1</option><option value="OTH2">OTH2</option></select></div>}</div><div className="text-xs mt-2 text-slate-700">Part count pins: {pins.map(pin => <label key={pin} className="ml-2"><input type="checkbox" checked={form.partCountPins.includes(pin)} onChange={e => setForm(p => ({ ...p, partCountPins: e.target.checked ? [...p.partCountPins, pin] : p.partCountPins.filter(x => x !== pin) }))} /> {pin}</label>)}</div><div className="mt-2"><p className="text-xs font-bold text-slate-600 mb-1">List dep value (max 10)</p><div className="flex gap-2"><input value={depInputP} onChange={e => setDepInputP(e.target.value)} placeholder="enter value" className={inputCls}/><button type="button" onClick={() => { setForm(p => ({ ...p, performanceDepValues: max10Push(p.performanceDepValues, depInputP) })); setDepInputP("") }} className="text-xs bg-slate-800 text-white px-3 py-2 rounded font-bold shrink-0">Add</button></div><p className="text-xs text-slate-500 mt-1">{form.performanceDepValues.length}/10 added</p><div className="flex flex-wrap gap-1 mt-1">{form.performanceDepValues.map((v,i)=><span key={`${v}-${i}`} className="px-2 py-0.5 text-xs bg-slate-200 rounded inline-flex items-center gap-1">{v}<button type="button" onClick={() => setForm(p => ({ ...p, performanceDepValues: p.performanceDepValues.filter((_,idx)=>idx!==i) }))} className="text-red-600 font-black">×</button></span>)}</div></div></div>
       <div className={sectionCls}><p className="font-bold text-slate-800 mb-2">5. In Pin Configuration</p><div className="grid grid-cols-2 gap-2"><input value={form.pinScanTime} onChange={e => setForm(p => ({ ...p, pinScanTime: e.target.value }))} placeholder="scan time" className={inputCls}/><input value={form.pinPostTime} onChange={e => setForm(p => ({ ...p, pinPostTime: e.target.value }))} placeholder="post time" className={inputCls}/></div></div>
       <div className={sectionCls}><p className="font-bold text-slate-800 mb-2">6. eMIC Configuration</p><div className="grid grid-cols-2 md:grid-cols-4 gap-2"><input value={form.emicPostTime} onChange={e => setForm(p => ({ ...p, emicPostTime: e.target.value }))} placeholder="post time" className={inputCls}/><div><p className="text-xs font-bold text-slate-600 mb-1">Frequency</p><select value={form.frequency} onChange={e => setForm(p => ({ ...p, frequency: e.target.value as any }))} className={selectCls}><option>50hz</option><option>60hz</option></select></div><div><p className="text-xs font-bold text-slate-600 mb-1">Phase sequence</p><select value={form.phaseSequence} onChange={e => setForm(p => ({ ...p, phaseSequence: e.target.value as any }))} className={selectCls}><option>1-1P2W</option><option>2-2P2W</option><option>3-3P3W</option><option>4-4P4W</option></select></div></div><div className="mt-2"><p className="text-xs font-bold text-slate-600 mb-1">Configuration factor values (max 10)</p><div className="flex gap-2"><input value={depInputE} onChange={e => setDepInputE(e.target.value)} placeholder="enter value" className={inputCls}/><button type="button" onClick={() => { setForm(p => ({ ...p, emicConfigValues: max10Push(p.emicConfigValues, depInputE) })); setDepInputE("") }} className="text-xs bg-slate-800 text-white px-3 py-2 rounded font-bold shrink-0">Add</button></div><p className="text-xs text-slate-500 mt-1">{form.emicConfigValues.length}/10 added</p><div className="flex flex-wrap gap-1 mt-1">{form.emicConfigValues.map((v,i)=><span key={`${v}-${i}`} className="px-2 py-0.5 text-xs bg-slate-200 rounded inline-flex items-center gap-1">{v}<button type="button" onClick={() => setForm(p => ({ ...p, emicConfigValues: p.emicConfigValues.filter((_,idx)=>idx!==i) }))} className="text-red-600 font-black">×</button></span>)}</div></div></div>
@@ -195,10 +246,13 @@ function DevicesTab() {
     </div>}
     <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
       <table className="w-full text-sm text-slate-900"><thead><tr className="bg-slate-100 border-b border-slate-200">{["Gateway ID","Name","Licensing","Machine Type","Actions"].map(h => <th key={h} className="text-left px-3 py-2 font-bold text-slate-700">{h}</th>)}</tr></thead>
-      <tbody>{devices.map(d => <tr key={d.id} className="border-t border-slate-200"><td className="px-3 py-2 font-mono text-slate-900">{d.gatewayId}</td><td className="px-3 py-2 text-slate-900">{d.gatewayName}</td><td className="px-3 py-2 text-slate-900">{d.licensing}</td><td className="px-3 py-2 text-slate-900">{d.machineType}</td><td className="px-3 py-2 space-x-2"><button onClick={() => { setEditingId(d.id); setForm({ ...d }); setShowForm(true) }} className="text-blue-700 font-semibold">Edit</button><button onClick={() => deleteDevice(d.id)} className="text-red-700 font-semibold">Delete</button><button onClick={() => downloadTxt(d)} className="text-emerald-700 font-semibold">Download .txt</button></td></tr>)}</tbody></table>
+      <tbody>{deviceRows.length === 0 ? (
+        <tr className="border-t border-slate-200"><td colSpan={5} className="px-3 py-4 text-slate-500">No devices found in DB.</td></tr>
+      ) : deviceRows.map(d => <tr key={d.id} className="border-t border-slate-200"><td className="px-3 py-2 font-mono text-slate-900">{d.gatewayId}</td><td className="px-3 py-2 text-slate-900">{d.gatewayName}</td><td className="px-3 py-2 text-slate-900">{d.licensing}</td><td className="px-3 py-2 text-slate-900">{d.machineType}</td><td className="px-3 py-2 space-x-2"><button onClick={() => { const full = devices.find(x => x.id === d.id); if (!full) return; setEditingId(full.id); setForm({ ...(full as any) }); setShowForm(true) }} className="text-blue-700 font-semibold">Edit</button><button onClick={() => deleteDevice(d.id)} className="text-red-700 font-semibold">Delete</button><button onClick={() => { const full = devices.find(x => x.id === d.id); if (full) downloadTxt(full as any) }} className="text-emerald-700 font-semibold">Download .txt</button></td></tr>)}</tbody></table>
     </div>
   </div>
 }
+
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // USERS TAB
@@ -453,10 +507,9 @@ function MachinesTab() {
 
 
 function MaterialsTab() {
-  const { materialMasters, addMaterialMaster, deleteMaterialMaster, materials, updateMaterial } = useApp()
+  const { materialMasters, addMaterialMaster, deleteMaterialMaster, materials } = useApp()
   const [material, setMaterial] = useState("")
   const [grade, setGrade] = useState("")
-  const [applyMasterId, setApplyMasterId] = useState("")
   const sortedMasters = [...materialMasters].sort((a, b) => (
     a.material.localeCompare(b.material) || a.grade.localeCompare(b.grade)
   ))
@@ -483,20 +536,6 @@ function MaterialsTab() {
     setMaterial("")
     setGrade("")
   }
-  const applyMasterToUnknownInventory = async () => {
-    const selected = materialMasters.find(m => m.id === applyMasterId)
-    if (!selected) return
-    const unknownRows = materials.filter(m => {
-      const mat = (m.material || "").trim().toLowerCase()
-      const grd = (m.rawMaterialGrade || "").trim().toLowerCase()
-      return !mat || mat === "unknown" || !grd || grd === "unknown"
-    })
-    await Promise.all(unknownRows.map(row => updateMaterial(row.id, {
-      material: selected.material,
-      rawMaterialGrade: selected.grade,
-    })))
-    alert(`Updated ${unknownRows.length} inventory entries.`)
-  }
   return <div className="bg-white border rounded-xl p-4">
     <h3 className="font-black text-slate-900 mb-3">Material Master List</h3>
     <div className="flex gap-2 mb-3">
@@ -518,16 +557,6 @@ function MaterialsTab() {
       ) : sortedMasters.map(g=><tr key={g.id} className="border-t"><td className="px-3 py-2 text-slate-900">{g.material}</td><td className="px-3 py-2 text-slate-900">{g.grade}</td><td className="px-3 py-2"><button className="text-red-600 font-medium" onClick={()=>deleteMaterialMaster(g.id)}>Delete</button></td></tr>)}
       </tbody>
     </table>
-    <div className="mt-4 border-t pt-4">
-      <p className="text-sm font-semibold text-slate-700 mb-2">Apply config to existing unknown inventory</p>
-      <div className="flex gap-2 items-center">
-        <select value={applyMasterId} onChange={e=>setApplyMasterId(e.target.value)} className="border rounded px-3 py-2 text-sm text-slate-900 bg-white">
-          <option value="">Select material + grade</option>
-          {sortedMasters.map(m => <option key={m.id} value={m.id}>{m.material} · Grade {m.grade}</option>)}
-        </select>
-        <button onClick={applyMasterToUnknownInventory} className="px-3 py-2 bg-slate-800 text-white rounded text-sm font-bold">Apply to Unknown</button>
-      </div>
-    </div>
   </div>
 }
 
