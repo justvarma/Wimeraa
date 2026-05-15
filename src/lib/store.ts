@@ -176,8 +176,23 @@ export interface RawMaterial {
   rejectedReason?: string | null; notes?: string
 }
 
+export interface RawMaterialMaster {
+  id: string
+  material: string
+  grade: string
+}
+
+export interface PartMaster {
+  id: string
+  partId: string
+  partName: string
+  materialRequired: string
+  grade: string
+  quantityPerPart: number
+}
+
 export interface MonthlySchedule {
-  id: string; serialNumber: number; partId: string; partName: string
+  id: string; serialNumber: number; partMasterId?: string; partId: string; partName: string
   requiredQuantity: number; date: string; submittedById: string; createdAt: string
 }
 
@@ -269,6 +284,7 @@ export type ProcessRecordStatus = "pre_check"|"in_production"|"post_check"|"qi_i
 export interface ProcessRecord {
   id: string; workOrderId: string; process: ProcessStage
   date: string; shift: Shift
+  machineName?: string
   inputAcceptanceChecked: boolean
   ptcApprovalGiven: boolean; ptcApprovedBy?: string
   isVendorProduction: boolean; vendorName?: string
@@ -391,6 +407,13 @@ export const INITIAL_SCHEDULES: MonthlySchedule[] = [
   { id:"sch-002", serialNumber:2, partId:"RE-PT-0035", partName:"Crankcase Left — RE Classic 350",      requiredQuantity:250, date:"2026-04-01", submittedById:"u-001", createdAt:"2026-04-01" },
   { id:"sch-003", serialNumber:3, partId:"RE-PT-0047", partName:"Gear Box Housing — RE Himalayan 450",  requiredQuantity:180, date:"2026-04-01", submittedById:"u-001", createdAt:"2026-04-01" },
   { id:"sch-004", serialNumber:4, partId:"RE-PT-0062", partName:"Engine Mount Bracket — RE Hunter 350", requiredQuantity:320, date:"2026-04-01", submittedById:"u-001", createdAt:"2026-04-01" },
+]
+
+export const INITIAL_PART_MASTERS: PartMaster[] = [
+  { id: "re-pt-0062__default", partId: "RE-PT-0062", partName: "Engine Mount Bracket", materialRequired: "Aluminium", grade: "A", quantityPerPart: 1 },
+  { id: "re-pt-0047__default", partId: "RE-PT-0047", partName: "Gear Box Housing", materialRequired: "Aluminium", grade: "A", quantityPerPart: 1 },
+  { id: "re-pt-0035__default", partId: "RE-PT-0035", partName: "Crankcase Left", materialRequired: "Aluminium", grade: "A", quantityPerPart: 1 },
+  { id: "re-pt-0021__default", partId: "RE-PT-0021", partName: "Cylinder Head Cover", materialRequired: "Aluminium", grade: "A", quantityPerPart: 1 },
 ]
 
 export const INITIAL_PTCS: PTC[] = [
