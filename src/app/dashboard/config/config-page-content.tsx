@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useApp } from "@/components/providers/AppProvider"
 import { orderedShiftConfigs } from "@/lib/shiftUtils"
-import { UserRole, ROLE_LABELS, type RoleConfig, type ShiftBreak, type ShiftConfig } from "@/lib/store"
+import { UserRole, ROLE_LABELS, INITIAL_PART_MASTERS, type RoleConfig, type ShiftBreak, type ShiftConfig } from "@/lib/store"
 import {
   Settings, Users, Plus, Edit2, Trash2, X, ShieldAlert,
   ShieldCheck, Clock, CheckCircle, XCircle, AlertCircle,
@@ -508,6 +508,12 @@ function PartsTab() {
   }
 
   const sorted = [...partMasters].sort((a, b) => a.partName.localeCompare(b.partName))
+  const displayRows = sorted.length > 0 ? sorted : INITIAL_PART_MASTERS
+  const seedDefaultParts = async () => {
+    await Promise.all(INITIAL_PART_MASTERS.map(async (p) => {
+      await addPartMaster(p)
+    }))
+  }
 
   return <div className="bg-white border rounded-xl p-4">
     <h3 className="font-black text-slate-900 mb-3">Part Master List</h3>
@@ -526,6 +532,12 @@ function PartsTab() {
       <button onClick={createPartMaster} className="px-3 py-2 bg-blue-600 text-white rounded text-sm font-bold">Add Part Master</button>
     </div>
     <p className="text-xs text-slate-500 mb-3">Material and grade are now selected from Config → Materials master rows ({materialMasters.length} configured).</p>
+    {sorted.length === 0 && (
+      <div className="mb-3 p-3 border border-amber-200 bg-amber-50 rounded-lg flex items-center justify-between gap-3">
+        <p className="text-xs text-amber-800 font-medium">No part master records in DB yet. You can seed the default RE parts.</p>
+        <button onClick={seedDefaultParts} className="px-3 py-1.5 bg-amber-600 text-white rounded text-xs font-bold">Seed Default Parts</button>
+      </div>
+    )}
     <table className="w-full text-sm border border-slate-200 rounded-lg overflow-hidden">
       <thead>
       <tr className="bg-slate-50">
@@ -533,16 +545,18 @@ function PartsTab() {
       </tr>
       </thead>
       <tbody>
-      {sorted.length === 0 ? (
-        <tr className="border-t"><td colSpan={6} className="px-3 py-4 text-slate-500">No part master records yet.</td></tr>
-      ) : sorted.map(p => (
+      {displayRows.map(p => (
         <tr key={p.id} className="border-t">
           <td className="px-3 py-2 text-slate-900 font-mono">{p.partId}</td>
           <td className="px-3 py-2 text-slate-900">{p.partName}</td>
           <td className="px-3 py-2 text-slate-900">{p.materialRequired}</td>
           <td className="px-3 py-2 text-slate-900">{p.grade}</td>
           <td className="px-3 py-2 text-slate-900">{p.quantityPerPart}</td>
-          <td className="px-3 py-2"><button className="text-red-600 font-medium" onClick={() => deletePartMaster(p.id)}>Delete</button></td>
+          <td className="px-3 py-2">
+            {sorted.length > 0
+              ? <button className="text-red-600 font-medium" onClick={() => deletePartMaster(p.id)}>Delete</button>
+              : <span className="text-slate-400 text-xs">Seed to enable</span>}
+          </td>
         </tr>
       ))}
       </tbody>
