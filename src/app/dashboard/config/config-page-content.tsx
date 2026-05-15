@@ -150,12 +150,12 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
 function OperationsTab() {
   const { operations, addOperation, deleteOperation } = useApp()
   const [operationId, setOperationId] = useState("")
-  const [processName, setProcessName] = useState("Milling")
+  const [processName, setProcessName] = useState("")
   const add = async () => {
     if (!operationId.trim()) return
     await addOperation({ id: `${operationId.trim()}-${Date.now()}`, operationId: operationId.trim(), processName: processName as any, createdAt: new Date().toISOString().split("T")[0] })
     setOperationId("")
-    setProcessName("Milling")
+    setProcessName("")
   }
   const defaults = [
     { operationId: "OP-001", processName: "Milling" },
@@ -181,9 +181,7 @@ function OperationsTab() {
       <h3 className="font-black text-slate-900 mb-3">addOperationConfig</h3>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
         <input value={operationId} onChange={e => setOperationId(e.target.value)} placeholder="Operations ID" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 bg-white" />
-        <select value={processName} onChange={e => setProcessName(e.target.value)} className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 bg-white">
-          {["Milling","Face Turning","Drilling","Boring","Chamfering","Tapping","Sloting","Back Facing","Groovine","Thredening"].map(p => <option key={p} value={p}>{p}</option>)}
-        </select>
+        <input value={processName} onChange={e => setProcessName(e.target.value)} placeholder="processName" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 bg-white" />
         <button onClick={add} className="px-3 py-2 bg-blue-600 text-white rounded text-sm font-bold">Add</button>
       </div>
       <button onClick={seedDefaults} className="mt-3 px-3 py-2 bg-slate-800 text-white rounded text-xs font-bold">Assign IDs to all processes</button>
