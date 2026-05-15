@@ -153,6 +153,11 @@ function OperationsTab() {
   const [processName, setProcessName] = useState("")
   const add = async () => {
     if (!operationId.trim()) return
+    const normalized = operationId.trim().toLowerCase()
+    if (operations.some(o => String((o as any).operationId || (o as any).operationID || (o as any).opId || "").trim().toLowerCase() === normalized)) {
+      alert("OPID must be unique. This OPID already exists.")
+      return
+    }
     await addOperation({ id: `${operationId.trim()}-${Date.now()}`, operationId: operationId.trim(), processName: processName as any, createdAt: new Date().toISOString().split("T")[0] })
     setOperationId("")
     setProcessName("")
