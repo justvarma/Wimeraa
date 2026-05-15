@@ -21,7 +21,7 @@ import {
   type PTC, type DailyProductionEntry, type ProcessRecord,
   type DowntimeEvent, type QIInspection, type FQIInspection,
   type ShiftConfig, type RoleConfig, type MachineDef, type RawMaterialMaster, type PartMaster,
-  UserRole, DEFAULT_SHIFT_CONFIGS, DEFAULT_ROLE_CONFIGS, DEFAULT_MACHINE_CONFIGS, INITIAL_PART_MASTERS,
+  UserRole, DEFAULT_SHIFT_CONFIGS, DEFAULT_ROLE_CONFIGS, DEFAULT_MACHINE_CONFIGS,
 } from "@/lib/store"
 import { onAuthStateChange, signIn, signOut, fetchUserProfile, auth } from "@/lib/auth"
 import * as fs from "@/lib/firestoreService"
@@ -253,14 +253,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             fs.subscribeUsers(cid, setUsers, onSnapError),
             fs.subscribeMaterials(cid, setMaterials, onSnapError),
             fs.subscribeMaterialMasters(cid, setMaterialMasters, onSnapError),
-            fs.subscribePartMasters(cid, (loadedPartMasters) => {
-              if (loadedPartMasters.length === 0) {
-                INITIAL_PART_MASTERS.forEach(pm => fs.addPartMaster(cid, pm).catch(console.error))
-                setPartMasters(INITIAL_PART_MASTERS)
-              } else {
-                setPartMasters(loadedPartMasters)
-              }
-            }, onSnapError),
+            fs.subscribePartMasters(cid, setPartMasters, onSnapError),
             fs.subscribeSchedules(cid, setSchedules, onSnapError),
             fs.subscribePTCs(cid, setPtcs, onSnapError),
             fs.subscribeWorkOrders(cid, setWorkOrders, onSnapError),
