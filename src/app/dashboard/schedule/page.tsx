@@ -1,13 +1,13 @@
 "use client"
 
-import { useState, useRef } from "react"
+import { useState, useRef, useMemo } from "react"
 import { useApp } from "@/components/providers/AppProvider"
 import { UserRole, type MonthlySchedule } from "@/lib/store"
 import { CalendarDays, Plus, X, Edit2, Trash2, Search, Upload, FileSpreadsheet, CheckCircle2, AlertCircle } from "lucide-react"
 import * as XLSX from "xlsx"
 
 const emptyForm = {
-  serialNumber: "", partId: "", partName: "", requiredQuantity: "", date: new Date().toISOString().slice(0, 7)
+  serialNumber: "", partMasterId: "", partId: "", partName: "", requiredQuantity: "", date: new Date().toISOString().split("T")[0]
 }
 
 function mapExcelRow(row: Record<string, unknown>, index: number) {
@@ -20,15 +20,15 @@ function mapExcelRow(row: Record<string, unknown>, index: number) {
   }
   return {
     serialNumber: Number(get("serialnumber", "serial", "sno", "no")) || index + 1,
-    partId: get("partid", "part", "partno", "id") || `PT-${Date.now()}-${index}`,
+    partId: get("partid", "part", "partno", "id") || `PT-IMPORT-${String(index + 1).padStart(4, "0")}`,
     partName: get("partname", "name", "component", "description") || "",
     requiredQuantity: Number(get("requiredquantity", "quantity", "qty", "nos")) || 0,
-    date: get("date", "month", "scheduledate") || new Date().toISOString().slice(0, 7),
+    date: get("date", "month", "scheduledate") || new Date().toISOString().split("T")[0],
   }
 }
 
 export default function SchedulePage() {
-  const { currentUser, schedules, addSchedule, updateSchedule, deleteSchedule } = useApp()
+  const { currentUser, schedules, workOrders, partMasters, addSchedule, updateSchedule, deleteSchedule } = useApp()
   const [showForm, setShowForm] = useState(false)
   const [editItem, setEditItem] = useState<MonthlySchedule | null>(null)
   const [showUpload, setShowUpload] = useState(false)
@@ -58,6 +58,12 @@ export default function SchedulePage() {
   })
 
   const totalRequired = visible.reduce((sum, s) => sum + s.requiredQuantity, 0)
+  const scheduleProgress = (scheduleId: string) => {
+    const rows = workOrders.filter(wo => wo.masterId === scheduleId)
+    const produced = rows.reduce((sum, wo) => sum + (wo.partsCompleted || 0), 0)
+    const latest = rows.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""))[0]
+    return { produced, step: latest?.process ? latest.process.replace("_", " ") : "not_started" }
+  }
 
   const openAdd = () => {
     setEditItem(null)
@@ -69,22 +75,29 @@ export default function SchedulePage() {
     setEditItem(item)
     setForm({
       serialNumber: String(item.serialNumber),
+      partMasterId: item.partMasterId || "",
       partId: item.partId,
       partName: item.partName,
       requiredQuantity: String(item.requiredQuantity),
-      date: item.date.slice(0, 7),
+      date: item.date,
     })
     setShowForm(true)
   }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    const currentMonth = new Date().toISOString().slice(0, 7)
+    if (!editItem && form.date.slice(0, 7) < currentMonth) {
+      alert("Cannot add schedule for past months.")
+      return
+    }
     const payload = {
-      serialNumber: Number(form.serialNumber),
+      serialNumber: editItem ? Number(form.serialNumber) : schedules.length + 1,
       partId: form.partId,
       partName: form.partName,
+      partMasterId: form.partMasterId,
       requiredQuantity: Number(form.requiredQuantity),
-      date: form.date + "-01",
+      date: form.date,
       submittedById: currentUser!.id,
     }
     if (editItem) {
@@ -96,6 +109,11 @@ export default function SchedulePage() {
   }
 
   const handleDelete = (id: string) => {
+    const hasAssignedWO = workOrders.some(wo => wo.masterId === id)
+    if (hasAssignedWO) {
+      alert("This schedule entry is already assigned to a Work Order and cannot be deleted.")
+      return
+    }
     if (!confirm("Delete this schedule entry?")) return
     deleteSchedule(id)
   }
@@ -129,6 +147,15 @@ export default function SchedulePage() {
     }
     reader.readAsBinaryString(file)
   }
+
+  const groupedVisible = useMemo(() => {
+    const groups: Record<string, MonthlySchedule[]> = {}
+    visible.forEach(v => {
+      const key = v.date.slice(0, 7)
+      groups[key] = [...(groups[key] || []), v]
+    })
+    return Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0]))
+  }, [visible])
 
   return (
     <div className="space-y-8">
@@ -212,49 +239,98 @@ export default function SchedulePage() {
         </select>
       </div>
 
-      {/* Table */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left min-w-[700px]">
-            <thead className="bg-slate-50 border-b border-slate-200">
-              <tr className="text-slate-600 text-xs font-bold uppercase tracking-wider">
-                <th className="px-5 py-4">S.No</th>
-                <th className="px-5 py-4">Part ID</th>
-                <th className="px-5 py-4">Part Name</th>
-                <th className="px-5 py-4">Required Qty (Nos)</th>
-                <th className="px-5 py-4">Schedule Month</th>
-                {canManage && <th className="px-5 py-4">Actions</th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {visible.length === 0 ? (
-                <tr><td colSpan={6} className="px-6 py-12 text-center text-slate-400">
-                  <CalendarDays size={40} className="mx-auto mb-2 text-slate-200" />No schedule entries found
-                </td></tr>
-              ) : visible.map(item => (
+      {/* Table month-wise (click to expand) */}
+      <div className="space-y-3">
+        {groupedVisible.length === 0 ? (
+          <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-400">
+            <CalendarDays size={40} className="mx-auto mb-2 text-slate-200" />No schedule entries found
+          </div>
+        ) : groupedVisible.map(([month, entries]) => (
+          <details key={month} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden" open>
+            <summary className="px-5 py-4 bg-slate-50 border-b border-slate-200 cursor-pointer font-black text-slate-800">
+              {month} <span className="text-xs text-slate-500 font-semibold">({entries.length} entries)</span>
+            </summary>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left min-w-[700px]">
+                <thead className="bg-slate-50 border-b border-slate-200">
+                <tr className="text-slate-600 text-xs font-bold uppercase tracking-wider">
+                  <th className="px-5 py-4">S.No</th>
+                  <th className="px-5 py-4">Part ID</th>
+                  <th className="px-5 py-4">Part Name</th>
+                  <th className="px-5 py-4">Required Qty (Nos)</th>
+                  <th className="px-5 py-4">End Date</th>
+                  <th className="px-5 py-4">Progress</th>
+                  {canManage && <th className="px-5 py-4">Actions</th>}
+                </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+              {entries.map(item => { const p = scheduleProgress(item.id); const isAssignedToWO = workOrders.some(wo => wo.masterId === item.id); return (
                 <tr key={item.id} className="hover:bg-slate-50 transition-colors">
                   <td className="px-5 py-4 text-sm font-bold text-slate-500">{item.serialNumber}</td>
                   <td className="px-5 py-4 text-sm font-mono text-indigo-600 font-bold">{item.partId}</td>
                   <td className="px-5 py-4 text-sm font-semibold text-slate-800">{item.partName}</td>
                   <td className="px-5 py-4 text-sm font-bold text-slate-900">{item.requiredQuantity.toLocaleString()}</td>
                   <td className="px-5 py-4 text-sm text-slate-500">{item.date.slice(0, 7)}</td>
+                  <td className="px-5 py-4 text-sm">
+                    <div className="relative group inline-block">
+                      <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200">
+                        <span className="text-slate-700 font-semibold">Produced: {p.produced}/{item.requiredQuantity}</span>
+                        <span className="text-slate-300">•</span>
+                        <span className="text-slate-600 capitalize">Stage: {p.step.replace("_", " ")}</span>
+                      </div>
+                      <div className="hidden group-hover:block absolute z-30 top-full left-0 mt-2 w-[620px] max-w-[90vw] bg-white border border-slate-300 rounded-xl shadow-xl p-3">
+                        <p className="text-xs font-black text-slate-700 uppercase tracking-wider mb-2">Process Progress & Split-up</p>
+                        <table className="w-full text-xs">
+                          <thead>
+                          <tr className="bg-slate-50">
+                            {["Process", "Progress", "Good", "Rework", "Rejected", "Completion %"].map(h => (
+                              <th key={h} className="text-left px-2 py-1.5 text-slate-800 font-bold">{h}</th>
+                            ))}
+                          </tr>
+                          </thead>
+                          <tbody>
+                          {(["die_casting", "coating", "cnc_vmc"] as const).map(proc => {
+                            const rows = workOrders.filter(wo => wo.masterId === item.id && wo.process === proc)
+                            const produced = rows.reduce((s, wo) => s + (wo.partsCompleted || 0), 0)
+                            const good = rows.reduce((s, wo) => s + (wo.goodParts || 0), 0)
+                            const rework = rows.reduce((s, wo) => s + (wo.reworkParts || 0), 0)
+                            const rejected = rows.reduce((s, wo) => s + (wo.rejectedParts || 0), 0)
+                            const pct = item.requiredQuantity > 0 ? ((produced / item.requiredQuantity) * 100) : 0
+                            return (
+                              <tr key={proc} className="border-t border-slate-100">
+                                <td className="px-2 py-1.5 text-slate-900 capitalize">{proc.replace("_", " ")}</td>
+                                <td className="px-2 py-1.5 text-slate-900">{produced}/{item.requiredQuantity}</td>
+                                <td className="px-2 py-1.5 text-emerald-700 font-semibold">{good}</td>
+                                <td className="px-2 py-1.5 text-amber-700 font-semibold">{rework}</td>
+                                <td className="px-2 py-1.5 text-red-700 font-semibold">{rejected}</td>
+                                <td className="px-2 py-1.5 text-indigo-700 font-bold">{pct.toFixed(1)}%</td>
+                              </tr>
+                            )
+                          })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </td>
                   {canManage && (
                     <td className="px-5 py-4">
                       <div className="flex gap-3">
-                        <button onClick={() => openEdit(item)} className="flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800">
+                        <button disabled={isAssignedToWO} onClick={() => openEdit(item)} className="flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800 disabled:opacity-40 disabled:cursor-not-allowed" title={isAssignedToWO ? "Assigned to WO — cannot edit" : ""}>
                           <Edit2 size={13} /> Edit
                         </button>
-                        <button onClick={() => handleDelete(item.id)} className="flex items-center gap-1 text-xs font-bold text-red-500 hover:text-red-700">
+                        <button disabled={isAssignedToWO} onClick={() => handleDelete(item.id)} className="flex items-center gap-1 text-xs font-bold text-red-500 hover:text-red-700 disabled:opacity-40 disabled:cursor-not-allowed" title={isAssignedToWO ? "Assigned to WO — cannot delete" : ""}>
                           <Trash2 size={13} /> Delete
                         </button>
                       </div>
                     </td>
                   )}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              )})}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        ))}
       </div>
 
       {/* Form Modal */}
@@ -268,9 +344,9 @@ export default function SchedulePage() {
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Serial Number *</label>
-                  <input type="number" required min="1" value={form.serialNumber} onChange={e => setForm(p => ({ ...p, serialNumber: e.target.value }))}
-                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none" />
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Schedule Month No (Auto)</label>
+                  <input type="number" required min="1" value={form.serialNumber} readOnly
+                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-500 bg-slate-50 cursor-not-allowed" />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Part ID *</label>
@@ -280,10 +356,24 @@ export default function SchedulePage() {
                 </div>
               </div>
               <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Part Master *</label>
+                <select
+                  required
+                  value={form.partMasterId}
+                  onChange={e => {
+                    const selected = partMasters.find(p => p.id === e.target.value)
+                    setForm(p => ({ ...p, partMasterId: e.target.value, partId: selected?.partId || "", partName: selected?.partName || "" }))
+                  }}
+                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none bg-white">
+                  <option value="">Select a part</option>
+                  {partMasters.map(p => <option key={p.id} value={p.id}>{p.partName} ({p.partId})</option>)}
+                </select>
+              </div>
+              <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Part Name *</label>
-                <input required value={form.partName} onChange={e => setForm(p => ({ ...p, partName: e.target.value }))}
-                  placeholder="e.g. Cylinder Head Cover — RE Meteor 350"
-                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none" />
+                <input required value={form.partName} readOnly
+                  placeholder="Auto-filled from part master"
+                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-500 bg-slate-50" />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -292,8 +382,8 @@ export default function SchedulePage() {
                     className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none" />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Schedule Month *</label>
-                  <input type="month" required value={form.date} onChange={e => setForm(p => ({ ...p, date: e.target.value }))}
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">End Date *</label>
+                  <input type="date" required value={form.date} onChange={e => setForm(p => ({ ...p, date: e.target.value }))}
                     className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none" />
                 </div>
               </div>

@@ -9,14 +9,14 @@ const ACCOUNTS = [
   // System Admin (Wimera-level)
   { label:"System Admin",      email:"sysadmin@wimera.com",      password:"wimera123",  color:"bg-violet-500", role:"Client Management only" },
   // Admin
-  { label:"Admin",             email:"admin@wimera.com",         password:"admin123",    color:"bg-blue-500",    role:"Full access — no PTC mgmt" },
+  { label:"Admin",             email:"admin@wimera.com",         password:"admin123",    color:"bg-blue-500",    role:"Full access — no PDC mgmt" },
   // Storekeeper
   { label:"Storekeeper",       email:"storekeeper@wimera.com",   password:"store123",    color:"bg-teal-500",    role:"Inventory & Schedule" },
-  // PTC roles
-  { label:"PTC Manager",       email:"ptc@wimera.com",           password:"ptc123",      color:"bg-indigo-500",  role:"Creates Work Order shells + PTC" },
-  { label:"PTC – Die Casting", email:"ptc.dc@wimera.com",        password:"ptcdc123",    color:"bg-orange-500",  role:"Die Casting operations" },
-  { label:"PTC – Coating",     email:"ptc.coat@wimera.com",      password:"ptcco123",    color:"bg-purple-500",  role:"Coating operations" },
-  { label:"PTC – CNC/VMC",     email:"ptc.cnc@wimera.com",       password:"ptccnc123",   color:"bg-cyan-500",    role:"Machining operations" },
+  // PDC roles
+  { label:"PDC Manager",       email:"ptc@wimera.com",           password:"ptc123",      color:"bg-indigo-500",  role:"Creates Work Order shells + PDC" },
+  { label:"PDC – Die Casting", email:"ptc.dc@wimera.com",        password:"ptcdc123",    color:"bg-orange-500",  role:"Die Casting operations" },
+  { label:"PDC – Coating",     email:"ptc.coat@wimera.com",      password:"ptcco123",    color:"bg-purple-500",  role:"Coating operations" },
+  { label:"PDC – CNC/VMC",     email:"ptc.cnc@wimera.com",       password:"ptccnc123",   color:"bg-cyan-500",    role:"Machining operations" },
   // QI sub-roles (each scoped to one process)
   { label:"QI – Die Casting",  email:"qi.dc@wimera.com",         password:"qidc123",     color:"bg-orange-400",  role:"QI: Die Casting only" },
   { label:"QI – Coating",      email:"qi.coat@wimera.com",       password:"qico123",     color:"bg-purple-400",  role:"QI: Coating only" },

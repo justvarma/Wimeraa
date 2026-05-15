@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useApp } from "@/components/providers/AppProvider"
 import { orderedShiftConfigs } from "@/lib/shiftUtils"
@@ -59,7 +59,7 @@ function TimeInput({ value, onChange }: { value: string; onChange: (v: string) =
 
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
-type Tab = "users" | "roles" | "shifts" | "machines" | "materials"
+type Tab = "users" | "roles" | "shifts" | "machines" | "materials" | "parts"
 
 export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
   const {
@@ -72,7 +72,7 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const tabParam = searchParams.get("tab")
-  const queryTab: Tab = tabParam === "roles" || tabParam === "shifts" || tabParam === "users" || tabParam === "machines" || tabParam === "materials" ? tabParam : "users"
+  const queryTab: Tab = tabParam === "roles" || tabParam === "shifts" || tabParam === "users" || tabParam === "machines" || tabParam === "materials" || tabParam === "parts" ? tabParam : "users"
   const initialTab: Tab = forcedTab ?? queryTab
   const [activeTab, setActiveTab] = useState<Tab>(initialTab)
   const isSystemAdmin = currentUser?.role === UserRole.SYSTEM_ADMIN
@@ -118,6 +118,7 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
             ["shifts", Clock,       "Shifts"],
             ["machines", Settings,    "Machines"],
             ["materials", Package,    "Materials"],
+            ["parts", Package,    "Part Master"],
           ] as const)
             .filter(([tab]) => !isSystemAdmin || tab === "users")
             .map(([tab, Icon, label]) => (
@@ -137,6 +138,7 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
         {activeTab === "shifts" && <ShiftsTab />}
         {activeTab === "machines" && <MachinesTab />}
         {activeTab === "materials" && <MaterialsTab />}
+        {activeTab === "parts" && <PartsTab />}
       </div>
   )
 }
@@ -395,12 +397,144 @@ function MachinesTab() {
 
 
 function MaterialsTab() {
-  const { materials } = useApp()
-  const groups = Array.from(new Map(materials.map(m => [`${m.material || "Unknown"}__${m.rawMaterialGrade}`, { material: m.material || "Unknown", grade: m.rawMaterialGrade, entries: [] as typeof materials }])).values())
-  groups.forEach(g => { g.entries = materials.filter(m => (m.material || "Unknown")===g.material && m.rawMaterialGrade===g.grade) })
+  const { materialMasters, addMaterialMaster, deleteMaterialMaster, materials, updateMaterial } = useApp()
+  const [material, setMaterial] = useState("")
+  const [grade, setGrade] = useState("")
+  const [applyMasterId, setApplyMasterId] = useState("")
+  const sortedMasters = [...materialMasters].sort((a, b) => (
+    a.material.localeCompare(b.material) || a.grade.localeCompare(b.grade)
+  ))
+  useEffect(() => {
+    if (materialMasters.length > 0 || materials.length === 0) return
+    const unique = Array.from(new Map(
+      materials
+        .filter(m => (m.material || "").trim() && (m.rawMaterialGrade || "").trim())
+        .map(m => {
+          const mat = (m.material || "").trim()
+          const grd = (m.rawMaterialGrade || "").trim().toUpperCase()
+          return [`${mat.toLowerCase().replace(/\s+/g, "_")}__${grd}`, { material: mat, grade: grd }]
+        }),
+    ).values())
+    unique.forEach(item => {
+      const id = `${item.material.toLowerCase().replace(/\s+/g, "_")}__${item.grade}`
+      addMaterialMaster({ id, material: item.material, grade: item.grade }).catch(console.error)
+    })
+  }, [materialMasters, materials, addMaterialMaster])
+  const createMaster = async () => {
+    if (!material.trim() || !grade.trim()) return
+    const id = `${material.trim().toLowerCase().replace(/\s+/g, "_")}__${grade.trim().toUpperCase()}`
+    await addMaterialMaster({ id, material: material.trim(), grade: grade.trim().toUpperCase() })
+    setMaterial("")
+    setGrade("")
+  }
+  const applyMasterToUnknownInventory = async () => {
+    const selected = materialMasters.find(m => m.id === applyMasterId)
+    if (!selected) return
+    const unknownRows = materials.filter(m => {
+      const mat = (m.material || "").trim().toLowerCase()
+      const grd = (m.rawMaterialGrade || "").trim().toLowerCase()
+      return !mat || mat === "unknown" || !grd || grd === "unknown"
+    })
+    await Promise.all(unknownRows.map(row => updateMaterial(row.id, {
+      material: selected.material,
+      rawMaterialGrade: selected.grade,
+    })))
+    alert(`Updated ${unknownRows.length} inventory entries.`)
+  }
   return <div className="bg-white border rounded-xl p-4">
-    <h3 className="font-black text-slate-800 mb-3">Material Master List</h3>
-    <table className="w-full text-sm"><thead><tr className="bg-slate-50">{["Material","Grade","Entries","Total KG"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead><tbody>{groups.map(g=>{const total=g.entries.reduce((s,m)=>s+m.receivedQuantity,0); return <tr key={`${g.material}-${g.grade}`} className="border-t"><td className="px-3 py-2">{g.material}</td><td className="px-3 py-2">{g.grade}</td><td className="px-3 py-2">{g.entries.length}</td><td className="px-3 py-2">{total.toFixed(1)}</td></tr>})}</tbody></table>
+    <h3 className="font-black text-slate-900 mb-3">Material Master List</h3>
+    <div className="flex gap-2 mb-3">
+      <input value={material} onChange={e=>setMaterial(e.target.value)} placeholder="Material" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
+      <input value={grade} onChange={e=>setGrade(e.target.value)} placeholder="Grade" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
+      <button onClick={createMaster} className="px-3 py-2 bg-blue-600 text-white rounded text-sm font-bold">Add</button>
+    </div>
+    <table className="w-full text-sm border border-slate-200 rounded-lg overflow-hidden">
+      <thead>
+      <tr className="bg-slate-50">
+        {["Material","Grade","Actions"].map(h=><th key={h} className="text-left px-3 py-2 text-slate-700 font-semibold">{h}</th>)}
+      </tr>
+      </thead>
+      <tbody>
+      {sortedMasters.length === 0 ? (
+        <tr className="border-t">
+          <td colSpan={3} className="px-3 py-4 text-slate-500">No material master records yet.</td>
+        </tr>
+      ) : sortedMasters.map(g=><tr key={g.id} className="border-t"><td className="px-3 py-2 text-slate-900">{g.material}</td><td className="px-3 py-2 text-slate-900">{g.grade}</td><td className="px-3 py-2"><button className="text-red-600 font-medium" onClick={()=>deleteMaterialMaster(g.id)}>Delete</button></td></tr>)}
+      </tbody>
+    </table>
+    <div className="mt-4 border-t pt-4">
+      <p className="text-sm font-semibold text-slate-700 mb-2">Apply config to existing unknown inventory</p>
+      <div className="flex gap-2 items-center">
+        <select value={applyMasterId} onChange={e=>setApplyMasterId(e.target.value)} className="border rounded px-3 py-2 text-sm text-slate-900 bg-white">
+          <option value="">Select material + grade</option>
+          {sortedMasters.map(m => <option key={m.id} value={m.id}>{m.material} · Grade {m.grade}</option>)}
+        </select>
+        <button onClick={applyMasterToUnknownInventory} className="px-3 py-2 bg-slate-800 text-white rounded text-sm font-bold">Apply to Unknown</button>
+      </div>
+    </div>
+  </div>
+}
+
+function PartsTab() {
+  const { partMasters, addPartMaster, deletePartMaster, materialMasters } = useApp()
+  const [partId, setPartId] = useState("")
+  const [partName, setPartName] = useState("")
+  const [materialRequired, setMaterialRequired] = useState("")
+  const [grade, setGrade] = useState("")
+  const [quantityPerPart, setQuantityPerPart] = useState("")
+
+  const createPartMaster = async () => {
+    if (!partId.trim() || !partName.trim() || !materialRequired.trim() || !grade.trim() || Number(quantityPerPart) <= 0) return
+    const id = `${partId.trim().toLowerCase().replace(/\s+/g, "_")}__${grade.trim().toUpperCase()}`
+    await addPartMaster({
+      id,
+      partId: partId.trim(),
+      partName: partName.trim(),
+      materialRequired: materialRequired.trim(),
+      grade: grade.trim().toUpperCase(),
+      quantityPerPart: Number(quantityPerPart),
+    })
+    setPartId("")
+    setPartName("")
+    setMaterialRequired("")
+    setGrade("")
+    setQuantityPerPart("")
+  }
+
+  const sorted = [...partMasters].sort((a, b) => a.partName.localeCompare(b.partName))
+
+  return <div className="bg-white border rounded-xl p-4">
+    <h3 className="font-black text-slate-900 mb-3">Part Master List</h3>
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
+      <input value={partId} onChange={e => setPartId(e.target.value)} placeholder="Part ID *" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
+      <input value={partName} onChange={e => setPartName(e.target.value)} placeholder="Part Name *" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
+      <input value={materialRequired} onChange={e => setMaterialRequired(e.target.value)} placeholder="Material Required *" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
+      <input value={grade} onChange={e => setGrade(e.target.value)} placeholder="Grade *" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
+      <input type="number" min="0.001" step="0.001" value={quantityPerPart} onChange={e => setQuantityPerPart(e.target.value)} placeholder="Quantity Per Part (KG) *" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
+      <button onClick={createPartMaster} className="px-3 py-2 bg-blue-600 text-white rounded text-sm font-bold">Add Part Master</button>
+    </div>
+    <p className="text-xs text-slate-500 mb-3">Configured material master rows: {materialMasters.length}. Ensure material & grade are aligned while creating part masters.</p>
+    <table className="w-full text-sm border border-slate-200 rounded-lg overflow-hidden">
+      <thead>
+      <tr className="bg-slate-50">
+        {["Part ID", "Part Name", "Material Required", "Grade", "Qty/Part (KG)", "Actions"].map(h => <th key={h} className="text-left px-3 py-2 text-slate-700 font-semibold">{h}</th>)}
+      </tr>
+      </thead>
+      <tbody>
+      {sorted.length === 0 ? (
+        <tr className="border-t"><td colSpan={6} className="px-3 py-4 text-slate-500">No part master records yet.</td></tr>
+      ) : sorted.map(p => (
+        <tr key={p.id} className="border-t">
+          <td className="px-3 py-2 text-slate-900 font-mono">{p.partId}</td>
+          <td className="px-3 py-2 text-slate-900">{p.partName}</td>
+          <td className="px-3 py-2 text-slate-900">{p.materialRequired}</td>
+          <td className="px-3 py-2 text-slate-900">{p.grade}</td>
+          <td className="px-3 py-2 text-slate-900">{p.quantityPerPart}</td>
+          <td className="px-3 py-2"><button className="text-red-600 font-medium" onClick={() => deletePartMaster(p.id)}>Delete</button></td>
+        </tr>
+      ))}
+      </tbody>
+    </table>
   </div>
 }
 

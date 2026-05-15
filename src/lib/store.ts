@@ -176,8 +176,23 @@ export interface RawMaterial {
   rejectedReason?: string | null; notes?: string
 }
 
+export interface RawMaterialMaster {
+  id: string
+  material: string
+  grade: string
+}
+
+export interface PartMaster {
+  id: string
+  partId: string
+  partName: string
+  materialRequired: string
+  grade: string
+  quantityPerPart: number
+}
+
 export interface MonthlySchedule {
-  id: string; serialNumber: number; partId: string; partName: string
+  id: string; serialNumber: number; partMasterId?: string; partId: string; partName: string
   requiredQuantity: number; date: string; submittedById: string; createdAt: string
 }
 
@@ -269,6 +284,7 @@ export type ProcessRecordStatus = "pre_check"|"in_production"|"post_check"|"qi_i
 export interface ProcessRecord {
   id: string; workOrderId: string; process: ProcessStage
   date: string; shift: Shift
+  machineName?: string
   inputAcceptanceChecked: boolean
   ptcApprovalGiven: boolean; ptcApprovedBy?: string
   isVendorProduction: boolean; vendorName?: string
