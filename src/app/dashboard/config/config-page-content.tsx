@@ -59,7 +59,7 @@ function TimeInput({ value, onChange }: { value: string; onChange: (v: string) =
 
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
-type Tab = "users" | "roles" | "shifts" | "machines" | "materials"
+type Tab = "users" | "roles" | "shifts" | "machines" | "materials" | "parts"
 
 export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
   const {
@@ -72,7 +72,7 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const tabParam = searchParams.get("tab")
-  const queryTab: Tab = tabParam === "roles" || tabParam === "shifts" || tabParam === "users" || tabParam === "machines" || tabParam === "materials" ? tabParam : "users"
+  const queryTab: Tab = tabParam === "roles" || tabParam === "shifts" || tabParam === "users" || tabParam === "machines" || tabParam === "materials" || tabParam === "parts" ? tabParam : "users"
   const initialTab: Tab = forcedTab ?? queryTab
   const [activeTab, setActiveTab] = useState<Tab>(initialTab)
   const isSystemAdmin = currentUser?.role === UserRole.SYSTEM_ADMIN
@@ -118,6 +118,7 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
             ["shifts", Clock,       "Shifts"],
             ["machines", Settings,    "Machines"],
             ["materials", Package,    "Materials"],
+            ["parts", Package,    "Part Master"],
           ] as const)
             .filter(([tab]) => !isSystemAdmin || tab === "users")
             .map(([tab, Icon, label]) => (
@@ -137,6 +138,7 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
         {activeTab === "shifts" && <ShiftsTab />}
         {activeTab === "machines" && <MachinesTab />}
         {activeTab === "materials" && <MaterialsTab />}
+        {activeTab === "parts" && <PartsTab />}
       </div>
   )
 }
@@ -470,6 +472,69 @@ function MaterialsTab() {
         <button onClick={applyMasterToUnknownInventory} className="px-3 py-2 bg-slate-800 text-white rounded text-sm font-bold">Apply to Unknown</button>
       </div>
     </div>
+  </div>
+}
+
+function PartsTab() {
+  const { partMasters, addPartMaster, deletePartMaster, materialMasters } = useApp()
+  const [partId, setPartId] = useState("")
+  const [partName, setPartName] = useState("")
+  const [materialRequired, setMaterialRequired] = useState("")
+  const [grade, setGrade] = useState("")
+  const [quantityPerPart, setQuantityPerPart] = useState("")
+
+  const createPartMaster = async () => {
+    if (!partId.trim() || !partName.trim() || !materialRequired.trim() || !grade.trim() || Number(quantityPerPart) <= 0) return
+    const id = `${partId.trim().toLowerCase().replace(/\s+/g, "_")}__${grade.trim().toUpperCase()}`
+    await addPartMaster({
+      id,
+      partId: partId.trim(),
+      partName: partName.trim(),
+      materialRequired: materialRequired.trim(),
+      grade: grade.trim().toUpperCase(),
+      quantityPerPart: Number(quantityPerPart),
+    })
+    setPartId("")
+    setPartName("")
+    setMaterialRequired("")
+    setGrade("")
+    setQuantityPerPart("")
+  }
+
+  const sorted = [...partMasters].sort((a, b) => a.partName.localeCompare(b.partName))
+
+  return <div className="bg-white border rounded-xl p-4">
+    <h3 className="font-black text-slate-900 mb-3">Part Master List</h3>
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
+      <input value={partId} onChange={e => setPartId(e.target.value)} placeholder="Part ID *" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
+      <input value={partName} onChange={e => setPartName(e.target.value)} placeholder="Part Name *" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
+      <input value={materialRequired} onChange={e => setMaterialRequired(e.target.value)} placeholder="Material Required *" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
+      <input value={grade} onChange={e => setGrade(e.target.value)} placeholder="Grade *" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
+      <input type="number" min="0.001" step="0.001" value={quantityPerPart} onChange={e => setQuantityPerPart(e.target.value)} placeholder="Quantity Per Part (KG) *" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
+      <button onClick={createPartMaster} className="px-3 py-2 bg-blue-600 text-white rounded text-sm font-bold">Add Part Master</button>
+    </div>
+    <p className="text-xs text-slate-500 mb-3">Configured material master rows: {materialMasters.length}. Ensure material & grade are aligned while creating part masters.</p>
+    <table className="w-full text-sm border border-slate-200 rounded-lg overflow-hidden">
+      <thead>
+      <tr className="bg-slate-50">
+        {["Part ID", "Part Name", "Material Required", "Grade", "Qty/Part (KG)", "Actions"].map(h => <th key={h} className="text-left px-3 py-2 text-slate-700 font-semibold">{h}</th>)}
+      </tr>
+      </thead>
+      <tbody>
+      {sorted.length === 0 ? (
+        <tr className="border-t"><td colSpan={6} className="px-3 py-4 text-slate-500">No part master records yet.</td></tr>
+      ) : sorted.map(p => (
+        <tr key={p.id} className="border-t">
+          <td className="px-3 py-2 text-slate-900 font-mono">{p.partId}</td>
+          <td className="px-3 py-2 text-slate-900">{p.partName}</td>
+          <td className="px-3 py-2 text-slate-900">{p.materialRequired}</td>
+          <td className="px-3 py-2 text-slate-900">{p.grade}</td>
+          <td className="px-3 py-2 text-slate-900">{p.quantityPerPart}</td>
+          <td className="px-3 py-2"><button className="text-red-600 font-medium" onClick={() => deletePartMaster(p.id)}>Delete</button></td>
+        </tr>
+      ))}
+      </tbody>
+    </table>
   </div>
 }
 
