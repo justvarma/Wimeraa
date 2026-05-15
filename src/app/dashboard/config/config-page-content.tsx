@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useApp } from "@/components/providers/AppProvider"
 import { orderedShiftConfigs } from "@/lib/shiftUtils"
-import { UserRole, ROLE_LABELS, type RoleConfig, type ShiftBreak, type ShiftConfig } from "@/lib/store"
+import { UserRole, ROLE_LABELS, INITIAL_PART_MASTERS, type RoleConfig, type ShiftBreak, type ShiftConfig } from "@/lib/store"
 import {
   Settings, Users, Plus, Edit2, Trash2, X, ShieldAlert,
   ShieldCheck, Clock, CheckCircle, XCircle, AlertCircle,
@@ -59,7 +59,7 @@ function TimeInput({ value, onChange }: { value: string; onChange: (v: string) =
 
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
-type Tab = "users" | "roles" | "shifts" | "machines" | "materials"
+type Tab = "users" | "roles" | "shifts" | "machines" | "materials" | "parts" | "devices"
 
 export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
   const {
@@ -72,7 +72,7 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const tabParam = searchParams.get("tab")
-  const queryTab: Tab = tabParam === "roles" || tabParam === "shifts" || tabParam === "users" || tabParam === "machines" || tabParam === "materials" ? tabParam : "users"
+  const queryTab: Tab = tabParam === "roles" || tabParam === "shifts" || tabParam === "users" || tabParam === "machines" || tabParam === "materials" || tabParam === "parts" || tabParam === "devices" ? tabParam : "users"
   const initialTab: Tab = forcedTab ?? queryTab
   const [activeTab, setActiveTab] = useState<Tab>(initialTab)
   const isSystemAdmin = currentUser?.role === UserRole.SYSTEM_ADMIN
@@ -87,7 +87,7 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
     router.replace(`/dashboard/config?tab=${tab}`)
   }
 
-  if (currentUser?.role !== UserRole.ADMIN && currentUser?.role !== UserRole.SYSTEM_ADMIN) {
+  if (currentUser?.role !== UserRole.ADMIN) {
     return (
         <div className="flex flex-col items-center justify-center h-80 gap-4">
           <ShieldAlert size={48} className="text-red-400" />
@@ -118,6 +118,8 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
             ["shifts", Clock,       "Shifts"],
             ["machines", Settings,    "Machines"],
             ["materials", Package,    "Materials"],
+            ["parts", Package,    "Part Master"],
+            ["devices", Settings, "Devices"],
           ] as const)
             .filter(([tab]) => !isSystemAdmin || tab === "users")
             .map(([tab, Icon, label]) => (
@@ -137,10 +139,66 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
         {activeTab === "shifts" && <ShiftsTab />}
         {activeTab === "machines" && <MachinesTab />}
         {activeTab === "materials" && <MaterialsTab />}
+        {activeTab === "parts" && <PartsTab />}
+        {activeTab === "devices" && <DevicesTab />}
       </div>
   )
 }
 
+function DevicesTab() {
+  const { devices, addDevice, updateDevice, deleteDevice } = useApp()
+  const [showForm, setShowForm] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [depInputA, setDepInputA] = useState("")
+  const [depInputP, setDepInputP] = useState("")
+  const [depInputE, setDepInputE] = useState("")
+  const empty = {
+    id: "", custId: "CUST-001", plantId: "PLANT-001", deviceId: "", deviceName: "", machineType: "die_casting",
+    gatewayId: "", gatewayName: "", licensing: "1m" as const, gatewayType: "Edj10" as const,
+    availabilityPostTime: "", availabilityDutyCycle: "", availabilityRunDuration: "", interlock: "enable" as const, algorithm: "0",
+    availabilityDepValues: [] as string[], performancePostTime: "", debounceTime: "", partCountType: "digital" as const, otherPartCountType: "" as "" | "OTH1" | "OTH2",
+    partCountPins: [] as string[], performanceDepValues: [] as string[], pinScanTime: "", pinPostTime: "", emicPostTime: "", frequency: "50hz" as const, phaseSequence: "1-1P2W" as const, emicConfigValues: [] as string[],
+  }
+  const [form, setForm] = useState(empty)
+  const inputCls = "w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white text-slate-900 placeholder:text-slate-400"
+  const selectCls = "w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white text-slate-900"
+  const sectionCls = "bg-slate-50 border border-slate-200 rounded-xl p-4"
+  const max10Push = (arr: string[], value: string) => arr.length >= 10 || !value.trim() ? arr : [...arr, value.trim()]
+  const pins = form.gatewayType === "Edj10" ? ["Pin1","Pin2","Pin3","Pin4"] : ["Pin1","Pin2","Pin3","Pin4","Pin5","Pin6","Pin7","Pin8"]
+  const save = async () => {
+    if (!/^[a-z0-9]{12}$/i.test(form.deviceId) || !/^[a-z0-9]{12}$/i.test(form.gatewayId)) { alert("Device ID and Gateway ID must be 12-char alphanumeric."); return }
+    const payload = { ...form, id: editingId || `${form.deviceId}-${Date.now()}`, createdAt: new Date().toISOString().split("T")[0] }
+    if (editingId) await updateDevice(editingId, payload); else await addDevice(payload as any)
+    setForm(empty); setEditingId(null)
+  }
+  const downloadTxt = (d: any) => {
+    const lines = Object.entries(d).map(([k,v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : v}`).join("\n")
+    const blob = new Blob([lines], { type: "text/plain" })
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `${d.deviceId}.txt`; a.click()
+  }
+  return <div className="space-y-4">
+    <div className="flex justify-end">
+      <button onClick={() => { setEditingId(null); setForm(empty); setShowForm(true) }} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-bold">Add Device</button>
+    </div>
+    {showForm && <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-4">
+      <h3 className="font-black text-slate-900">{editingId ? "Edit Device" : "Add Device"}</h3>
+      <div className={sectionCls}><p className="font-bold text-slate-800 mb-2">1. Device Identity</p><div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+        {["custId","plantId","Device ID","Device Name"].map(key => <input key={key} value={(form as any)[key]} onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))} placeholder={key} className={inputCls} />)}
+        <select value={form.machineType} onChange={e => setForm(p => ({ ...p, machineType: e.target.value }))} className={selectCls}><option value="die_casting">Die Casting</option><option value="coating">Coating</option><option value="cnc_vmc">CNC/VMC</option></select>
+      </div></div>
+      <div className={sectionCls}><p className="font-bold text-slate-800 mb-2">2. Gateway Identity</p><div className="grid grid-cols-2 md:grid-cols-4 gap-2"><input value={form.gatewayId} onChange={e => setForm(p => ({ ...p, gatewayId: e.target.value }))} placeholder="gatewayId" className={inputCls}/><input value={form.gatewayName} onChange={e => setForm(p => ({ ...p, gatewayName: e.target.value }))} placeholder="gatewayName" className={inputCls}/><select value={form.licensing} onChange={e => setForm(p => ({ ...p, licensing: e.target.value as any }))} className={selectCls}><option>1m</option><option>3m</option><option>6m</option><option>1yr</option></select><select value={form.gatewayType} onChange={e => setForm(p => ({ ...p, gatewayType: e.target.value as any, partCountPins: [] }))} className={selectCls}><option>Edj10</option><option>Edj20</option></select></div></div>
+      <div className={sectionCls}><p className="font-bold text-slate-800 mb-2">3. Availability Factor</p><div className="grid grid-cols-2 md:grid-cols-4 gap-2"><input value={form.availabilityPostTime} onChange={e => setForm(p => ({ ...p, availabilityPostTime: e.target.value }))} placeholder="post time" className={inputCls}/><input value={form.availabilityDutyCycle} onChange={e => setForm(p => ({ ...p, availabilityDutyCycle: e.target.value }))} placeholder="duty cycle" className={inputCls}/><input value={form.availabilityRunDuration} onChange={e => setForm(p => ({ ...p, availabilityRunDuration: e.target.value }))} placeholder="run duration" className={inputCls}/><div><p className="text-xs font-bold text-slate-600 mb-1">Interlock</p><select value={form.interlock} onChange={e => setForm(p => ({ ...p, interlock: e.target.value as any }))} className={selectCls}><option value="enable">enable</option><option value="disable">disable</option></select></div><div><p className="text-xs font-bold text-slate-600 mb-1">Algorithm</p><select value={form.algorithm} onChange={e => setForm(p => ({ ...p, algorithm: e.target.value }))} className={selectCls}>{["0 — Undefined","1 — 1x Digital Pin Based","2 — 2x Digital Pin Based","3 — 3x Digital Pin Based","4 — CT with Threshold","5 — CT with Variation","255 — Cloud Based"].map(v => <option key={v} value={v.split(" ")[0]}>{v}</option>)}</select></div></div><div className="mt-2"><p className="text-xs font-bold text-slate-600 mb-1">List dep value (max 10)</p><div className="flex gap-2"><input value={depInputA} onChange={e => setDepInputA(e.target.value)} placeholder="enter value" className={inputCls}/><button type="button" onClick={() => { setForm(p => ({ ...p, availabilityDepValues: max10Push(p.availabilityDepValues, depInputA) })); setDepInputA("") }} className="text-xs bg-slate-800 text-white px-3 py-2 rounded font-bold shrink-0">Add</button></div><p className="text-xs text-slate-500 mt-1">{form.availabilityDepValues.length}/10 added</p><div className="flex flex-wrap gap-1 mt-1">{form.availabilityDepValues.map((v,i)=><span key={`${v}-${i}`} className="px-2 py-0.5 text-xs bg-slate-200 rounded inline-flex items-center gap-1">{v}<button type="button" onClick={() => setForm(p => ({ ...p, availabilityDepValues: p.availabilityDepValues.filter((_,idx)=>idx!==i) }))} className="text-red-600 font-black">×</button></span>)}</div></div></div>
+      <div className={sectionCls}><p className="font-bold text-slate-800 mb-2">4. Performance Factor</p><div className="grid grid-cols-2 md:grid-cols-4 gap-2"><input value={form.performancePostTime} onChange={e => setForm(p => ({ ...p, performancePostTime: e.target.value }))} placeholder="post time" className={inputCls}/><input value={form.debounceTime} onChange={e => setForm(p => ({ ...p, debounceTime: e.target.value }))} placeholder="debounce time" className={inputCls}/><div><p className="text-xs font-bold text-slate-600 mb-1">Part count type</p><select value={form.partCountType} onChange={e => setForm(p => ({ ...p, partCountType: e.target.value as any }))} className={selectCls}><option value="digital">digital</option><option value="ai">ai</option><option value="other">other</option></select></div>{form.partCountType === "other" && <div><p className="text-xs font-bold text-slate-600 mb-1">Other type</p><select value={form.otherPartCountType || ""} onChange={e => setForm(p => ({ ...p, otherPartCountType: e.target.value as any }))} className={selectCls}><option value="">OTH</option><option value="OTH1">OTH1</option><option value="OTH2">OTH2</option></select></div>}</div><div className="text-xs mt-2 text-slate-700">Part count pins: {pins.map(pin => <label key={pin} className="ml-2"><input type="checkbox" checked={form.partCountPins.includes(pin)} onChange={e => setForm(p => ({ ...p, partCountPins: e.target.checked ? [...p.partCountPins, pin] : p.partCountPins.filter(x => x !== pin) }))} /> {pin}</label>)}</div><div className="mt-2"><p className="text-xs font-bold text-slate-600 mb-1">List dep value (max 10)</p><div className="flex gap-2"><input value={depInputP} onChange={e => setDepInputP(e.target.value)} placeholder="enter value" className={inputCls}/><button type="button" onClick={() => { setForm(p => ({ ...p, performanceDepValues: max10Push(p.performanceDepValues, depInputP) })); setDepInputP("") }} className="text-xs bg-slate-800 text-white px-3 py-2 rounded font-bold shrink-0">Add</button></div><p className="text-xs text-slate-500 mt-1">{form.performanceDepValues.length}/10 added</p><div className="flex flex-wrap gap-1 mt-1">{form.performanceDepValues.map((v,i)=><span key={`${v}-${i}`} className="px-2 py-0.5 text-xs bg-slate-200 rounded inline-flex items-center gap-1">{v}<button type="button" onClick={() => setForm(p => ({ ...p, performanceDepValues: p.performanceDepValues.filter((_,idx)=>idx!==i) }))} className="text-red-600 font-black">×</button></span>)}</div></div></div>
+      <div className={sectionCls}><p className="font-bold text-slate-800 mb-2">5. In Pin Configuration</p><div className="grid grid-cols-2 gap-2"><input value={form.pinScanTime} onChange={e => setForm(p => ({ ...p, pinScanTime: e.target.value }))} placeholder="scan time" className={inputCls}/><input value={form.pinPostTime} onChange={e => setForm(p => ({ ...p, pinPostTime: e.target.value }))} placeholder="post time" className={inputCls}/></div></div>
+      <div className={sectionCls}><p className="font-bold text-slate-800 mb-2">6. eMIC Configuration</p><div className="grid grid-cols-2 md:grid-cols-4 gap-2"><input value={form.emicPostTime} onChange={e => setForm(p => ({ ...p, emicPostTime: e.target.value }))} placeholder="post time" className={inputCls}/><div><p className="text-xs font-bold text-slate-600 mb-1">Frequency</p><select value={form.frequency} onChange={e => setForm(p => ({ ...p, frequency: e.target.value as any }))} className={selectCls}><option>50hz</option><option>60hz</option></select></div><div><p className="text-xs font-bold text-slate-600 mb-1">Phase sequence</p><select value={form.phaseSequence} onChange={e => setForm(p => ({ ...p, phaseSequence: e.target.value as any }))} className={selectCls}><option>1-1P2W</option><option>2-2P2W</option><option>3-3P3W</option><option>4-4P4W</option></select></div></div><div className="mt-2"><p className="text-xs font-bold text-slate-600 mb-1">Configuration factor values (max 10)</p><div className="flex gap-2"><input value={depInputE} onChange={e => setDepInputE(e.target.value)} placeholder="enter value" className={inputCls}/><button type="button" onClick={() => { setForm(p => ({ ...p, emicConfigValues: max10Push(p.emicConfigValues, depInputE) })); setDepInputE("") }} className="text-xs bg-slate-800 text-white px-3 py-2 rounded font-bold shrink-0">Add</button></div><p className="text-xs text-slate-500 mt-1">{form.emicConfigValues.length}/10 added</p><div className="flex flex-wrap gap-1 mt-1">{form.emicConfigValues.map((v,i)=><span key={`${v}-${i}`} className="px-2 py-0.5 text-xs bg-slate-200 rounded inline-flex items-center gap-1">{v}<button type="button" onClick={() => setForm(p => ({ ...p, emicConfigValues: p.emicConfigValues.filter((_,idx)=>idx!==i) }))} className="text-red-600 font-black">×</button></span>)}</div></div></div>
+      <div className="flex gap-2"><button onClick={save} className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-bold">{editingId ? "Update Device" : "Add Device"}</button><button onClick={() => setShowForm(false)} className="px-4 py-2 border border-slate-300 bg-white text-slate-900 rounded text-sm font-bold">Close</button></div>
+    </div>}
+    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+      <table className="w-full text-sm text-slate-900"><thead><tr className="bg-slate-100 border-b border-slate-200">{["Gateway ID","Name","Licensing","Machine Type","Actions"].map(h => <th key={h} className="text-left px-3 py-2 font-bold text-slate-700">{h}</th>)}</tr></thead>
+      <tbody>{devices.map(d => <tr key={d.id} className="border-t border-slate-200"><td className="px-3 py-2 font-mono text-slate-900">{d.gatewayId}</td><td className="px-3 py-2 text-slate-900">{d.gatewayName}</td><td className="px-3 py-2 text-slate-900">{d.licensing}</td><td className="px-3 py-2 text-slate-900">{d.machineType}</td><td className="px-3 py-2 space-x-2"><button onClick={() => { setEditingId(d.id); setForm({ ...d }); setShowForm(true) }} className="text-blue-700 font-semibold">Edit</button><button onClick={() => deleteDevice(d.id)} className="text-red-700 font-semibold">Delete</button><button onClick={() => downloadTxt(d)} className="text-emerald-700 font-semibold">Download .txt</button></td></tr>)}</tbody></table>
+    </div>
+  </div>
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // USERS TAB
@@ -470,6 +528,115 @@ function MaterialsTab() {
         <button onClick={applyMasterToUnknownInventory} className="px-3 py-2 bg-slate-800 text-white rounded text-sm font-bold">Apply to Unknown</button>
       </div>
     </div>
+  </div>
+}
+
+function PartsTab() {
+  const { currentUser, partMasters, addPartMaster, deletePartMaster, materialMasters, schedules } = useApp()
+  const [partId, setPartId] = useState("")
+  const [partName, setPartName] = useState("")
+  const [materialRequired, setMaterialRequired] = useState("")
+  const [grade, setGrade] = useState("")
+  const [quantityPerPart, setQuantityPerPart] = useState("")
+  const materialOptions = [...materialMasters].sort((a, b) => (
+    a.material.localeCompare(b.material) || a.grade.localeCompare(b.grade)
+  ))
+  const gradeOptions = materialRequired
+    ? materialOptions.filter(m => m.material === materialRequired).map(m => m.grade)
+    : []
+
+  const createPartMaster = async () => {
+    if (!partId.trim() || !partName.trim() || !materialRequired.trim() || !grade.trim() || Number(quantityPerPart) <= 0) return
+    const id = `${partId.trim().toLowerCase().replace(/\s+/g, "_")}__${grade.trim().toUpperCase()}`
+    await addPartMaster({
+      id,
+      partId: partId.trim(),
+      partName: partName.trim(),
+      materialRequired: materialRequired.trim(),
+      grade: grade.trim().toUpperCase(),
+      quantityPerPart: Number(quantityPerPart),
+    })
+    setPartId("")
+    setPartName("")
+    setMaterialRequired("")
+    setGrade("")
+    setQuantityPerPart("")
+  }
+
+  const sorted = [...partMasters].sort((a, b) => a.partName.localeCompare(b.partName))
+  const displayRows = sorted.length > 0 ? sorted : INITIAL_PART_MASTERS
+  const hasAssignedSchedule = (partMasterId: string) => schedules.some(s => s.partMasterId === partMasterId)
+  const seedDefaultParts = async () => {
+    if (currentUser?.role !== UserRole.ADMIN) {
+      alert("Only Admin users can seed Part Masters for a client.")
+      return
+    }
+    try {
+      await Promise.all(INITIAL_PART_MASTERS.map(async (p) => {
+        await addPartMaster(p)
+      }))
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Unable to seed part masters."
+      alert(message)
+    }
+  }
+
+  return <div className="bg-white border rounded-xl p-4">
+    <h3 className="font-black text-slate-900 mb-3">Part Master List</h3>
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
+      <input value={partId} onChange={e => setPartId(e.target.value)} placeholder="Part ID *" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
+      <input value={partName} onChange={e => setPartName(e.target.value)} placeholder="Part Name *" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
+      <select value={materialRequired} onChange={e => { setMaterialRequired(e.target.value); setGrade("") }} className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 bg-white">
+        <option value="">Material Required *</option>
+        {Array.from(new Set(materialOptions.map(m => m.material))).map(m => <option key={m} value={m}>{m}</option>)}
+      </select>
+      <select value={grade} onChange={e => setGrade(e.target.value)} disabled={!materialRequired} className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 bg-white disabled:bg-slate-100 disabled:text-slate-400">
+        <option value="">Grade *</option>
+        {gradeOptions.map(g => <option key={g} value={g}>{g}</option>)}
+      </select>
+      <input type="number" min="0.001" step="0.001" value={quantityPerPart} onChange={e => setQuantityPerPart(e.target.value)} placeholder="Quantity Per Part (KG) *" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
+      <button onClick={createPartMaster} className="px-3 py-2 bg-blue-600 text-white rounded text-sm font-bold">Add Part Master</button>
+    </div>
+    <p className="text-xs text-slate-500 mb-3">Material and grade are now selected from Config → Materials master rows ({materialMasters.length} configured).</p>
+    {sorted.length === 0 && (
+      <div className="mb-3 p-3 border border-amber-200 bg-amber-50 rounded-lg flex items-center justify-between gap-3">
+        <p className="text-xs text-amber-800 font-medium">No part master records in DB yet. You can seed the default RE parts.</p>
+        <button onClick={seedDefaultParts} className="px-3 py-1.5 bg-amber-600 text-white rounded text-xs font-bold">Seed Default Parts</button>
+      </div>
+    )}
+    <table className="w-full text-sm border border-slate-200 rounded-lg overflow-hidden">
+      <thead>
+      <tr className="bg-slate-50">
+        {["Part ID", "Part Name", "Material Required", "Grade", "Qty/Part (KG)", "Actions"].map(h => <th key={h} className="text-left px-3 py-2 text-slate-700 font-semibold">{h}</th>)}
+      </tr>
+      </thead>
+      <tbody>
+      {displayRows.map(p => (
+        <tr key={p.id} className="border-t">
+          <td className="px-3 py-2 text-slate-900 font-mono">{p.partId}</td>
+          <td className="px-3 py-2 text-slate-900">{p.partName}</td>
+          <td className="px-3 py-2 text-slate-900">{p.materialRequired}</td>
+          <td className="px-3 py-2 text-slate-900">{p.grade}</td>
+          <td className="px-3 py-2 text-slate-900">{p.quantityPerPart}</td>
+          <td className="px-3 py-2">
+            {sorted.length > 0
+              ? <button
+                  className="text-red-600 font-medium"
+                  onClick={() => {
+                    if (hasAssignedSchedule(p.id)) {
+                      alert("This Part Master is assigned in Monthly Schedule and cannot be deleted.")
+                      return
+                    }
+                    deletePartMaster(p.id)
+                  }}>
+                  Delete
+                </button>
+              : <span className="text-slate-400 text-xs">Seed to enable</span>}
+          </td>
+        </tr>
+      ))}
+      </tbody>
+    </table>
   </div>
 }
 

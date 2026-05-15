@@ -7,7 +7,7 @@ import { CalendarDays, Plus, X, Edit2, Trash2, Search, Upload, FileSpreadsheet, 
 import * as XLSX from "xlsx"
 
 const emptyForm = {
-  serialNumber: "", partId: "", partName: "", requiredQuantity: "", date: new Date().toISOString().split("T")[0]
+  serialNumber: "", partMasterId: "", partId: "", partName: "", requiredQuantity: "", date: new Date().toISOString().split("T")[0]
 }
 
 function mapExcelRow(row: Record<string, unknown>, index: number) {
@@ -28,7 +28,7 @@ function mapExcelRow(row: Record<string, unknown>, index: number) {
 }
 
 export default function SchedulePage() {
-  const { currentUser, schedules, workOrders, addSchedule, updateSchedule, deleteSchedule } = useApp()
+  const { currentUser, schedules, workOrders, partMasters, addSchedule, updateSchedule, deleteSchedule } = useApp()
   const [showForm, setShowForm] = useState(false)
   const [editItem, setEditItem] = useState<MonthlySchedule | null>(null)
   const [showUpload, setShowUpload] = useState(false)
@@ -67,7 +67,7 @@ export default function SchedulePage() {
 
   const openAdd = () => {
     setEditItem(null)
-    setForm({ ...emptyForm, serialNumber: String(schedules.length + 1), partId: `PT-${new Date().toISOString().slice(0,10).replace(/-/g,"")}-${String(schedules.length+1).padStart(3,"0")}` })
+    setForm({ ...emptyForm, serialNumber: String(schedules.length + 1) })
     setShowForm(true)
   }
 
@@ -75,6 +75,7 @@ export default function SchedulePage() {
     setEditItem(item)
     setForm({
       serialNumber: String(item.serialNumber),
+      partMasterId: item.partMasterId || "",
       partId: item.partId,
       partName: item.partName,
       requiredQuantity: String(item.requiredQuantity),
@@ -94,6 +95,7 @@ export default function SchedulePage() {
       serialNumber: editItem ? Number(form.serialNumber) : schedules.length + 1,
       partId: form.partId,
       partName: form.partName,
+      partMasterId: form.partMasterId,
       requiredQuantity: Number(form.requiredQuantity),
       date: form.date,
       submittedById: currentUser!.id,
@@ -348,16 +350,30 @@ export default function SchedulePage() {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Part ID *</label>
-                  <input required value={form.partId} readOnly={true} onChange={e => setForm(p => ({ ...p, partId: e.target.value }))}
-                    placeholder="e.g. RE-PT-0021"
-                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none" />
+                  <input required value={form.partId} readOnly
+                    placeholder="Auto-filled from part master"
+                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-500 bg-slate-50" />
                 </div>
               </div>
               <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Part Master *</label>
+                <select
+                  required
+                  value={form.partMasterId}
+                  onChange={e => {
+                    const selected = partMasters.find(p => p.id === e.target.value)
+                    setForm(p => ({ ...p, partMasterId: e.target.value, partId: selected?.partId || "", partName: selected?.partName || "" }))
+                  }}
+                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none bg-white">
+                  <option value="">Select a part</option>
+                  {partMasters.map(p => <option key={p.id} value={p.id}>{p.partName} ({p.partId})</option>)}
+                </select>
+              </div>
+              <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Part Name *</label>
-                <input required value={form.partName} onChange={e => setForm(p => ({ ...p, partName: e.target.value }))}
-                  placeholder="e.g. Cylinder Head Cover — RE Meteor 350"
-                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none" />
+                <input required value={form.partName} readOnly
+                  placeholder="Auto-filled from part master"
+                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-500 bg-slate-50" />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>

@@ -35,10 +35,10 @@ import {
 } from "firebase/firestore"
 import { db } from "./firebase"
 import type {
-  User, RawMaterial, RawMaterialMaster, MonthlySchedule, PTC,
+  User, RawMaterial, RawMaterialMaster, PartMaster, MonthlySchedule, PTC,
   WorkOrder, DailyProductionEntry, ProcessRecord,
   DowntimeEvent, QIInspection, FQIInspection,
-  ShiftConfig, RoleConfig, MachineDef,
+  ShiftConfig, RoleConfig, MachineDef, DeviceConfig,
 } from "./store"
 
 // ─── Path helpers ─────────────────────────────────────────────────────────────
@@ -207,6 +207,26 @@ export async function addMaterialMaster(clientId: string, data: RawMaterialMaste
 
 export async function deleteMaterialMaster(clientId: string, id: string): Promise<void> {
   await deleteDoc(clientDoc(clientId, "material_masters", id))
+}
+
+export function subscribePartMasters(
+    clientId: string,
+    setter: (parts: PartMaster[]) => void,
+    onError?: (err: Error) => void,
+): Unsub {
+  return subscribeCol<PartMaster>(
+      clientId, "part_masters", setter,
+      [orderBy("partName", "asc")],
+      onError,
+  )
+}
+
+export async function addPartMaster(clientId: string, data: PartMaster): Promise<void> {
+  await setDoc(clientDoc(clientId, "part_masters", data.id), stripUndefined(data))
+}
+
+export async function deletePartMaster(clientId: string, id: string): Promise<void> {
+  await deleteDoc(clientDoc(clientId, "part_masters", id))
 }
 
 /**
@@ -555,6 +575,26 @@ export async function updateMachineConfig(clientId: string, id: string, data: Pa
 
 export async function deleteMachineConfig(clientId: string, id: string): Promise<void> {
   await deleteDoc(clientDoc(clientId, "machines", id))
+}
+
+export function subscribeDevices(
+    clientId: string,
+    setter: (devices: DeviceConfig[]) => void,
+    onError?: (err: Error) => void,
+): Unsub {
+  return subscribeCol<DeviceConfig>(clientId, "devices", setter, [orderBy("deviceName", "asc")], onError)
+}
+
+export async function addDeviceConfig(clientId: string, device: DeviceConfig): Promise<void> {
+  await setDoc(clientDoc(clientId, "devices", device.id), stripUndefined(device))
+}
+
+export async function updateDeviceConfig(clientId: string, id: string, data: Partial<DeviceConfig>): Promise<void> {
+  await updateDoc(clientDoc(clientId, "devices", id), stripUndefined(data))
+}
+
+export async function deleteDeviceConfig(clientId: string, id: string): Promise<void> {
+  await deleteDoc(clientDoc(clientId, "devices", id))
 }
 // ─── Role Configs ─────────────────────────────────────────────────────────────
 // Stored at clients/{clientId}/roles/{id}
