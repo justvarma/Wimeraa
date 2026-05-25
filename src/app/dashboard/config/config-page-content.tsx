@@ -13,6 +13,12 @@ import {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+
+const CFG_INPUT = "border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-900 bg-white placeholder:text-slate-400"
+const CFG_BTN_PRIMARY = "px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold transition-colors"
+const CFG_BTN_DARK = "px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-sm font-bold transition-colors"
+const CFG_BTN_DANGER = "text-red-700 hover:text-red-800 font-semibold"
+
 const ROLE_BADGE: Record<string, string> = {
   admin:             "bg-blue-100 text-blue-700",
   storekeeper:       "bg-teal-100 text-teal-700",
@@ -185,20 +191,20 @@ function ProgramsTab() {
     <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
       <h3 className="font-black text-slate-900">Program Master</h3>
       <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
-        <input readOnly value={nextProgramId} className="border border-slate-300 rounded px-3 py-2 text-sm bg-slate-50 text-slate-700" />
-        <input value={programName} onChange={e => setProgramName(e.target.value)} placeholder="programName" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 bg-white" />
-        <select value={programType} onChange={e => setProgramType(e.target.value as any)} className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 bg-white"><option value="die_casting">die_casting</option><option value="coating">coating</option><option value="machining">machining</option></select>
-        <input value={weightPerPart} onChange={e => setWeightPerPart(e.target.value)} placeholder="weightPerPart" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 bg-white" />
-        <input value={pricePerPart} onChange={e => setPricePerPart(e.target.value)} placeholder="pricePerPart" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 bg-white" />
+        <input readOnly value={nextProgramId} className={`${CFG_INPUT} bg-slate-50 text-slate-700`} />
+        <input value={programName} onChange={e => setProgramName(e.target.value)} placeholder="programName" className={CFG_INPUT} />
+        <select value={programType} onChange={e => setProgramType(e.target.value as any)} className={CFG_INPUT}><option value="die_casting">die_casting</option><option value="coating">coating</option><option value="machining">machining</option></select>
+        <input value={weightPerPart} onChange={e => setWeightPerPart(e.target.value)} placeholder="weightPerPart" className={CFG_INPUT} />
+        <input value={pricePerPart} onChange={e => setPricePerPart(e.target.value)} placeholder="pricePerPart" className={CFG_INPUT} />
       </div>
       <div className="border border-slate-200 rounded-lg p-3 space-y-2">
         <p className="font-bold text-slate-800 text-sm">Process Configuration</p>
         <div className="flex gap-2">
-          <select value={opDraft} onChange={e => setOpDraft(e.target.value)} className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 bg-white flex-1">
+          <select value={opDraft} onChange={e => setOpDraft(e.target.value)} className={`${CFG_INPUT} flex-1`}>
             <option value="">Select operation</option>
             {operations.map((o:any)=><option key={o.id} value={o.operationId || o.operationID || o.opId}>{o.operationId || o.operationID || o.opId} - {o.processName || o.process}</option>)}
           </select>
-          <button type="button" onClick={addCfg} className="px-3 py-2 bg-slate-800 text-white rounded text-sm font-bold">Add Process</button>
+          <button type="button" onClick={addCfg} className={CFG_BTN_DARK}>Add Process</button>
         </div>
         {configs.map((c, i) => <div key={i} className="grid grid-cols-7 gap-2 items-center">
           <input value={c.operationId} readOnly className="border rounded px-2 py-1 text-xs bg-slate-50" />
@@ -207,10 +213,10 @@ function ProgramsTab() {
           <input value={c.unloadingSeconds} onChange={e => setConfigs(p => p.map((x,idx)=>idx===i?{...x,unloadingSeconds:e.target.value}:x))} placeholder="unloading(s)" className="border rounded px-2 py-1 text-xs" />
           <input value={c.partsPerCycle} onChange={e => setConfigs(p => p.map((x,idx)=>idx===i?{...x,partsPerCycle:e.target.value}:x))} placeholder="parts/cycle" className="border rounded px-2 py-1 text-xs" />
           <input value={c.totalCycles} onChange={e => setConfigs(p => p.map((x,idx)=>idx===i?{...x,totalCycles:e.target.value}:x))} placeholder="total cycles(s)" className="border rounded px-2 py-1 text-xs" />
-          <button type="button" onClick={() => removeCfg(i)} className="text-red-700 text-xs font-bold">Remove</button>
+          <button type="button" onClick={() => removeCfg(i)} className="text-red-700 hover:text-red-800 text-xs font-bold">Remove</button>
         </div>)}
       </div>
-      <button onClick={save} className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-bold">Save Program</button>
+      <button onClick={save} className={`${CFG_BTN_PRIMARY} px-4`}>Save Program</button>
     </div>
     <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
       <table className="w-full text-sm text-slate-900"><thead><tr className="bg-slate-100"><th className="text-left px-3 py-2">programId</th><th className="text-left px-3 py-2">programName</th><th className="text-left px-3 py-2">programType</th><th className="text-left px-3 py-2">processCount</th></tr></thead>
@@ -244,9 +250,9 @@ function OperationsTab() {
     <div className="bg-white border border-slate-200 rounded-xl p-4">
       <h3 className="font-black text-slate-900 mb-3">addOperationConfig</h3>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-        <input value={operationId} onChange={e => setOperationId(e.target.value)} placeholder="Operations ID" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 bg-white" />
-        <input value={processName} onChange={e => setProcessName(e.target.value)} placeholder="processName" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 bg-white" />
-        <button onClick={add} className="px-3 py-2 bg-blue-600 text-white rounded text-sm font-bold">Add</button>
+        <input value={operationId} onChange={e => setOperationId(e.target.value)} placeholder="Operations ID" className={CFG_INPUT} />
+        <input value={processName} onChange={e => setProcessName(e.target.value)} placeholder="processName" className={CFG_INPUT} />
+        <button onClick={add} className={CFG_BTN_PRIMARY}>Add</button>
       </div>
     </div>
     <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
@@ -255,7 +261,7 @@ function OperationsTab() {
         <tbody>
           {rows.length === 0 ? (
             <tr className="border-t border-slate-200"><td colSpan={3} className="px-3 py-4 text-slate-500">No operations found in DB.</td></tr>
-          ) : rows.map(o => <tr key={o.id} className="border-t border-slate-200"><td className="px-3 py-2">{o.operationId}</td><td className="px-3 py-2">{o.processName}</td><td className="px-3 py-2"><button onClick={() => deleteOperation(o.id)} className="text-red-700 font-semibold">Delete</button></td></tr>)}
+          ) : rows.map(o => <tr key={o.id} className="border-t border-slate-200"><td className="px-3 py-2">{o.operationId}</td><td className="px-3 py-2">{o.processName}</td><td className="px-3 py-2"><button onClick={() => deleteOperation(o.id)} className={CFG_BTN_DANGER}>Delete</button></td></tr>)}
         </tbody>
       </table>
     </div>
@@ -302,7 +308,7 @@ function DevicesTab() {
   }))
   return <div className="space-y-4">
     <div className="flex justify-end">
-      <button onClick={() => { setEditingId(null); setForm(empty); setShowForm(true) }} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-bold">Add Device</button>
+      <button onClick={() => { setEditingId(null); setForm(empty); setShowForm(true) }} className={`${CFG_BTN_PRIMARY} px-4`}>Add Device</button>
     </div>
     {showForm && <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-4">
       <h3 className="font-black text-slate-900">{editingId ? "Edit Device" : "Add Device"}</h3>
@@ -315,13 +321,13 @@ function DevicesTab() {
       <div className={sectionCls}><p className="font-bold text-slate-800 mb-2">4. Performance Factor</p><div className="grid grid-cols-2 md:grid-cols-4 gap-2"><input value={form.performancePostTime} onChange={e => setForm(p => ({ ...p, performancePostTime: e.target.value }))} placeholder="post time" className={inputCls}/><input value={form.debounceTime} onChange={e => setForm(p => ({ ...p, debounceTime: e.target.value }))} placeholder="debounce time" className={inputCls}/><div><p className="text-xs font-bold text-slate-600 mb-1">Part count type</p><select value={form.partCountType} onChange={e => setForm(p => ({ ...p, partCountType: e.target.value as any }))} className={selectCls}><option value="digital">digital</option><option value="ai">ai</option><option value="other">other</option></select></div>{form.partCountType === "other" && <div><p className="text-xs font-bold text-slate-600 mb-1">Other type</p><select value={form.otherPartCountType || ""} onChange={e => setForm(p => ({ ...p, otherPartCountType: e.target.value as any }))} className={selectCls}><option value="">OTH</option><option value="OTH1">OTH1</option><option value="OTH2">OTH2</option></select></div>}</div><div className="text-xs mt-2 text-slate-700">Part count pins: {pins.map(pin => <label key={pin} className="ml-2"><input type="checkbox" checked={form.partCountPins.includes(pin)} onChange={e => setForm(p => ({ ...p, partCountPins: e.target.checked ? [...p.partCountPins, pin] : p.partCountPins.filter(x => x !== pin) }))} /> {pin}</label>)}</div><div className="mt-2"><p className="text-xs font-bold text-slate-600 mb-1">List dep value (max 10)</p><div className="flex gap-2"><input value={depInputP} onChange={e => setDepInputP(e.target.value)} placeholder="enter value" className={inputCls}/><button type="button" onClick={() => { setForm(p => ({ ...p, performanceDepValues: max10Push(p.performanceDepValues, depInputP) })); setDepInputP("") }} className="text-xs bg-slate-800 text-white px-3 py-2 rounded font-bold shrink-0">Add</button></div><p className="text-xs text-slate-500 mt-1">{form.performanceDepValues.length}/10 added</p><div className="flex flex-wrap gap-1 mt-1">{form.performanceDepValues.map((v,i)=><span key={`${v}-${i}`} className="px-2 py-0.5 text-xs bg-slate-200 rounded inline-flex items-center gap-1">{v}<button type="button" onClick={() => setForm(p => ({ ...p, performanceDepValues: p.performanceDepValues.filter((_,idx)=>idx!==i) }))} className="text-red-600 font-black">×</button></span>)}</div></div></div>
       <div className={sectionCls}><p className="font-bold text-slate-800 mb-2">5. In Pin Configuration</p><div className="grid grid-cols-2 gap-2"><input value={form.pinScanTime} onChange={e => setForm(p => ({ ...p, pinScanTime: e.target.value }))} placeholder="scan time" className={inputCls}/><input value={form.pinPostTime} onChange={e => setForm(p => ({ ...p, pinPostTime: e.target.value }))} placeholder="post time" className={inputCls}/></div></div>
       <div className={sectionCls}><p className="font-bold text-slate-800 mb-2">6. eMIC Configuration</p><div className="grid grid-cols-2 md:grid-cols-4 gap-2"><input value={form.emicPostTime} onChange={e => setForm(p => ({ ...p, emicPostTime: e.target.value }))} placeholder="post time" className={inputCls}/><div><p className="text-xs font-bold text-slate-600 mb-1">Frequency</p><select value={form.frequency} onChange={e => setForm(p => ({ ...p, frequency: e.target.value as any }))} className={selectCls}><option>50hz</option><option>60hz</option></select></div><div><p className="text-xs font-bold text-slate-600 mb-1">Phase sequence</p><select value={form.phaseSequence} onChange={e => setForm(p => ({ ...p, phaseSequence: e.target.value as any }))} className={selectCls}><option>1-1P2W</option><option>2-2P2W</option><option>3-3P3W</option><option>4-4P4W</option></select></div></div><div className="mt-2"><p className="text-xs font-bold text-slate-600 mb-1">Configuration factor values (max 10)</p><div className="flex gap-2"><input value={depInputE} onChange={e => setDepInputE(e.target.value)} placeholder="enter value" className={inputCls}/><button type="button" onClick={() => { setForm(p => ({ ...p, emicConfigValues: max10Push(p.emicConfigValues, depInputE) })); setDepInputE("") }} className="text-xs bg-slate-800 text-white px-3 py-2 rounded font-bold shrink-0">Add</button></div><p className="text-xs text-slate-500 mt-1">{form.emicConfigValues.length}/10 added</p><div className="flex flex-wrap gap-1 mt-1">{form.emicConfigValues.map((v,i)=><span key={`${v}-${i}`} className="px-2 py-0.5 text-xs bg-slate-200 rounded inline-flex items-center gap-1">{v}<button type="button" onClick={() => setForm(p => ({ ...p, emicConfigValues: p.emicConfigValues.filter((_,idx)=>idx!==i) }))} className="text-red-600 font-black">×</button></span>)}</div></div></div>
-      <div className="flex gap-2"><button onClick={save} className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-bold">{editingId ? "Update Device" : "Add Device"}</button><button onClick={() => setShowForm(false)} className="px-4 py-2 border border-slate-300 bg-white text-slate-900 rounded text-sm font-bold">Close</button></div>
+      <div className="flex gap-2"><button onClick={save} className={`${CFG_BTN_PRIMARY} px-4`}>{editingId ? "Update Device" : "Add Device"}</button><button onClick={() => setShowForm(false)} className="px-4 py-2 border border-slate-300 bg-white hover:bg-slate-50 text-slate-900 rounded-xl text-sm font-bold">Close</button></div>
     </div>}
     <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
       <table className="w-full text-sm text-slate-900"><thead><tr className="bg-slate-100 border-b border-slate-200">{["Gateway ID","Name","Licensing","Machine Type","Actions"].map(h => <th key={h} className="text-left px-3 py-2 font-bold text-slate-700">{h}</th>)}</tr></thead>
       <tbody>{deviceRows.length === 0 ? (
         <tr className="border-t border-slate-200"><td colSpan={5} className="px-3 py-4 text-slate-500">No devices found in DB.</td></tr>
-      ) : deviceRows.map(d => <tr key={d.id} className="border-t border-slate-200"><td className="px-3 py-2 font-mono text-slate-900">{d.gatewayId}</td><td className="px-3 py-2 text-slate-900">{d.gatewayName}</td><td className="px-3 py-2 text-slate-900">{d.licensing}</td><td className="px-3 py-2 text-slate-900">{d.machineType}</td><td className="px-3 py-2 space-x-2"><button onClick={() => { const full = devices.find(x => x.id === d.id); if (!full) return; setEditingId(full.id); setForm({ ...(full as any) }); setShowForm(true) }} className="text-blue-700 font-semibold">Edit</button><button onClick={() => deleteDevice(d.id)} className="text-red-700 font-semibold">Delete</button><button onClick={() => { const full = devices.find(x => x.id === d.id); if (full) downloadTxt(full as any) }} className="text-emerald-700 font-semibold">Download .txt</button></td></tr>)}</tbody></table>
+      ) : deviceRows.map(d => <tr key={d.id} className="border-t border-slate-200"><td className="px-3 py-2 font-mono text-slate-900">{d.gatewayId}</td><td className="px-3 py-2 text-slate-900">{d.gatewayName}</td><td className="px-3 py-2 text-slate-900">{d.licensing}</td><td className="px-3 py-2 text-slate-900">{d.machineType}</td><td className="px-3 py-2 space-x-2"><button onClick={() => { const full = devices.find(x => x.id === d.id); if (!full) return; setEditingId(full.id); setForm({ ...(full as any) }); setShowForm(true) }} className="text-blue-700 font-semibold">Edit</button><button onClick={() => deleteDevice(d.id)} className={CFG_BTN_DANGER}>Delete</button><button onClick={() => { const full = devices.find(x => x.id === d.id); if (full) downloadTxt(full as any) }} className="text-emerald-700 font-semibold">Download .txt</button></td></tr>)}</tbody></table>
     </div>
   </div>
 }
@@ -572,7 +578,7 @@ function MachinesTab() {
       <input value={name} onChange={e=>setName(e.target.value)} placeholder="Machine name" className="border rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white"/>
             <select value={process} onChange={e=>setProcess(e.target.value as any)} className="border rounded px-3 py-2 text-sm text-slate-900 bg-white"><option value="die_casting">Die Casting</option><option value="coating">Coating</option><option value="cnc_vmc">CNC/VMC</option></select>
       <select value={status} onChange={e=>setStatus(e.target.value as MachineStatus)} className="border rounded px-3 py-2 text-sm text-slate-900 bg-white"><option value="active">Active</option><option value="maintenance">Maintenance</option><option value="inactive">Inactive</option></select>
-      <button onClick={async()=>{const id=`m-${Date.now()}`; if(!name.trim()||!process||!status) return; await addMachine({id,name:name.trim(),process,type:"",status}); setName("")}} className="px-3 py-2 bg-blue-600 text-white rounded text-sm font-bold">Add</button>
+      <button onClick={async()=>{const id=`m-${Date.now()}`; if(!name.trim()||!process||!status) return; await addMachine({id,name:name.trim(),process,type:"",status}); setName("")}} className={CFG_BTN_PRIMARY}>Add</button>
     </div>
     <div className="bg-white border rounded-xl overflow-hidden"><table className="w-full text-sm"><thead><tr className="bg-slate-50">{"Name,Process,Status,Open WO,Actions".split(",").map(h=><th key={h} className="text-left px-3 py-2 text-slate-700 font-semibold">{h}</th>)}</tr></thead><tbody>{machines.map(m=>{ const inUse = machineInUse(m.name); const usedAnywhere = machineUsedAnywhere(m.name); return <tr key={m.id} className="border-t"><td className="px-3 py-2 text-slate-900 font-medium">{m.name}</td><td className="px-3 py-2 text-slate-700">{m.process}</td><td className="px-3 py-2 text-slate-700"><select className="text-slate-900 bg-white border border-slate-200 rounded px-2 py-1" value={m.status} onChange={async e=>{ const next=e.target.value as MachineStatus; if(next!=="active" && inUse){ alert("This machine is currently used in open work orders and cannot be moved to maintenance/inactive."); return } await updateMachine(m.id,{status:next}) }}><option value="active">active</option><option value="maintenance">maintenance</option><option value="inactive">inactive</option></select></td><td className="px-3 py-2 text-slate-700 font-medium">{openReservations(m.name)}</td><td className="px-3 py-2"><button onClick={()=>{ if(usedAnywhere){ alert("Machine is being used in records/work orders and cannot be deleted."); return } deleteMachine(m.id) }} className="text-red-600">Delete</button></td></tr>})}</tbody></table></div>
   </div>
@@ -614,7 +620,7 @@ function MaterialsTab() {
     <div className="flex gap-2 mb-3">
       <input value={material} onChange={e=>setMaterial(e.target.value)} placeholder="Material" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
       <input value={grade} onChange={e=>setGrade(e.target.value)} placeholder="Grade" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
-      <button onClick={createMaster} className="px-3 py-2 bg-blue-600 text-white rounded text-sm font-bold">Add</button>
+      <button onClick={createMaster} className={CFG_BTN_PRIMARY}>Add</button>
     </div>
     <table className="w-full text-sm border border-slate-200 rounded-lg overflow-hidden">
       <thead>
@@ -627,7 +633,7 @@ function MaterialsTab() {
         <tr className="border-t">
           <td colSpan={3} className="px-3 py-4 text-slate-500">No material master records yet.</td>
         </tr>
-      ) : sortedMasters.map(g=><tr key={g.id} className="border-t"><td className="px-3 py-2 text-slate-900">{g.material}</td><td className="px-3 py-2 text-slate-900">{g.grade}</td><td className="px-3 py-2"><button className="text-red-600 font-medium" onClick={()=>deleteMaterialMaster(g.id)}>Delete</button></td></tr>)}
+      ) : sortedMasters.map(g=><tr key={g.id} className="border-t"><td className="px-3 py-2 text-slate-900">{g.material}</td><td className="px-3 py-2 text-slate-900">{g.grade}</td><td className="px-3 py-2"><button className="text-red-600 hover:text-red-700 font-medium" onClick={()=>deleteMaterialMaster(g.id)}>Delete</button></td></tr>)}
       </tbody>
     </table>
   </div>
@@ -688,7 +694,7 @@ function PartsTab() {
     <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
       <input value={partId} onChange={e => setPartId(e.target.value)} placeholder="Part ID *" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
       <input value={partName} onChange={e => setPartName(e.target.value)} placeholder="Part Name *" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
-      <select value={materialRequired} onChange={e => { setMaterialRequired(e.target.value); setGrade("") }} className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 bg-white">
+      <select value={materialRequired} onChange={e => { setMaterialRequired(e.target.value); setGrade("") }} className={CFG_INPUT}>
         <option value="">Material Required *</option>
         {Array.from(new Set(materialOptions.map(m => m.material))).map(m => <option key={m} value={m}>{m}</option>)}
       </select>
@@ -697,13 +703,13 @@ function PartsTab() {
         {gradeOptions.map(g => <option key={g} value={g}>{g}</option>)}
       </select>
       <input type="number" min="0.001" step="0.001" value={quantityPerPart} onChange={e => setQuantityPerPart(e.target.value)} placeholder="Quantity Per Part (KG) *" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
-      <button onClick={createPartMaster} className="px-3 py-2 bg-blue-600 text-white rounded text-sm font-bold">Add Part Master</button>
+      <button onClick={createPartMaster} className={CFG_BTN_PRIMARY}>Add Part Master</button>
     </div>
     <p className="text-xs text-slate-500 mb-3">Material and grade are now selected from Config → Materials master rows ({materialMasters.length} configured).</p>
     {sorted.length === 0 && (
       <div className="mb-3 p-3 border border-amber-200 bg-amber-50 rounded-lg flex items-center justify-between gap-3">
         <p className="text-xs text-amber-800 font-medium">No part master records in DB yet. You can seed the default RE parts.</p>
-        <button onClick={seedDefaultParts} className="px-3 py-1.5 bg-amber-600 text-white rounded text-xs font-bold">Seed Default Parts</button>
+        <button onClick={seedDefaultParts} className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-colors">Seed Default Parts</button>
       </div>
     )}
     <table className="w-full text-sm border border-slate-200 rounded-lg overflow-hidden">
@@ -723,7 +729,7 @@ function PartsTab() {
           <td className="px-3 py-2">
             {sorted.length > 0
               ? <button
-                  className="text-red-600 font-medium"
+                  className="text-red-600 hover:text-red-700 font-medium"
                   onClick={() => {
                     if (hasAssignedSchedule(p.id)) {
                       alert("This Part Master is assigned in Monthly Schedule and cannot be deleted.")
