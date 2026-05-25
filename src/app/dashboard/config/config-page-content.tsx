@@ -59,7 +59,7 @@ function TimeInput({ value, onChange }: { value: string; onChange: (v: string) =
 
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
-type Tab = "users" | "roles" | "shifts" | "machines" | "materials" | "parts" | "devices" | "operations"
+type Tab = "users" | "roles" | "shifts" | "machines" | "materials" | "parts" | "devices" | "operations" | "programs"
 
 export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
   const {
@@ -72,7 +72,7 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const tabParam = searchParams.get("tab")
-  const queryTab: Tab = tabParam === "roles" || tabParam === "shifts" || tabParam === "users" || tabParam === "machines" || tabParam === "materials" || tabParam === "parts" || tabParam === "devices" || tabParam === "operations" ? tabParam : "users"
+  const queryTab: Tab = tabParam === "roles" || tabParam === "shifts" || tabParam === "users" || tabParam === "machines" || tabParam === "materials" || tabParam === "parts" || tabParam === "devices" || tabParam === "operations" || tabParam === "programs" ? tabParam : "users"
   const initialTab: Tab = forcedTab ?? queryTab
   const [activeTab, setActiveTab] = useState<Tab>(initialTab)
   const isSystemAdmin = currentUser?.role === UserRole.SYSTEM_ADMIN
@@ -121,6 +121,7 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
             ["parts", Package,    "Part Master"],
             ["devices", Settings, "Devices"],
             ["operations", Settings, "Operations"],
+            ["programs", Settings, "Program Master"],
           ] as const)
             .filter(([tab]) => !isSystemAdmin || tab === "users")
             .map(([tab, Icon, label]) => (
@@ -143,8 +144,80 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
         {activeTab === "parts" && <PartsTab />}
         {activeTab === "devices" && <DevicesTab />}
         {activeTab === "operations" && <OperationsTab />}
+        {activeTab === "programs" && <ProgramsTab />}
       </div>
   )
+}
+
+function ProgramsTab() {
+  const { programs, operations, addProgram, updateProgram } = useApp()
+  const [programName, setProgramName] = useState("")
+  const [programType, setProgramType] = useState<"die_casting" | "coating" | "machining">("die_casting")
+  const [weightPerPart, setWeightPerPart] = useState("")
+  const [pricePerPart, setPricePerPart] = useState("")
+  const [configs, setConfigs] = useState<Array<{ operationId: string; loadingSeconds: string; runSeconds: string; unloadingSeconds: string; partsPerCycle: string; totalCycles: string; saved?: boolean }>>([])
+  const [opDraft, setOpDraft] = useState("")
+  const addCfg = () => setConfigs(p => [...p, { operationId: opDraft, loadingSeconds: "", runSeconds: "", unloadingSeconds: "", partsPerCycle: "", totalCycles: "" }])
+  const removeCfg = (idx: number) => setConfigs(p => p[idx]?.saved ? p : p.filter((_, i) => i !== idx))
+  const nextProgramId = `PRG-${String(programs.length + 1).padStart(3, "0")}`
+  const save = async () => {
+    if (!programName.trim()) return
+    await addProgram({
+      id: `${nextProgramId}-${Date.now()}`,
+      programId: nextProgramId,
+      programName: programName.trim(),
+      programType,
+      weightPerPart: Number(weightPerPart || 0),
+      pricePerPart: Number(pricePerPart || 0),
+      processConfigs: configs.map(c => ({ operationId: c.operationId, loadingSeconds: Number(c.loadingSeconds||0), runSeconds: Number(c.runSeconds||0), unloadingSeconds: Number(c.unloadingSeconds||0), partsPerCycle: Number(c.partsPerCycle||0), totalCycles: Number(c.totalCycles||0), saved: true })),
+      createdAt: new Date().toISOString().split("T")[0],
+    } as any)
+    setProgramName(""); setWeightPerPart(""); setPricePerPart(""); setConfigs([]); setOpDraft("")
+  }
+  const programRows = programs.map((p: any) => ({
+    id: p.id,
+    programId: p.programId || p.programID || "—",
+    programName: p.programName || p.name || "—",
+    programType: p.programType || p.type || "—",
+    processCount: (p.processConfigs || p.processes || []).length,
+  }))
+  return <div className="space-y-4">
+    <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
+      <h3 className="font-black text-slate-900">Program Master</h3>
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
+        <input readOnly value={nextProgramId} className="border border-slate-300 rounded px-3 py-2 text-sm bg-slate-50 text-slate-700" />
+        <input value={programName} onChange={e => setProgramName(e.target.value)} placeholder="programName" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 bg-white" />
+        <select value={programType} onChange={e => setProgramType(e.target.value as any)} className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 bg-white"><option value="die_casting">die_casting</option><option value="coating">coating</option><option value="machining">machining</option></select>
+        <input value={weightPerPart} onChange={e => setWeightPerPart(e.target.value)} placeholder="weightPerPart" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 bg-white" />
+        <input value={pricePerPart} onChange={e => setPricePerPart(e.target.value)} placeholder="pricePerPart" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 bg-white" />
+      </div>
+      <div className="border border-slate-200 rounded-lg p-3 space-y-2">
+        <p className="font-bold text-slate-800 text-sm">Process Configuration</p>
+        <div className="flex gap-2">
+          <select value={opDraft} onChange={e => setOpDraft(e.target.value)} className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 bg-white flex-1">
+            <option value="">Select operation</option>
+            {operations.map((o:any)=><option key={o.id} value={o.operationId || o.operationID || o.opId}>{o.operationId || o.operationID || o.opId} - {o.processName || o.process}</option>)}
+          </select>
+          <button type="button" onClick={addCfg} className="px-3 py-2 bg-slate-800 text-white rounded text-sm font-bold">Add Process</button>
+        </div>
+        {configs.map((c, i) => <div key={i} className="grid grid-cols-7 gap-2 items-center">
+          <input value={c.operationId} readOnly className="border rounded px-2 py-1 text-xs bg-slate-50" />
+          <input value={c.loadingSeconds} onChange={e => setConfigs(p => p.map((x,idx)=>idx===i?{...x,loadingSeconds:e.target.value}:x))} placeholder="loading(s)" className="border rounded px-2 py-1 text-xs" />
+          <input value={c.runSeconds} onChange={e => setConfigs(p => p.map((x,idx)=>idx===i?{...x,runSeconds:e.target.value}:x))} placeholder="run(s)" className="border rounded px-2 py-1 text-xs" />
+          <input value={c.unloadingSeconds} onChange={e => setConfigs(p => p.map((x,idx)=>idx===i?{...x,unloadingSeconds:e.target.value}:x))} placeholder="unloading(s)" className="border rounded px-2 py-1 text-xs" />
+          <input value={c.partsPerCycle} onChange={e => setConfigs(p => p.map((x,idx)=>idx===i?{...x,partsPerCycle:e.target.value}:x))} placeholder="parts/cycle" className="border rounded px-2 py-1 text-xs" />
+          <input value={c.totalCycles} onChange={e => setConfigs(p => p.map((x,idx)=>idx===i?{...x,totalCycles:e.target.value}:x))} placeholder="total cycles(s)" className="border rounded px-2 py-1 text-xs" />
+          <button type="button" onClick={() => removeCfg(i)} className="text-red-700 text-xs font-bold">Remove</button>
+        </div>)}
+      </div>
+      <button onClick={save} className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-bold">Save Program</button>
+    </div>
+    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+      <table className="w-full text-sm text-slate-900"><thead><tr className="bg-slate-100"><th className="text-left px-3 py-2">programId</th><th className="text-left px-3 py-2">programName</th><th className="text-left px-3 py-2">programType</th><th className="text-left px-3 py-2">processCount</th></tr></thead>
+        <tbody>{programRows.length === 0 ? <tr className="border-t border-slate-200"><td colSpan={4} className="px-3 py-4 text-slate-500">No program masters found in DB.</td></tr> : programRows.map((p:any)=><tr key={p.id} className="border-t border-slate-200"><td className="px-3 py-2">{p.programId}</td><td className="px-3 py-2">{p.programName}</td><td className="px-3 py-2">{p.programType}</td><td className="px-3 py-2">{p.processCount}</td></tr>)}</tbody>
+      </table>
+    </div>
+  </div>
 }
 
 function OperationsTab() {

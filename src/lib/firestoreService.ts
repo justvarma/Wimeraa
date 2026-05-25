@@ -38,7 +38,7 @@ import type {
   User, RawMaterial, RawMaterialMaster, PartMaster, MonthlySchedule, PTC,
   WorkOrder, DailyProductionEntry, ProcessRecord,
   DowntimeEvent, QIInspection, FQIInspection,
-  ShiftConfig, RoleConfig, MachineDef, DeviceConfig, OperationConfig,
+  ShiftConfig, RoleConfig, MachineDef, DeviceConfig, OperationConfig, ProgramMaster,
 } from "./store"
 
 // ─── Path helpers ─────────────────────────────────────────────────────────────
@@ -611,6 +611,26 @@ export async function addOperationConfig(clientId: string, operation: OperationC
 
 export async function deleteOperationConfig(clientId: string, id: string): Promise<void> {
   await deleteDoc(clientDoc(clientId, "operations", id))
+}
+
+export function subscribePrograms(
+    clientId: string,
+    setter: (programs: ProgramMaster[]) => void,
+    onError?: (err: Error) => void,
+): Unsub {
+  return subscribeCol<ProgramMaster>(clientId, "program_masters", setter, [], onError)
+}
+
+export async function addProgramConfig(clientId: string, program: ProgramMaster): Promise<void> {
+  await setDoc(clientDoc(clientId, "program_masters", program.id), stripUndefined(program))
+}
+
+export async function updateProgramConfig(clientId: string, id: string, data: Partial<ProgramMaster>): Promise<void> {
+  await updateDoc(clientDoc(clientId, "program_masters", id), stripUndefined(data))
+}
+
+export async function deleteProgramConfig(clientId: string, id: string): Promise<void> {
+  await deleteDoc(clientDoc(clientId, "program_masters", id))
 }
 // ─── Role Configs ─────────────────────────────────────────────────────────────
 // Stored at clients/{clientId}/roles/{id}

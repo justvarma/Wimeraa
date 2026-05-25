@@ -206,6 +206,27 @@ export interface OperationConfig {
   createdAt: string
 }
 
+export interface ProgramProcessConfig {
+  operationId: string
+  loadingSeconds: number
+  runSeconds: number
+  unloadingSeconds: number
+  partsPerCycle: number
+  totalCycles: number
+  saved?: boolean
+}
+
+export interface ProgramMaster {
+  id: string
+  programId: string
+  programName: string
+  programType: "die_casting" | "coating" | "machining"
+  weightPerPart: number
+  pricePerPart: number
+  processConfigs: ProgramProcessConfig[]
+  createdAt: string
+}
+
 export interface RawMaterial {
   id: string; rawMaterialId: string; material: string; rawMaterialGrade: string
   receivedQuantity: number; usedQuantity: number; date: string
