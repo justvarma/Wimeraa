@@ -29,12 +29,7 @@ export function getActiveShiftOptions(shifts: ShiftConfig[]): ShiftOption[] {
 
 export function getSelectableShiftOptions(shifts: ShiftConfig[], currentShift?: Shift | ""): ShiftOption[] {
   const activeOptions = getActiveShiftOptions(shifts)
-  if (!currentShift || activeOptions.some(option => option.id === currentShift)) return activeOptions
-
-  return [
-    ...activeOptions,
-    { id: currentShift, label: `${getShiftLabel(shifts, currentShift)} (inactive/legacy)`, isActive: false },
-  ]
+  return activeOptions
 }
 
 export function firstShiftId(shifts: ShiftConfig[]): Shift | "" {

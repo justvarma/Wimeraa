@@ -3,7 +3,7 @@ import { useState, useMemo } from "react"
 import { useApp } from "@/components/providers/AppProvider"
 import {
   UserRole, PROCESS_STAGE_LABELS, PROCESS_PTC_ROLE_MAP, QI_ROLE_PROCESS_MAP, 
-  type ProcessStage, type Shift, type WorkOrder,
+  type ProcessStage, type Shift, type WorkOrder, type WOStatus,
 } from "@/lib/store"
 import { getSelectableShiftOptions, getShiftLabel } from "@/lib/shiftUtils"
 import { buildStageSubWorkOrder, hasOpenMachineAssignment } from "@/lib/workflow"
@@ -78,8 +78,20 @@ function Phase1Form({ onClose, onSave, initial }: {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     const selectedSchedule = schedules.find(s => s.id === form.masterId)
+    if (selectedSchedule && Number(form.targetPartNos) > Number(selectedSchedule.requiredQuantity)) {
+      alert(`Required Qty (Nos) cannot exceed monthly schedule quantity (${selectedSchedule.requiredQuantity}).`)
+      return
+    }
+    if (form.workOrderStartDate > form.dueDate) {
+      alert("WO start date cannot be after due date")
+      return
+    }
     if (selectedSchedule && form.date > selectedSchedule.date) {
       alert("WO date cannot exceed component due date")
+      return
+    }
+    if (selectedSchedule && form.dueDate > selectedSchedule.date) {
+      alert("WO due date cannot exceed component due date")
       return
     }
     onSave({
@@ -199,7 +211,7 @@ function Phase2Form({ wo, onClose, onSave }: {
     actualTarget:   wo.actualTarget   || wo.targetPartNos,
     partPerCycle:   wo.partPerCycle   || 1,
     weightPerPart:  wo.weightPerPart  || (wo.requiredQuantityKg / wo.targetPartNos || 0),
-    acceptancePoints: wo.acceptancePoints || "",
+    acceptancePoints: wo.acceptancePoints || "As per configured QI checkpoints",
     cycleTimeMinutes: wo.cycleTimeMinutes || 5,
     ptcId:          wo.ptcId          || (validPDCs[0]?.id || ""),
     isExternal:     wo.isExternal     || false,
@@ -218,7 +230,7 @@ function Phase2Form({ wo, onClose, onSave }: {
 
   const selectedMachineNames = form.machine.split(",").map(m => m.trim()).filter(Boolean)
   const selectedQi = qiUsers.find(u => u.id === form.assignedQiId)
-  const vendorReady = !form.isExternal || Boolean(form.vendorName.trim() && form.vendorProductionDate && form.vendorMachine.trim() && form.vendorShift && form.assignedQiId)
+  const vendorReady = !form.isExternal || Boolean(form.vendorName.trim() && form.vendorProductionDate && form.vendorMachine.trim() && form.assignedQiId)
 
   const selectedMat = approvedMats.find(m => m.id === form.rawMaterialId)
   const availableKg = selectedMat ? selectedMat.receivedQuantity - (selectedMat.usedQuantity || 0) : 0
@@ -234,15 +246,15 @@ function Phase2Form({ wo, onClose, onSave }: {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (shortfall) { alert(`Insufficient stock! Available: ${availableKg.toFixed(1)} KG, Required: ${wo.requiredQuantityKg} KG`); return }
-    if (selectedMachineNames.length===0) { alert("At least one machine is required."); return }
-    if (selectedMachineNames.some(machine => reservedMachines.has(machine))) { alert("One or more machines are already occupied for this shift"); return }
-    if (!vendorReady) { alert("Vendor production requires vendor name, date, machine, shift, and assigned QI user."); return }
+    if (!form.isExternal && selectedMachineNames.length===0) { alert("At least one machine is required."); return }
+    if (!form.isExternal && selectedMachineNames.some(machine => reservedMachines.has(machine))) { alert("One or more machines are already occupied for this shift"); return }
+    if (!vendorReady) { alert("Vendor production requires vendor name, date, machine, and assigned QI user."); return }
     onSave({
       ...form,
-      machine: selectedMachineNames.join(", "),
+      machine: form.isExternal ? "" : selectedMachineNames.join(", "),
       vendorMachine: form.isExternal ? form.vendorMachine.trim() : "",
       vendorProductionDate: form.isExternal ? form.vendorProductionDate : "",
-      vendorShift: form.isExternal ? form.vendorShift : "" as Shift,
+      vendorShift: "" as Shift,
       assignedQiId: form.isExternal ? form.assignedQiId : "",
       assignedQiName: form.isExternal ? selectedQi?.name || "" : "",
       rawMaterialGrade: selectedMat?.rawMaterialGrade || form.materialGrade,
@@ -264,7 +276,7 @@ function Phase2Form({ wo, onClose, onSave }: {
               </span>
             </div>
             <h2 className="text-xl font-black text-slate-900">Fill Operational Details</h2>
-            <p className="text-xs text-slate-500 mt-0.5">Phase 2 — {PROCESS_STAGE_LABELS[wo.process]} PDC: Machine, operator, material, acceptance points</p>
+            <p className="text-xs text-slate-500 mt-0.5">Phase 2 — {PROCESS_STAGE_LABELS[wo.process]} PDC: Machine, operator, material, shift planning</p>
           </div>
           <button onClick={onClose}><X size={22} className="text-slate-400 hover:text-slate-700"/></button>
         </div>
@@ -368,13 +380,7 @@ function Phase2Form({ wo, onClose, onSave }: {
             )}
           </div>
 
-          {/* Acceptance points */}
-          <Field label="Acceptance Points (Quality Criteria)" req>
-            <textarea required rows={3} value={form.acceptancePoints}
-              onChange={e => setForm(p=>({...p,acceptancePoints:e.target.value}))}
-              placeholder={`e.g. for ${PROCESS_STAGE_LABELS[wo.process]}: dimensional tolerance ±0.2mm, no surface defects...`}
-              className={`${cls} resize-none`}/>
-          </Field>
+          {/* Acceptance points are now system-defined and not entered manually here. */}
 
           {/* Vendor/External toggle */}
           <div className="p-4 border border-slate-200 rounded-xl space-y-3">
@@ -397,12 +403,6 @@ function Phase2Form({ wo, onClose, onSave }: {
                 <Field label="Vendor Machine" req>
                   <input required value={form.vendorMachine} onChange={e => setForm(p=>({...p,vendorMachine:e.target.value}))} placeholder="Vendor machine / line" className={cls}/>
                 </Field>
-                <Field label="Vendor Shift" req>
-                  <select required value={form.vendorShift} onChange={e => setForm(p=>({...p,vendorShift:e.target.value as Shift}))} className={selectCls}>
-                    <option value="">— Select vendor shift —</option>
-                    {shiftOptions.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-                  </select>
-                </Field>
                 <Field label="Assigned QI User" req>
                   <select required value={form.assignedQiId} onChange={e => setForm(p=>({...p,assignedQiId:e.target.value}))} className={selectCls}>
                     <option value="">— Select QI user —</option>
@@ -416,8 +416,8 @@ function Phase2Form({ wo, onClose, onSave }: {
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-50">Cancel</button>
             <button type="submit"
-              disabled={selectedMachineNames.length===0 || !form.operator || !form.rawMaterialId || shortfall || !form.ptcId || selectedMachineNames.some(machine => reservedMachines.has(machine)) || !vendorReady}
-              title={!form.ptcId ? "A valid PDC code must be selected" : selectedMachineNames.some(machine => reservedMachines.has(machine)) ? "One or more machines are already occupied for this shift" : !vendorReady ? "Vendor production requires vendor name, date, machine, shift, and assigned QI user" : shortfall ? "Insufficient material stock" : ""}
+              disabled={(!form.isExternal && selectedMachineNames.length===0) || !form.operator || !form.rawMaterialId || shortfall || !form.ptcId || (!form.isExternal && selectedMachineNames.some(machine => reservedMachines.has(machine))) || !vendorReady}
+              title={!form.ptcId ? "A valid PDC code must be selected" : (!form.isExternal && selectedMachineNames.some(machine => reservedMachines.has(machine))) ? "One or more machines are already occupied for this shift" : !vendorReady ? "Vendor production requires vendor name, date, machine, and assigned QI user" : shortfall ? "Insufficient material stock" : ""}
               className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
               <CheckCircle2 size={16}/> Activate Work Order
             </button>
@@ -445,7 +445,7 @@ export default function WorkOrdersPage() {
   const [expanded, setExpanded]     = useState<string | null>(null)
   const [statusFilter, setStatusFilter]   = useState("all")
   const [processFilter, setProcessFilter] = useState("all")
-  const [typeFilter, setTypeFilter]       = useState<"all" | "standard" | "stage" | "rework" | "rejection">("all")
+  const [showV2Planner, setShowV2Planner] = useState(false)
 
   const isPDCManager   = role === UserRole.PTC_MANAGER
   const isAdmin        = role === UserRole.ADMIN
@@ -462,14 +462,15 @@ export default function WorkOrdersPage() {
     const filtered = workOrders.filter(w => {
       const matchStatus  = statusFilter  === "all" || w.status  === statusFilter
       const matchProcess = processFilter === "all" || w.process === processFilter
-      const matchType    = typeFilter === "all" ||
-                           (typeFilter === "rework"   && w.woType === "rework") ||
-                           (typeFilter === "stage"    && w.woType === "stage") ||
-                           (typeFilter === "rejection" && w.woType === "rejection") ||
-                           (typeFilter === "standard" && (!w.woType || w.woType === "standard"))
-      // Process PDCs see their own process (includes rework SWOs for that process)
-      const matchRole    = !myProcess    || (w.process === myProcess && w.woType !== "standard")
-      return matchStatus && matchProcess && matchType && matchRole
+      // Process PDCs see only actionable SWOs:
+      // - draft (to fill details)
+      // - rejected (for rework loop handling)
+      const matchRole = !myProcess || (
+        w.process === myProcess &&
+        w.woType !== "standard" &&
+        (w.status === "draft" || w.status === "rejected")
+      )
+      return matchStatus && matchProcess && matchRole
     })
     // Sort: parent WOs first, then their SWOs follow immediately (by parentWoId + cycle)
     return [...filtered].sort((a, b) => {
@@ -482,7 +483,15 @@ export default function WorkOrdersPage() {
       if (aIsSWO !== bIsSWO) return aIsSWO - bIsSWO
       return (a.reworkCycleNumber ?? 0) - (b.reworkCycleNumber ?? 0)
     })
-  }, [workOrders, statusFilter, processFilter, typeFilter, myProcess])
+  }, [workOrders, statusFilter, processFilter, myProcess])
+
+  const visibleGrouped = useMemo(() => {
+    const roots = visible.filter(w => !w.parentWoId)
+    return roots.map(root => ({
+      root,
+      children: visible.filter(w => w.parentWoId === root.id),
+    }))
+  }, [visible])
 
   // Build a lookup: parentWoId → child SWOs (for expanded view)
   const swoByParent = useMemo(() => {
@@ -575,6 +584,55 @@ export default function WorkOrdersPage() {
         )}
       </header>
 
+
+      <div className="bg-white rounded-2xl border border-emerald-200 p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-black text-slate-900">WO V2 Planner (Phase 3 UI)</h2>
+            <p className="text-xs text-slate-600">Main WO → Process WO → Shift/Machine Assignment with planned/reserved/consumed/produced/balance tracking.</p>
+          </div>
+          <button onClick={() => setShowV2Planner(true)} className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold">Open Planner</button>
+        </div>
+      </div>
+
+      {showV2Planner && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm p-4 flex items-center justify-center">
+          <div className="w-full max-w-6xl max-h-[92vh] overflow-y-auto bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xl font-black text-slate-900">WO V2 Execution Window</h3>
+              <button onClick={() => setShowV2Planner(false)} className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 font-bold">Close</button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+              <Field label="Monthly Schedule" req><select className={selectCls}><option>Choose Monthly Schedule</option></select></Field>
+              <Field label="WO Number" req><input className={cls} value="WO-XXX (Auto)" readOnly /></Field>
+              <Field label="Part" req><select className={selectCls}><option>Derived from Schedule</option></select></Field>
+              <Field label="Shift Date" req><input type="date" className={cls} /></Field>
+              <Field label="Shift" req><select className={selectCls}><option>Choose Shift</option></select></Field>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+              <Field label="Planned Qty"><input className={cls} placeholder="From Monthly Schedule"/></Field>
+              <Field label="Reserved Qty"><input className={cls} placeholder="Allocated for WO"/></Field>
+              <Field label="Consumed Qty"><input className={cls} placeholder="Used in Production"/></Field>
+              <Field label="Produced Qty"><input className={cls} placeholder="Output Count"/></Field>
+              <Field label="Balance Qty"><input className={cls} placeholder="Remaining Reserved"/></Field>
+            </div>
+            <div className="border border-slate-200 rounded-xl p-4">
+              <p className="text-sm font-black text-slate-800 mb-2">Machine Assignment (Shift-wise)</p>
+              <div className="text-xs text-slate-600 mb-2">Select free machines only. Occupied machines are disabled in final phase.</div>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <Field label="Machine(s)" req><select className={selectCls}><option>Multi-select (Phase 4)</option></select></Field>
+                <Field label="Program" req><select className={selectCls}><option>From Program Master</option></select></Field>
+                <Field label="Operator" req><select className={selectCls}><option>From Operator Master/Config</option></select></Field>
+                <Field label="Parts Produced" req><input className={cls} placeholder="Machine-wise output"/></Field>
+              </div>
+            </div>
+            <div className="border border-blue-200 bg-blue-50 rounded-xl p-3 text-xs text-blue-800">
+              Phase 3 delivers the new V2 planning/execution UI shell and fields. Phase 4 will connect save/validation/QA transitions with v2 collections.
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Role info banner */}
       {isPDCManager && (
         <div className="flex items-start gap-3 p-4 bg-indigo-50 border border-indigo-200 rounded-2xl text-sm text-indigo-800">
@@ -589,34 +647,30 @@ export default function WorkOrdersPage() {
         </div>
       )}
 
-      {/* Filters */}
-      <div className="flex gap-2 flex-wrap">
-        {["all","draft","not_started","in_progress","awaiting_qi","completed","rejected","finished_goods"].map(s => (
-          <button key={s} onClick={() => setStatusFilter(s)}
-            className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${statusFilter===s?"bg-slate-900 text-white":"bg-white border border-slate-200 text-slate-700 hover:bg-slate-50"}`}>
-            {s === "all" ? "All" : s === "draft" ? "Draft" : s === "not_started" ? "Active" : s === "in_progress" ? "In Progress" : s === "awaiting_qi" ? "Awaiting QI" : s === "rejected" ? "Rejected" : s === "finished_goods" ? "FG" : "Completed"}
-          </button>
-        ))}
-        {!myProcess && (
-          <>
-            <span className="w-px bg-slate-200 mx-1"/>
-            {["all","die_casting","coating","cnc_vmc"].map(p => (
-              <button key={p} onClick={() => setProcessFilter(p)}
-                className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${processFilter===p?"bg-slate-900 text-white":"bg-white border border-slate-200 text-slate-700 hover:bg-slate-50"}`}>
-                {p === "all" ? "All Process" : `${processIcon(p as ProcessStage)} ${PROCESS_STAGE_LABELS[p as ProcessStage]}`}
-              </button>
-            ))}
-          </>
-        )}
-        {/* WO Type filter */}
-        <span className="w-px bg-slate-200 mx-1"/>
-        {(["all", "standard", "stage", "rework", "rejection"] as const).map(t => (
-          <button key={t} onClick={() => setTypeFilter(t)}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold transition-all ${typeFilter===t?"bg-slate-900 text-white":"bg-white border border-slate-200 text-slate-700 hover:bg-slate-50"}`}>
-            {t === "rework" && <GitBranch size={12}/>}
-            {t === "all" ? "All Types" : t === "standard" ? "Primary WO" : t === "stage" ? "Process SWO" : t === "rejection" ? "Rejection WO" : "Rework SWO"}
-          </button>
-        ))}
+      {/* Simplified filters */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="space-y-1">
+          <p className="text-[11px] font-black text-slate-500 uppercase tracking-wider">Status</p>
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-900 bg-white">
+            <option value="all">All Status</option>
+            {["draft","not_started","in_progress","awaiting_qi","completed","rejected","finished_goods"].map(s => <option key={s} value={s}>{statusLabel(s as WOStatus)}</option>)}
+          </select>
+        </div>
+        {!myProcess ? (
+          <div className="space-y-1">
+            <p className="text-[11px] font-black text-slate-500 uppercase tracking-wider">Process</p>
+            <select value={processFilter} onChange={e => setProcessFilter(e.target.value)} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-900 bg-white">
+              <option value="all">All Process</option>
+              {(["die_casting","coating","cnc_vmc"] as ProcessStage[]).map(p => <option key={p} value={p}>{PROCESS_STAGE_LABELS[p]}</option>)}
+            </select>
+          </div>
+        ) : <div className="space-y-1"><p className="text-[11px] font-black text-slate-500 uppercase tracking-wider">Process</p><div className="px-3 py-2.5 text-sm rounded-xl bg-slate-50 border border-slate-200 text-slate-700">{PROCESS_STAGE_LABELS[myProcess]} view</div></div>}
+        <div className="space-y-1">
+          <p className="text-[11px] font-black text-slate-500 uppercase tracking-wider">View Summary</p>
+          <div className="px-3 py-2.5 text-xs rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-700 font-medium">
+            Showing {visibleGrouped.length} parent WO(s). Expand a parent to view SWO branches.
+          </div>
+        </div>
       </div>
 
       {/* Work Order Cards */}
@@ -626,13 +680,13 @@ export default function WorkOrdersPage() {
             <ClipboardList size={40} className="mx-auto text-slate-200 mb-3"/>
             <p className="text-slate-400 font-medium">No work orders found</p>
           </div>
-        ) : visible.map(wo => {
+        ) : visibleGrouped.map(({ root: wo, children: childSWOs }) => {
           const progress = wo.targetPartNos > 0 ? Math.round((wo.partsCompleted / wo.targetPartNos) * 100) : 0
           const isDraft  = wo.status === "draft"
 
           const isSWO = wo.woType === "rework"
           const parentWo = isSWO && wo.parentWoId ? workOrders.find(w => w.id === wo.parentWoId) : null
-          const childSWOs = swoByParent[wo.id] ?? []
+          const treeChildren = childSWOs.length > 0 ? childSWOs : (swoByParent[wo.id] ?? [])
 
           return (
             <div key={wo.id} className={`bg-white rounded-2xl border shadow-sm overflow-hidden ${isSWO ? "border-l-4 border-l-amber-400 border-t border-r border-b border-slate-200 ml-4" : isDraft ? "border-amber-200" : "border-slate-200"}`}>
@@ -657,9 +711,9 @@ export default function WorkOrdersPage() {
                         <ArrowUpRight size={9}/> Parent: {parentWo.id}
                       </span>
                     )}
-                    {!isSWO && childSWOs.length > 0 && (
+                    {!isSWO && treeChildren.length > 0 && (
                       <span className="flex items-center gap-1 text-[10px] bg-indigo-100 text-indigo-700 font-bold px-2 py-0.5 rounded-full border border-indigo-200">
-                        <GitBranch size={9}/> {childSWOs.length} Rework SWO{childSWOs.length > 1 ? "s" : ""}
+                        <GitBranch size={9}/> {treeChildren.length} Rework SWO{treeChildren.length > 1 ? "s" : ""}
                       </span>
                     )}
                     {wo.status !== "draft" && wo.status !== "not_started" && <Lock size={11} className="text-slate-300"/>}
@@ -781,13 +835,13 @@ export default function WorkOrdersPage() {
                   )}
 
                   {/* Child SWO list — shown on parent WOs */}
-                  {!isSWO && childSWOs.length > 0 && (
+                  {!isSWO && treeChildren.length > 0 && (
                     <div className="mt-3 p-4 bg-indigo-50 border border-indigo-200 rounded-xl">
                       <p className="text-[10px] font-black text-indigo-700 uppercase tracking-wider mb-2 flex items-center gap-1">
-                        <GitBranch size={11}/> Rework Sub Work Orders ({childSWOs.length})
+                        <GitBranch size={11}/> Rework Sub Work Orders ({treeChildren.length})
                       </p>
                       <div className="space-y-2">
-                        {childSWOs.map(swo => (
+                        {treeChildren.map(swo => (
                           <div key={swo.id} className="flex items-center gap-3 bg-white border border-indigo-100 rounded-xl p-3 text-xs">
                             <GitBranch size={12} className="text-amber-500 shrink-0"/>
                             <span className="font-mono font-bold text-indigo-700">{swo.id}</span>

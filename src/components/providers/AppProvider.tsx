@@ -20,7 +20,8 @@ import {
   type User, type RawMaterial, type WorkOrder, type MonthlySchedule,
   type PTC, type DailyProductionEntry, type ProcessRecord,
   type DowntimeEvent, type QIInspection, type FQIInspection,
-  type ShiftConfig, type RoleConfig, type MachineDef,
+  type ShiftConfig, type RoleConfig, type MachineDef, type RawMaterialMaster, type PartMaster, type DeviceConfig, type OperationConfig, type ProgramMaster,
+  type MainWorkOrderV2, type ProcessWorkOrderV2, type WoMachineAssignmentV2, type WoAuditLog, type ReworkTrace,
   UserRole, DEFAULT_SHIFT_CONFIGS, DEFAULT_ROLE_CONFIGS, DEFAULT_MACHINE_CONFIGS,
 } from "@/lib/store"
 import { onAuthStateChange, signIn, signOut, fetchUserProfile, auth } from "@/lib/auth"
@@ -45,10 +46,17 @@ interface AppContextType {
 
   // ── Materials ──────────────────────────────────────────────────────────────
   materials:       RawMaterial[]
+  materialMasters: RawMaterialMaster[]
+  partMasters: PartMaster[]
   addMaterial:     (m: Omit<RawMaterial, "id">)          => Promise<void>
   updateMaterial:  (id: string, d: Partial<RawMaterial>) => Promise<void>
+  addMaterialMaster: (m: RawMaterialMaster) => Promise<void>
+  deleteMaterialMaster: (id: string) => Promise<void>
+  addPartMaster: (m: PartMaster) => Promise<void>
+  deletePartMaster: (id: string) => Promise<void>
   deductMaterial:  (materialId: string, requiredKg: number) => Promise<boolean>
   consumeMaterial: (materialId: string, consumedKg: number) => Promise<void>
+  releaseMaterial: (materialId: string, releasedKg: number) => Promise<void>
 
   // ── Schedules ──────────────────────────────────────────────────────────────
   schedules:     MonthlySchedule[]
@@ -100,6 +108,23 @@ interface AppContextType {
   addMachine: (machine: MachineDef) => Promise<void>
   updateMachine: (id: string, data: Partial<MachineDef>) => Promise<void>
   deleteMachine: (id: string) => Promise<void>
+  devices: DeviceConfig[]
+  addDevice: (device: DeviceConfig) => Promise<void>
+  updateDevice: (id: string, data: Partial<DeviceConfig>) => Promise<void>
+  deleteDevice: (id: string) => Promise<void>
+  operations: OperationConfig[]
+  addOperation: (operation: OperationConfig) => Promise<void>
+  deleteOperation: (id: string) => Promise<void>
+  programs: ProgramMaster[]
+  addProgram: (program: ProgramMaster) => Promise<void>
+  updateProgram: (id: string, data: Partial<ProgramMaster>) => Promise<void>
+  deleteProgram: (id: string) => Promise<void>
+  mainWorkOrdersV2: MainWorkOrderV2[]
+  processWorkOrdersV2: ProcessWorkOrderV2[]
+  woMachineAssignmentsV2: WoMachineAssignmentV2[]
+  woAuditLogs: WoAuditLog[]
+  reworkTraces: ReworkTrace[]
+
 
   // ── Config: Shifts ─────────────────────────────────────────────────────────
   shifts:       ShiftConfig[]
@@ -133,6 +158,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Collection state
   const [users,           setUsers]           = useState<User[]>([])
   const [materials,       setMaterials]       = useState<RawMaterial[]>([])
+  const [materialMasters, setMaterialMasters] = useState<RawMaterialMaster[]>([])
+  const [partMasters, setPartMasters] = useState<PartMaster[]>([])
   const [schedules,       setSchedules]       = useState<MonthlySchedule[]>([])
   const [ptcs,            setPtcs]            = useState<PTC[]>([])
   const [workOrders,      setWorkOrders]      = useState<WorkOrder[]>([])
@@ -145,6 +172,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [roles,           setRoles]           = useState<RoleConfig[]>([])
   const [shifts,          setShifts]          = useState<ShiftConfig[]>([])
   const [machines,        setMachines]        = useState<MachineDef[]>([])
+  const [devices,         setDevices]         = useState<DeviceConfig[]>([])
+  const [operations,      setOperations]      = useState<OperationConfig[]>([])
+  const [programs,        setPrograms]        = useState<ProgramMaster[]>([])
+  const [mainWorkOrdersV2, setMainWorkOrdersV2] = useState<MainWorkOrderV2[]>([])
+  const [processWorkOrdersV2, setProcessWorkOrdersV2] = useState<ProcessWorkOrderV2[]>([])
+  const [woMachineAssignmentsV2, setWoMachineAssignmentsV2] = useState<WoMachineAssignmentV2[]>([])
+  const [woAuditLogs, setWoAuditLogs] = useState<WoAuditLog[]>([])
+  const [reworkTraces, setReworkTraces] = useState<ReworkTrace[]>([])
 
   const unsubsRef = useRef<Array<() => void>>([])
 
@@ -243,6 +278,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           unsubsRef.current = [
             fs.subscribeUsers(cid, setUsers, onSnapError),
             fs.subscribeMaterials(cid, setMaterials, onSnapError),
+            fs.subscribeMaterialMasters(cid, setMaterialMasters, onSnapError),
+            fs.subscribePartMasters(cid, setPartMasters, onSnapError),
             fs.subscribeSchedules(cid, setSchedules, onSnapError),
             fs.subscribePTCs(cid, setPtcs, onSnapError),
             fs.subscribeWorkOrders(cid, setWorkOrders, onSnapError),
@@ -254,6 +291,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             fs.subscribeRoles(cid, handleRoles, onSnapError),
             fs.subscribeShifts(cid, handleShifts, onSnapError),
             fs.subscribeMachines(cid, handleMachines, onSnapError),
+            fs.subscribeDevices(cid, setDevices, onSnapError),
+            fs.subscribeOperations(cid, setOperations, onSnapError),
+            fs.subscribePrograms(cid, setPrograms, onSnapError),
+            fs.subscribeMainWorkOrdersV2(cid, setMainWorkOrdersV2, onSnapError),
+            fs.subscribeProcessWorkOrdersV2(cid, setProcessWorkOrdersV2, onSnapError),
+            fs.subscribeWoMachineAssignmentsV2(cid, setWoMachineAssignmentsV2, onSnapError),
+            fs.subscribeWoAuditLogs(cid, setWoAuditLogs, onSnapError),
+            fs.subscribeReworkTraces(cid, setReworkTraces, onSnapError),
           ]
         }
       } catch (err) {
@@ -362,6 +407,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const updateMaterial = useCallback(async (id: string, data: Partial<RawMaterial>) => {
     await fs.updateMaterial(cid(), id, data)
   }, [clientId])
+  const addMaterialMaster = useCallback(async (data: RawMaterialMaster) => {
+    await fs.addMaterialMaster(cid(), data)
+  }, [clientId])
+  const deleteMaterialMaster = useCallback(async (id: string) => {
+    await fs.deleteMaterialMaster(cid(), id)
+  }, [clientId])
+  const addPartMaster = useCallback(async (data: PartMaster) => {
+    await fs.addPartMaster(cid(), data)
+  }, [clientId])
+  const deletePartMaster = useCallback(async (id: string) => {
+    await fs.deletePartMaster(cid(), id)
+  }, [clientId])
 
   const deductMaterial = useCallback(async (materialId: string, requiredKg: number): Promise<boolean> => {
     return fs.deductMaterial(cid(), materialId, requiredKg)
@@ -369,6 +426,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const consumeMaterial = useCallback(async (materialId: string, consumedKg: number) => {
     await fs.consumeMaterial(cid(), materialId, consumedKg)
+  }, [clientId])
+  const releaseMaterial = useCallback(async (materialId: string, releasedKg: number) => {
+    await fs.releaseMaterial(cid(), materialId, releasedKg)
   }, [clientId])
 
   // ── Schedules ──────────────────────────────────────────────────────────────
@@ -475,6 +535,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const addMachine = useCallback(async (machine: MachineDef) => { if (!clientId) return; await fs.createMachineConfig(clientId, machine) }, [clientId])
   const updateMachine = useCallback(async (id: string, data: Partial<MachineDef>) => { if (!clientId) return; await fs.updateMachineConfig(clientId, id, data) }, [clientId])
   const deleteMachine = useCallback(async (id: string) => { if (!clientId) return; await fs.deleteMachineConfig(clientId, id) }, [clientId])
+  const addDevice = useCallback(async (device: DeviceConfig) => { if (!clientId) return; await fs.addDeviceConfig(clientId, device) }, [clientId])
+  const updateDevice = useCallback(async (id: string, data: Partial<DeviceConfig>) => { if (!clientId) return; await fs.updateDeviceConfig(clientId, id, data) }, [clientId])
+  const deleteDevice = useCallback(async (id: string) => { if (!clientId) return; await fs.deleteDeviceConfig(clientId, id) }, [clientId])
+  const addOperation = useCallback(async (operation: OperationConfig) => { if (!clientId) return; await fs.addOperationConfig(clientId, operation) }, [clientId])
+  const deleteOperation = useCallback(async (id: string) => { if (!clientId) return; await fs.deleteOperationConfig(clientId, id) }, [clientId])
+  const addProgram = useCallback(async (program: ProgramMaster) => { if (!clientId) return; await fs.addProgramConfig(clientId, program) }, [clientId])
+  const updateProgram = useCallback(async (id: string, data: Partial<ProgramMaster>) => { if (!clientId) return; await fs.updateProgramConfig(clientId, id, data) }, [clientId])
+  const deleteProgram = useCallback(async (id: string) => { if (!clientId) return; await fs.deleteProgramConfig(clientId, id) }, [clientId])
 
   const confirmShifts = useCallback(async () => {
     await fs.confirmShiftConfigs(cid())
@@ -488,7 +556,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         login, logout,
 
         users,        addUser,       updateUser,    deleteUser,
-        materials,    addMaterial,   updateMaterial, deductMaterial, consumeMaterial,
+        materials, materialMasters, partMasters, addMaterial, updateMaterial, addMaterialMaster, deleteMaterialMaster, addPartMaster, deletePartMaster, deductMaterial, consumeMaterial, releaseMaterial,
         schedules,    addSchedule,   updateSchedule, deleteSchedule,
         ptcs,         addPTC,        deletePTC,
         workOrders,   addWorkOrder,  updateWorkOrder, deleteWorkOrder,
@@ -500,6 +568,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
         roles,  addRole,  updateRole,  deleteRole,
         machines, addMachine, updateMachine, deleteMachine,
+        devices, addDevice, updateDevice, deleteDevice,
+        operations, addOperation, deleteOperation,
+        programs, addProgram, updateProgram, deleteProgram,
+        mainWorkOrdersV2, processWorkOrdersV2, woMachineAssignmentsV2, woAuditLogs, reworkTraces,
     shifts, addShift, deleteShift, updateShift, reorderShift, confirmShifts,
 
         sidebarCollapsed, setSidebarCollapsed,

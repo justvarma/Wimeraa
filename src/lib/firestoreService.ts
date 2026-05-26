@@ -35,10 +35,10 @@ import {
 } from "firebase/firestore"
 import { db } from "./firebase"
 import type {
-  User, RawMaterial, MonthlySchedule, PTC,
+  User, RawMaterial, RawMaterialMaster, PartMaster, MonthlySchedule, PTC,
   WorkOrder, DailyProductionEntry, ProcessRecord,
   DowntimeEvent, QIInspection, FQIInspection,
-  ShiftConfig, RoleConfig, MachineDef,
+  ShiftConfig, RoleConfig, MachineDef, DeviceConfig, OperationConfig, ProgramMaster,
 } from "./store"
 
 // ─── Path helpers ─────────────────────────────────────────────────────────────
@@ -189,6 +189,46 @@ export async function updateMaterial(
   await updateDoc(clientDoc(clientId, "raw_materials", id), stripUndefined(data))
 }
 
+export function subscribeMaterialMasters(
+    clientId: string,
+    setter: (materials: RawMaterialMaster[]) => void,
+    onError?: (err: Error) => void,
+): Unsub {
+  return subscribeCol<RawMaterialMaster>(
+      clientId, "material_masters", setter,
+      [orderBy("material", "asc")],
+      onError,
+  )
+}
+
+export async function addMaterialMaster(clientId: string, data: RawMaterialMaster): Promise<void> {
+  await setDoc(clientDoc(clientId, "material_masters", data.id), stripUndefined(data))
+}
+
+export async function deleteMaterialMaster(clientId: string, id: string): Promise<void> {
+  await deleteDoc(clientDoc(clientId, "material_masters", id))
+}
+
+export function subscribePartMasters(
+    clientId: string,
+    setter: (parts: PartMaster[]) => void,
+    onError?: (err: Error) => void,
+): Unsub {
+  return subscribeCol<PartMaster>(
+      clientId, "part_masters", setter,
+      [orderBy("partName", "asc")],
+      onError,
+  )
+}
+
+export async function addPartMaster(clientId: string, data: PartMaster): Promise<void> {
+  await setDoc(clientDoc(clientId, "part_masters", data.id), stripUndefined(data))
+}
+
+export async function deletePartMaster(clientId: string, id: string): Promise<void> {
+  await deleteDoc(clientDoc(clientId, "part_masters", id))
+}
+
 /**
  * Atomically deduct `requiredKg` from a material's available stock.
  * Returns false without mutating if stock is insufficient.
@@ -229,6 +269,22 @@ export async function consumeMaterial(
     if (!snap.exists()) return
     const mat = snap.data() as RawMaterial
     tx.update(ref, { usedQuantity: (mat.usedQuantity ?? 0) + consumedKg })
+  })
+}
+
+export async function releaseMaterial(
+    clientId: string,
+    materialId: string,
+    releasedKg: number,
+): Promise<void> {
+  if (!materialId || releasedKg <= 0) return
+  const ref = clientDoc(clientId, "raw_materials", materialId)
+  await runTransaction(db, async tx => {
+    const snap = await tx.get(ref)
+    if (!snap.exists()) return
+    const mat = snap.data() as RawMaterial
+    const current = mat.usedQuantity ?? 0
+    tx.update(ref, { usedQuantity: Math.max(0, current - releasedKg) })
   })
 }
 
@@ -520,6 +576,62 @@ export async function updateMachineConfig(clientId: string, id: string, data: Pa
 export async function deleteMachineConfig(clientId: string, id: string): Promise<void> {
   await deleteDoc(clientDoc(clientId, "machines", id))
 }
+
+export function subscribeDevices(
+    clientId: string,
+    setter: (devices: DeviceConfig[]) => void,
+    onError?: (err: Error) => void,
+): Unsub {
+  return subscribeCol<DeviceConfig>(clientId, "devices", setter, [orderBy("deviceName", "asc")], onError)
+}
+
+export async function addDeviceConfig(clientId: string, device: DeviceConfig): Promise<void> {
+  await setDoc(clientDoc(clientId, "devices", device.id), stripUndefined(device))
+}
+
+export async function updateDeviceConfig(clientId: string, id: string, data: Partial<DeviceConfig>): Promise<void> {
+  await updateDoc(clientDoc(clientId, "devices", id), stripUndefined(data))
+}
+
+export async function deleteDeviceConfig(clientId: string, id: string): Promise<void> {
+  await deleteDoc(clientDoc(clientId, "devices", id))
+}
+
+export function subscribeOperations(
+    clientId: string,
+    setter: (operations: OperationConfig[]) => void,
+    onError?: (err: Error) => void,
+): Unsub {
+  return subscribeCol<OperationConfig>(clientId, "operations", setter, [], onError)
+}
+
+export async function addOperationConfig(clientId: string, operation: OperationConfig): Promise<void> {
+  await setDoc(clientDoc(clientId, "operations", operation.id), stripUndefined(operation))
+}
+
+export async function deleteOperationConfig(clientId: string, id: string): Promise<void> {
+  await deleteDoc(clientDoc(clientId, "operations", id))
+}
+
+export function subscribePrograms(
+    clientId: string,
+    setter: (programs: ProgramMaster[]) => void,
+    onError?: (err: Error) => void,
+): Unsub {
+  return subscribeCol<ProgramMaster>(clientId, "program_masters", setter, [], onError)
+}
+
+export async function addProgramConfig(clientId: string, program: ProgramMaster): Promise<void> {
+  await setDoc(clientDoc(clientId, "program_masters", program.id), stripUndefined(program))
+}
+
+export async function updateProgramConfig(clientId: string, id: string, data: Partial<ProgramMaster>): Promise<void> {
+  await updateDoc(clientDoc(clientId, "program_masters", id), stripUndefined(data))
+}
+
+export async function deleteProgramConfig(clientId: string, id: string): Promise<void> {
+  await deleteDoc(clientDoc(clientId, "program_masters", id))
+}
 // ─── Role Configs ─────────────────────────────────────────────────────────────
 // Stored at clients/{clientId}/roles/{id}
 // System roles use the UserRole enum value as the doc ID.
@@ -804,4 +916,50 @@ export async function reorderShiftConfigs(
 export async function confirmShiftConfigs(clientId: string): Promise<void> {
   const shifts = await getShiftConfigs(clientId)
   validateShiftConfigs(shifts)
+}
+
+
+// ─── Phase 2: New WO architecture collections ───────────────────────────────
+export function subscribeMainWorkOrdersV2(clientId: string, setter: (items: MainWorkOrderV2[]) => void, onError?: (err: Error) => void): Unsub {
+  return subscribeCol<MainWorkOrderV2>(clientId, "main_work_orders_v2", setter, [], onError)
+}
+export async function addMainWorkOrderV2(clientId: string, data: MainWorkOrderV2): Promise<void> {
+  await setDoc(clientDoc(clientId, "main_work_orders_v2", data.id), stripUndefined(data))
+}
+export async function updateMainWorkOrderV2(clientId: string, id: string, data: Partial<MainWorkOrderV2>): Promise<void> {
+  await updateDoc(clientDoc(clientId, "main_work_orders_v2", id), stripUndefined(data))
+}
+
+export function subscribeProcessWorkOrdersV2(clientId: string, setter: (items: ProcessWorkOrderV2[]) => void, onError?: (err: Error) => void): Unsub {
+  return subscribeCol<ProcessWorkOrderV2>(clientId, "process_work_orders_v2", setter, [], onError)
+}
+export async function addProcessWorkOrderV2(clientId: string, data: ProcessWorkOrderV2): Promise<void> {
+  await setDoc(clientDoc(clientId, "process_work_orders_v2", data.id), stripUndefined(data))
+}
+export async function updateProcessWorkOrderV2(clientId: string, id: string, data: Partial<ProcessWorkOrderV2>): Promise<void> {
+  await updateDoc(clientDoc(clientId, "process_work_orders_v2", id), stripUndefined(data))
+}
+
+export function subscribeWoMachineAssignmentsV2(clientId: string, setter: (items: WoMachineAssignmentV2[]) => void, onError?: (err: Error) => void): Unsub {
+  return subscribeCol<WoMachineAssignmentV2>(clientId, "wo_machine_assignments_v2", setter, [], onError)
+}
+export async function addWoMachineAssignmentV2(clientId: string, data: WoMachineAssignmentV2): Promise<void> {
+  await setDoc(clientDoc(clientId, "wo_machine_assignments_v2", data.id), stripUndefined(data))
+}
+export async function updateWoMachineAssignmentV2(clientId: string, id: string, data: Partial<WoMachineAssignmentV2>): Promise<void> {
+  await updateDoc(clientDoc(clientId, "wo_machine_assignments_v2", id), stripUndefined(data))
+}
+
+export function subscribeWoAuditLogs(clientId: string, setter: (items: WoAuditLog[]) => void, onError?: (err: Error) => void): Unsub {
+  return subscribeCol<WoAuditLog>(clientId, "wo_audit_logs", setter, [], onError)
+}
+export async function addWoAuditLog(clientId: string, data: WoAuditLog): Promise<void> {
+  await setDoc(clientDoc(clientId, "wo_audit_logs", data.id), stripUndefined(data))
+}
+
+export function subscribeReworkTraces(clientId: string, setter: (items: ReworkTrace[]) => void, onError?: (err: Error) => void): Unsub {
+  return subscribeCol<ReworkTrace>(clientId, "rework_traces", setter, [], onError)
+}
+export async function addReworkTrace(clientId: string, data: ReworkTrace): Promise<void> {
+  await setDoc(clientDoc(clientId, "rework_traces", data.id), stripUndefined(data))
 }

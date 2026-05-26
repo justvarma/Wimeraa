@@ -1,10 +1,10 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useApp } from "@/components/providers/AppProvider"
 import { orderedShiftConfigs } from "@/lib/shiftUtils"
-import { UserRole, ROLE_LABELS, type RoleConfig, type ShiftBreak, type ShiftConfig } from "@/lib/store"
+import { UserRole, ROLE_LABELS, INITIAL_PART_MASTERS, type RoleConfig, type ShiftBreak, type ShiftConfig } from "@/lib/store"
 import {
   Settings, Users, Plus, Edit2, Trash2, X, ShieldAlert,
   ShieldCheck, Clock, CheckCircle, XCircle, AlertCircle,
@@ -12,6 +12,12 @@ import {
 } from "lucide-react"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+
+const CFG_INPUT = "border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-900 bg-white placeholder:text-slate-400"
+const CFG_BTN_PRIMARY = "px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold transition-colors"
+const CFG_BTN_DARK = "px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-sm font-bold transition-colors"
+const CFG_BTN_DANGER = "text-red-700 hover:text-red-800 font-semibold"
 
 const ROLE_BADGE: Record<string, string> = {
   admin:             "bg-blue-100 text-blue-700",
@@ -59,7 +65,7 @@ function TimeInput({ value, onChange }: { value: string; onChange: (v: string) =
 
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
-type Tab = "users" | "roles" | "shifts" | "machines" | "materials"
+type Tab = "users" | "roles" | "shifts" | "machines" | "materials" | "parts" | "devices" | "operations" | "programs"
 
 export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
   const {
@@ -72,7 +78,7 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const tabParam = searchParams.get("tab")
-  const queryTab: Tab = tabParam === "roles" || tabParam === "shifts" || tabParam === "users" || tabParam === "machines" || tabParam === "materials" ? tabParam : "users"
+  const queryTab: Tab = tabParam === "roles" || tabParam === "shifts" || tabParam === "users" || tabParam === "machines" || tabParam === "materials" || tabParam === "parts" || tabParam === "devices" || tabParam === "operations" || tabParam === "programs" ? tabParam : "users"
   const initialTab: Tab = forcedTab ?? queryTab
   const [activeTab, setActiveTab] = useState<Tab>(initialTab)
   const isSystemAdmin = currentUser?.role === UserRole.SYSTEM_ADMIN
@@ -87,7 +93,7 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
     router.replace(`/dashboard/config?tab=${tab}`)
   }
 
-  if (currentUser?.role !== UserRole.ADMIN && currentUser?.role !== UserRole.SYSTEM_ADMIN) {
+  if (currentUser?.role !== UserRole.ADMIN) {
     return (
         <div className="flex flex-col items-center justify-center h-80 gap-4">
           <ShieldAlert size={48} className="text-red-400" />
@@ -118,6 +124,10 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
             ["shifts", Clock,       "Shifts"],
             ["machines", Settings,    "Machines"],
             ["materials", Package,    "Materials"],
+            ["parts", Package,    "Part Master"],
+            ["devices", Settings, "Devices"],
+            ["operations", Settings, "Operations"],
+            ["programs", Settings, "Program Master"],
           ] as const)
             .filter(([tab]) => !isSystemAdmin || tab === "users")
             .map(([tab, Icon, label]) => (
@@ -137,8 +147,197 @@ export function ConfigPageContent({ forcedTab }: { forcedTab?: Tab } = {}) {
         {activeTab === "shifts" && <ShiftsTab />}
         {activeTab === "machines" && <MachinesTab />}
         {activeTab === "materials" && <MaterialsTab />}
+        {activeTab === "parts" && <PartsTab />}
+        {activeTab === "devices" && <DevicesTab />}
+        {activeTab === "operations" && <OperationsTab />}
+        {activeTab === "programs" && <ProgramsTab />}
       </div>
   )
+}
+
+function ProgramsTab() {
+  const { programs, operations, addProgram, updateProgram } = useApp()
+  const [programName, setProgramName] = useState("")
+  const [programType, setProgramType] = useState<"die_casting" | "coating" | "machining">("die_casting")
+  const [weightPerPart, setWeightPerPart] = useState("")
+  const [pricePerPart, setPricePerPart] = useState("")
+  const [configs, setConfigs] = useState<Array<{ operationId: string; loadingSeconds: string; runSeconds: string; unloadingSeconds: string; partsPerCycle: string; totalCycles: string; saved?: boolean }>>([])
+  const [opDraft, setOpDraft] = useState("")
+  const toTitleWords = (value: string) => value
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ")
+  const addCfg = () => setConfigs(p => [...p, { operationId: opDraft, loadingSeconds: "", runSeconds: "", unloadingSeconds: "", partsPerCycle: "", totalCycles: "" }])
+  const removeCfg = (idx: number) => setConfigs(p => p[idx]?.saved ? p : p.filter((_, i) => i !== idx))
+  const nextProgramId = `PRG-${String(programs.length + 1).padStart(3, "0")}`
+  const save = async () => {
+    if (!programName.trim()) return
+    await addProgram({
+      id: `${nextProgramId}-${Date.now()}`,
+      programId: nextProgramId,
+      programName: programName.trim(),
+      programType,
+      weightPerPart: Number(weightPerPart || 0),
+      pricePerPart: Number(pricePerPart || 0),
+      processConfigs: configs.map(c => ({ operationId: c.operationId, loadingSeconds: Number(c.loadingSeconds||0), runSeconds: Number(c.runSeconds||0), unloadingSeconds: Number(c.unloadingSeconds||0), partsPerCycle: Number(c.partsPerCycle||0), totalCycles: Number(c.totalCycles||0), saved: true })),
+      createdAt: new Date().toISOString().split("T")[0],
+    } as any)
+    setProgramName(""); setWeightPerPart(""); setPricePerPart(""); setConfigs([]); setOpDraft("")
+  }
+  const programRows = programs.map((p: any) => ({
+    id: p.id,
+    programId: p.programId || p.programID || "—",
+    programName: p.programName || p.name || "—",
+    programType: toTitleWords(String(p.programType || p.type || "—")),
+    processCount: (p.processConfigs || p.processes || []).length,
+  }))
+  return <div className="space-y-4">
+    <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
+      <h3 className="font-black text-slate-900">Program Master</h3>
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
+        <div><p className="text-xs font-bold text-slate-600 mb-1">Program ID</p><input readOnly value={nextProgramId} className={`${CFG_INPUT} bg-slate-50 text-slate-700`} /></div>
+        <div><p className="text-xs font-bold text-slate-600 mb-1">Program Name</p><input value={programName} onChange={e => setProgramName(e.target.value)} placeholder="Program Name" className={CFG_INPUT} /></div>
+        <div><p className="text-xs font-bold text-slate-600 mb-1">Program Type</p><select value={programType} onChange={e => setProgramType(e.target.value as any)} className={CFG_INPUT}><option value="die_casting">Die Casting</option><option value="coating">Coating</option><option value="machining">Machining</option></select></div>
+        <div><p className="text-xs font-bold text-slate-600 mb-1">Weight Per Part</p><input value={weightPerPart} onChange={e => setWeightPerPart(e.target.value)} placeholder="Weight Per Part" className={CFG_INPUT} /></div>
+        <div><p className="text-xs font-bold text-slate-600 mb-1">Price Per Part</p><input value={pricePerPart} onChange={e => setPricePerPart(e.target.value)} placeholder="Price Per Part" className={CFG_INPUT} /></div>
+      </div>
+      <div className="border border-slate-200 rounded-lg p-3 space-y-2">
+        <p className="font-bold text-slate-800 text-sm">Process Configuration</p>
+        <div className="flex gap-2 items-end">
+          <div className="flex-1"><p className="text-xs font-bold text-slate-600 mb-1">Select Process (Multiple Allowed)</p><select value={opDraft} onChange={e => setOpDraft(e.target.value)} className={`${CFG_INPUT} flex-1`}>
+            <option value="">Select operation</option>
+            {operations.map((o:any)=><option key={o.id} value={o.operationId || o.operationID || o.opId}>{o.operationId || o.operationID || o.opId} - {o.processName || o.process}</option>)}
+          </select></div>
+          <button type="button" onClick={addCfg} className={CFG_BTN_DARK}>Add Process</button>
+        </div>
+        {configs.map((c, i) => <div key={i} className="grid grid-cols-7 gap-2 items-center">
+          <input value={c.operationId} readOnly className="border rounded px-2 py-1 text-xs bg-slate-50 text-slate-900" />
+          <input value={c.loadingSeconds} onChange={e => setConfigs(p => p.map((x,idx)=>idx===i?{...x,loadingSeconds:e.target.value}:x))} placeholder="Loading (s)" className="border rounded px-2 py-1 text-xs text-slate-900" />
+          <input value={c.runSeconds} onChange={e => setConfigs(p => p.map((x,idx)=>idx===i?{...x,runSeconds:e.target.value}:x))} placeholder="Run (s)" className="border rounded px-2 py-1 text-xs text-slate-900" />
+          <input value={c.unloadingSeconds} onChange={e => setConfigs(p => p.map((x,idx)=>idx===i?{...x,unloadingSeconds:e.target.value}:x))} placeholder="Unloading (s)" className="border rounded px-2 py-1 text-xs text-slate-900" />
+          <input value={c.partsPerCycle} onChange={e => setConfigs(p => p.map((x,idx)=>idx===i?{...x,partsPerCycle:e.target.value}:x))} placeholder="Parts Per Cycle" className="border rounded px-2 py-1 text-xs text-slate-900" />
+          <input value={c.totalCycles} onChange={e => setConfigs(p => p.map((x,idx)=>idx===i?{...x,totalCycles:e.target.value}:x))} placeholder="Total Cycles" className="border rounded px-2 py-1 text-xs text-slate-900" />
+          <button type="button" onClick={() => removeCfg(i)} className="text-red-700 hover:text-red-800 text-xs font-bold">Remove</button>
+        </div>)}
+      </div>
+      <button onClick={save} className={`${CFG_BTN_PRIMARY} px-4`}>Save Program</button>
+    </div>
+    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+      <table className="w-full text-sm text-slate-900"><thead><tr className="bg-slate-100"><th className="text-left px-3 py-2">Program ID</th><th className="text-left px-3 py-2">Program Name</th><th className="text-left px-3 py-2">Program Type</th><th className="text-left px-3 py-2">Process Count</th></tr></thead>
+        <tbody>{programRows.length === 0 ? <tr className="border-t border-slate-200"><td colSpan={4} className="px-3 py-4 text-slate-500">No Program Masters Found In DB.</td></tr> : programRows.map((p:any)=><tr key={p.id} className="border-t border-slate-200"><td className="px-3 py-2 text-slate-900">{p.programId}</td><td className="px-3 py-2 text-slate-900">{toTitleWords(String(p.programName))}</td><td className="px-3 py-2 text-slate-900">{p.programType}</td><td className="px-3 py-2 text-slate-900">{p.processCount}</td></tr>)}</tbody>
+      </table>
+    </div>
+  </div>
+}
+
+function OperationsTab() {
+  const { operations, addOperation, deleteOperation } = useApp()
+  const [operationId, setOperationId] = useState("")
+  const [processName, setProcessName] = useState("")
+  const add = async () => {
+    if (!operationId.trim()) return
+    const normalized = operationId.trim().toLowerCase()
+    if (operations.some(o => String((o as any).operationId || (o as any).operationID || (o as any).opId || "").trim().toLowerCase() === normalized)) {
+      alert("OPID must be unique. This OPID already exists.")
+      return
+    }
+    await addOperation({ id: `${operationId.trim()}-${Date.now()}`, operationId: operationId.trim(), processName: processName as any, createdAt: new Date().toISOString().split("T")[0] })
+    setOperationId("")
+    setProcessName("")
+  }
+  const rows = operations.map((o: any) => ({
+    id: o.id,
+    operationId: o.operationId || o.operationID || o.opId || "—",
+    processName: o.processName || o.process || "—",
+  }))
+  return <div className="space-y-4">
+    <div className="bg-white border border-slate-200 rounded-xl p-4">
+      <h3 className="font-black text-slate-900 mb-3">Operation Config</h3>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+        <div><p className="text-xs font-bold text-slate-600 mb-1">Operation ID</p><input value={operationId} onChange={e => setOperationId(e.target.value)} placeholder="Operation ID" className={CFG_INPUT} /></div>
+        <div><p className="text-xs font-bold text-slate-600 mb-1">Process Name</p><input value={processName} onChange={e => setProcessName(e.target.value)} placeholder="Process Name" className={CFG_INPUT} /></div>
+        <button onClick={add} className={CFG_BTN_PRIMARY}>Add</button>
+      </div>
+    </div>
+    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+      <table className="w-full text-sm text-slate-900">
+        <thead><tr className="bg-slate-100">{["Operations ID","Process Name","Actions"].map(h => <th key={h} className="text-left px-3 py-2 text-slate-700 font-bold">{h}</th>)}</tr></thead>
+        <tbody>
+          {rows.length === 0 ? (
+            <tr className="border-t border-slate-200"><td colSpan={3} className="px-3 py-4 text-slate-500">No operations found in DB.</td></tr>
+          ) : rows.map(o => <tr key={o.id} className="border-t border-slate-200"><td className="px-3 py-2">{o.operationId}</td><td className="px-3 py-2">{o.processName}</td><td className="px-3 py-2"><button onClick={() => deleteOperation(o.id)} className={CFG_BTN_DANGER}>Delete</button></td></tr>)}
+        </tbody>
+      </table>
+    </div>
+  </div>
+}
+
+function DevicesTab() {
+  const { devices, addDevice, updateDevice, deleteDevice } = useApp()
+  const [showForm, setShowForm] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [depInputA, setDepInputA] = useState("")
+  const [depInputP, setDepInputP] = useState("")
+  const [depInputE, setDepInputE] = useState("")
+  const empty = {
+    id: "", custId: "CUST-001", plantId: "PLANT-001", deviceId: "", deviceName: "", machineType: "die_casting",
+    gatewayId: "", gatewayName: "", licensing: "1m" as const, gatewayType: "Edj10" as const,
+    availabilityPostTime: "", availabilityDutyCycle: "", availabilityRunDuration: "", interlock: "enable" as const, algorithm: "0",
+    availabilityDepValues: [] as string[], performancePostTime: "", debounceTime: "", partCountType: "digital" as const, otherPartCountType: "" as "" | "OTH1" | "OTH2",
+    partCountPins: [] as string[], performanceDepValues: [] as string[], pinScanTime: "", pinPostTime: "", emicPostTime: "", frequency: "50hz" as const, phaseSequence: "1-1P2W" as const, emicConfigValues: [] as string[],
+  }
+  const [form, setForm] = useState(empty)
+  const inputCls = "w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white text-slate-900 placeholder:text-slate-400"
+  const selectCls = "w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white text-slate-900"
+  const sectionCls = "bg-slate-50 border border-slate-200 rounded-xl p-4"
+  const max10Push = (arr: string[], value: string) => arr.length >= 10 || !value.trim() ? arr : [...arr, value.trim()]
+  const pins = form.gatewayType === "Edj10" ? ["Pin1","Pin2","Pin3","Pin4"] : ["Pin1","Pin2","Pin3","Pin4","Pin5","Pin6","Pin7","Pin8"]
+  const save = async () => {
+    if (!/^[a-z0-9]{12}$/i.test(form.deviceId) || !/^[a-z0-9]{12}$/i.test(form.gatewayId)) { alert("Device ID and Gateway ID must be 12-char alphanumeric."); return }
+    const payload = { ...form, id: editingId || `${form.deviceId}-${Date.now()}`, createdAt: new Date().toISOString().split("T")[0] }
+    if (editingId) await updateDevice(editingId, payload); else await addDevice(payload as any)
+    setForm(empty); setEditingId(null)
+  }
+  const downloadTxt = (d: any) => {
+    const lines = Object.entries(d).map(([k,v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : v}`).join("\n")
+    const blob = new Blob([lines], { type: "text/plain" })
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `${d.deviceId}.txt`; a.click()
+  }
+  const deviceRows = devices.map((d: any) => ({
+    id: d.id,
+    gatewayId: d.gatewayId || d.gatewayID || "—",
+    gatewayName: d.gatewayName || d.name || "—",
+    licensing: d.licensing || "—",
+    machineType: d.machineType || d.process || "—",
+  }))
+  return <div className="space-y-4">
+    <div className="flex justify-end">
+      <button onClick={() => { setEditingId(null); setForm(empty); setShowForm(true) }} className={`${CFG_BTN_PRIMARY} px-4`}>Add Device</button>
+    </div>
+    {showForm && <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-4">
+      <h3 className="font-black text-slate-900">{editingId ? "Edit Device" : "Add Device"}</h3>
+      <div className={sectionCls}><p className="font-bold text-slate-800 mb-2">Device Identity</p><div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+        {["custId","plantId","deviceId","deviceName"].map(key => <input required key={key} value={(form as any)[key]} onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))} placeholder={key} className={inputCls} />)}
+        <div><p className="text-xs font-bold text-slate-600 mb-1">Machine Type</p><select required value={form.machineType} onChange={e => setForm(p => ({ ...p, machineType: e.target.value }))} className={selectCls}><option value="die_casting">Die Casting</option><option value="coating">Coating</option><option value="cnc_vmc">CNC/VMC</option></select></div>
+      </div></div>
+      <div className={sectionCls}><p className="font-bold text-slate-800 mb-2">Gateway Identity</p><div className="grid grid-cols-2 md:grid-cols-4 gap-2"><input required value={form.gatewayId} onChange={e => setForm(p => ({ ...p, gatewayId: e.target.value }))} placeholder="Gateway ID" className={inputCls}/><input required value={form.gatewayName} onChange={e => setForm(p => ({ ...p, gatewayName: e.target.value }))} placeholder="Gateway Name" className={inputCls}/><div><p className="text-xs font-bold text-slate-600 mb-1">Licensing</p><select required value={form.licensing} onChange={e => setForm(p => ({ ...p, licensing: e.target.value as any }))} className={selectCls}><option>1m</option><option>3m</option><option>6m</option><option>1yr</option></select></div><div><p className="text-xs font-bold text-slate-600 mb-1">Gateway Type</p><select required value={form.gatewayType} onChange={e => setForm(p => ({ ...p, gatewayType: e.target.value as any, partCountPins: [] }))} className={selectCls}><option>Edj10</option><option>Edj20</option></select></div></div></div>
+      <div className={sectionCls}><p className="font-bold text-slate-800 mb-2">Availability Factor</p><div className="grid grid-cols-2 md:grid-cols-4 gap-2"><input required value={form.availabilityPostTime} onChange={e => setForm(p => ({ ...p, availabilityPostTime: e.target.value }))} placeholder="postTime" className={inputCls}/><input required value={form.availabilityDutyCycle} onChange={e => setForm(p => ({ ...p, availabilityDutyCycle: e.target.value }))} placeholder="dutyCycle" className={inputCls}/><input required value={form.availabilityRunDuration} onChange={e => setForm(p => ({ ...p, availabilityRunDuration: e.target.value }))} placeholder="runDuration" className={inputCls}/><div><p className="text-xs font-bold text-slate-600 mb-1">Interlock</p><select required value={form.interlock} onChange={e => setForm(p => ({ ...p, interlock: e.target.value as any }))} className={selectCls}><option value="enable">enable</option><option value="disable">disable</option></select></div><div><p className="text-xs font-bold text-slate-600 mb-1">Algorithm</p><select required value={form.algorithm} onChange={e => setForm(p => ({ ...p, algorithm: e.target.value }))} className={selectCls}>{["0 — Undefined","1 — 1x Digital Pin Based","2 — 2x Digital Pin Based","3 — 3x Digital Pin Based","4 — CT with Threshold","5 — CT with Variation","255 — Cloud Based"].map(v => <option key={v} value={v.split(" ")[0]}>{v}</option>)}</select></div></div><div className="mt-2"><p className="text-xs font-bold text-slate-600 mb-1">List Dep Value (Max 10)</p><div className="flex gap-2"><input value={depInputA} onChange={e => setDepInputA(e.target.value)} placeholder="Enter Value" className={inputCls}/><button type="button" onClick={() => { setForm(p => ({ ...p, availabilityDepValues: max10Push(p.availabilityDepValues, depInputA) })); setDepInputA("") }} className="text-xs bg-slate-800 text-white px-3 py-2 rounded font-bold shrink-0">Add</button></div><p className="text-xs text-slate-500 mt-1">{form.availabilityDepValues.length}/10 added</p><div className="flex flex-wrap gap-1 mt-1">{form.availabilityDepValues.map((v,i)=><span key={`${v}-${i}`} className="px-2 py-0.5 text-xs bg-slate-200 rounded inline-flex items-center gap-1">{v}<button type="button" onClick={() => setForm(p => ({ ...p, availabilityDepValues: p.availabilityDepValues.filter((_,idx)=>idx!==i) }))} className="text-red-600 font-black">×</button></span>)}</div></div></div>
+      <div className={sectionCls}><p className="font-bold text-slate-800 mb-2">4. Performance Factor</p><div className="grid grid-cols-2 md:grid-cols-4 gap-2"><input value={form.performancePostTime} onChange={e => setForm(p => ({ ...p, performancePostTime: e.target.value }))} placeholder="Post Time" className={inputCls}/><input value={form.debounceTime} onChange={e => setForm(p => ({ ...p, debounceTime: e.target.value }))} placeholder="Debounce Time" className={inputCls}/><div><p className="text-xs font-bold text-slate-600 mb-1">Part Count Type</p><select value={form.partCountType} onChange={e => setForm(p => ({ ...p, partCountType: e.target.value as any }))} className={selectCls}><option value="digital">digital</option><option value="ai">ai</option><option value="other">Other</option></select></div>{form.partCountType === "other" && <div><p className="text-xs font-bold text-slate-600 mb-1">Other type</p><select value={form.otherPartCountType || ""} onChange={e => setForm(p => ({ ...p, otherPartCountType: e.target.value as any }))} className={selectCls}><option value="">OTH</option><option value="OTH1">OTH1</option><option value="OTH2">OTH2</option></select></div>}</div><div className="text-xs mt-2 text-slate-700">Part Count Pins: {pins.map(pin => <label key={pin} className="ml-2"><input type="checkbox" checked={form.partCountPins.includes(pin)} onChange={e => setForm(p => ({ ...p, partCountPins: e.target.checked ? [...p.partCountPins, pin] : p.partCountPins.filter(x => x !== pin) }))} /> {pin}</label>)}</div><div className="mt-2"><p className="text-xs font-bold text-slate-600 mb-1">List Dep Value (Max 10)</p><div className="flex gap-2"><input value={depInputP} onChange={e => setDepInputP(e.target.value)} placeholder="Enter Value" className={inputCls}/><button type="button" onClick={() => { setForm(p => ({ ...p, performanceDepValues: max10Push(p.performanceDepValues, depInputP) })); setDepInputP("") }} className="text-xs bg-slate-800 text-white px-3 py-2 rounded font-bold shrink-0">Add</button></div><p className="text-xs text-slate-500 mt-1">{form.performanceDepValues.length}/10 added</p><div className="flex flex-wrap gap-1 mt-1">{form.performanceDepValues.map((v,i)=><span key={`${v}-${i}`} className="px-2 py-0.5 text-xs bg-slate-200 rounded inline-flex items-center gap-1">{v}<button type="button" onClick={() => setForm(p => ({ ...p, performanceDepValues: p.performanceDepValues.filter((_,idx)=>idx!==i) }))} className="text-red-600 font-black">×</button></span>)}</div></div></div>
+      <div className={sectionCls}><p className="font-bold text-slate-800 mb-2">5. In Pin Configuration</p><div className="grid grid-cols-2 gap-2"><input value={form.pinScanTime} onChange={e => setForm(p => ({ ...p, pinScanTime: e.target.value }))} placeholder="Scan Time" className={inputCls}/><input value={form.pinPostTime} onChange={e => setForm(p => ({ ...p, pinPostTime: e.target.value }))} placeholder="Post Time" className={inputCls}/></div></div>
+      <div className={sectionCls}><p className="font-bold text-slate-800 mb-2">6. eMIC Configuration</p><div className="grid grid-cols-2 md:grid-cols-4 gap-2"><input value={form.emicPostTime} onChange={e => setForm(p => ({ ...p, emicPostTime: e.target.value }))} placeholder="Post Time" className={inputCls}/><div><p className="text-xs font-bold text-slate-600 mb-1">Frequency</p><select value={form.frequency} onChange={e => setForm(p => ({ ...p, frequency: e.target.value as any }))} className={selectCls}><option>50hz</option><option>60hz</option></select></div><div><p className="text-xs font-bold text-slate-600 mb-1">Phase Sequence</p><select value={form.phaseSequence} onChange={e => setForm(p => ({ ...p, phaseSequence: e.target.value as any }))} className={selectCls}><option>1-1P2W</option><option>2-2P2W</option><option>3-3P3W</option><option>4-4P4W</option></select></div></div><div className="mt-2"><p className="text-xs font-bold text-slate-600 mb-1">Configuration Factor Values (Max 10)</p><div className="flex gap-2"><input value={depInputE} onChange={e => setDepInputE(e.target.value)} placeholder="Enter Value" className={inputCls}/><button type="button" onClick={() => { setForm(p => ({ ...p, emicConfigValues: max10Push(p.emicConfigValues, depInputE) })); setDepInputE("") }} className="text-xs bg-slate-800 text-white px-3 py-2 rounded font-bold shrink-0">Add</button></div><p className="text-xs text-slate-500 mt-1">{form.emicConfigValues.length}/10 added</p><div className="flex flex-wrap gap-1 mt-1">{form.emicConfigValues.map((v,i)=><span key={`${v}-${i}`} className="px-2 py-0.5 text-xs bg-slate-200 rounded inline-flex items-center gap-1">{v}<button type="button" onClick={() => setForm(p => ({ ...p, emicConfigValues: p.emicConfigValues.filter((_,idx)=>idx!==i) }))} className="text-red-600 font-black">×</button></span>)}</div></div></div>
+      <div className="flex gap-2"><button onClick={save} className={`${CFG_BTN_PRIMARY} px-4`}>{editingId ? "Update Device" : "Add Device"}</button><button onClick={() => setShowForm(false)} className="px-4 py-2 border border-slate-300 bg-white hover:bg-slate-50 text-slate-900 rounded-xl text-sm font-bold">Close</button></div>
+    </div>}
+    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+      <table className="w-full text-sm text-slate-900"><thead><tr className="bg-slate-100 border-b border-slate-200">{["Gateway ID","Name","Licensing","Machine Type","Actions"].map(h => <th key={h} className="text-left px-3 py-2 font-bold text-slate-700">{h}</th>)}</tr></thead>
+      <tbody>{deviceRows.length === 0 ? (
+        <tr className="border-t border-slate-200"><td colSpan={5} className="px-3 py-4 text-slate-500">No devices found in DB.</td></tr>
+      ) : deviceRows.map(d => <tr key={d.id} className="border-t border-slate-200"><td className="px-3 py-2 font-mono text-slate-900">{d.gatewayId}</td><td className="px-3 py-2 text-slate-900">{d.gatewayName}</td><td className="px-3 py-2 text-slate-900">{d.licensing}</td><td className="px-3 py-2 text-slate-900">{d.machineType}</td><td className="px-3 py-2 space-x-2"><button onClick={() => { const full = devices.find(x => x.id === d.id); if (!full) return; setEditingId(full.id); setForm({ ...(full as any) }); setShowForm(true) }} className="text-blue-700 font-semibold">Edit</button><button onClick={() => deleteDevice(d.id)} className={CFG_BTN_DANGER}>Delete</button><button onClick={() => { const full = devices.find(x => x.id === d.id); if (full) downloadTxt(full as any) }} className="text-emerald-700 font-semibold">Download .txt</button></td></tr>)}</tbody></table>
+    </div>
+  </div>
 }
 
 
@@ -378,29 +577,195 @@ function MachinesTab() {
   const { machines, addMachine, updateMachine, deleteMachine, workOrders, dailyEntries, downtimeEvents, fqiInspections } = useApp()
   const [name,setName]=useState("")
   const [process,setProcess]=useState<"die_casting"|"coating"|"cnc_vmc">("die_casting")
-  const [status,setStatus]=useState<MachineStatus>("active")
+  const [operatorName, setOperatorName] = useState("")
+  const operatorOptions = [
+    "Arun Kumar",
+    "Bala Subramanian",
+    "Chitra Devi",
+    "Dinesh Raj",
+    "Eswar Prasad",
+    "Farhan Ali",
+    "Gokul Nath",
+    "Hari Krishnan",
+    "Indu Priya",
+    "Jagadeesh Kumar",
+  ]
+
   const openReservations = (machineName: string) => workOrders.filter(wo => String(wo.machine).split(",").map(m=>m.trim()).includes(machineName) && ["not_started","in_progress","awaiting_qi"].includes(wo.status)).length
   const machineInUse = (machineName: string) => openReservations(machineName) > 0
   const machineUsedAnywhere = (machineName: string) => machineInUse(machineName) || dailyEntries.some(e => e.machine === machineName) || downtimeEvents.some(d => d.machineName === machineName) || fqiInspections.some(f => f.machine === machineName)
   return <div className="space-y-4">
-    <div className="bg-white border rounded-xl p-4 flex gap-2 flex-wrap">
-      <input value={name} onChange={e=>setName(e.target.value)} placeholder="Machine name" className="border rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white"/>
-            <select value={process} onChange={e=>setProcess(e.target.value as any)} className="border rounded px-3 py-2 text-sm text-slate-900 bg-white"><option value="die_casting">Die Casting</option><option value="coating">Coating</option><option value="cnc_vmc">CNC/VMC</option></select>
-      <select value={status} onChange={e=>setStatus(e.target.value as MachineStatus)} className="border rounded px-3 py-2 text-sm text-slate-900 bg-white"><option value="active">Active</option><option value="maintenance">Maintenance</option><option value="inactive">Inactive</option></select>
-      <button onClick={async()=>{const id=`m-${Date.now()}`; if(!name.trim()||!process||!status) return; await addMachine({id,name:name.trim(),process,type:"",status}); setName("")}} className="px-3 py-2 bg-blue-600 text-white rounded text-sm font-bold">Add</button>
+    <div className="bg-white border rounded-xl p-4 grid grid-cols-1 md:grid-cols-4 gap-2">
+      <div><p className="text-xs font-bold text-slate-600 mb-1">Machine Name</p><input value={name} onChange={e=>setName(e.target.value)} placeholder="Machine Name" className={CFG_INPUT}/></div>
+      <div><p className="text-xs font-bold text-slate-600 mb-1">Process</p><select value={process} onChange={e=>setProcess(e.target.value as any)} className={CFG_INPUT}><option value="die_casting">Die Casting</option><option value="coating">Coating</option><option value="cnc_vmc">CNC/VMC</option></select></div>
+      <div><p className="text-xs font-bold text-slate-600 mb-1">Operator</p><select value={operatorName} onChange={e=>setOperatorName(e.target.value)} className={CFG_INPUT}><option value="">Select Operator</option>{operatorOptions.map(name => <option key={name} value={name}>{name}</option>)}</select></div>
+      <div className="flex items-end"><button onClick={async()=>{const id=`m-${Date.now()}`; if(!name.trim()||!process) return; await addMachine({id,name:name.trim(),process,type:"",status:"active", operatorName: operatorName || ""}); setName(""); setOperatorName("")}} className={CFG_BTN_PRIMARY}>Add</button></div>
     </div>
-    <div className="bg-white border rounded-xl overflow-hidden"><table className="w-full text-sm"><thead><tr className="bg-slate-50">{"Name,Process,Status,Open WO,Actions".split(",").map(h=><th key={h} className="text-left px-3 py-2 text-slate-700 font-semibold">{h}</th>)}</tr></thead><tbody>{machines.map(m=>{ const inUse = machineInUse(m.name); const usedAnywhere = machineUsedAnywhere(m.name); return <tr key={m.id} className="border-t"><td className="px-3 py-2 text-slate-900 font-medium">{m.name}</td><td className="px-3 py-2 text-slate-700">{m.process}</td><td className="px-3 py-2 text-slate-700"><select className="text-slate-900 bg-white border border-slate-200 rounded px-2 py-1" value={m.status} onChange={async e=>{ const next=e.target.value as MachineStatus; if(next!=="active" && inUse){ alert("This machine is currently used in open work orders and cannot be moved to maintenance/inactive."); return } await updateMachine(m.id,{status:next}) }}><option value="active">active</option><option value="maintenance">maintenance</option><option value="inactive">inactive</option></select></td><td className="px-3 py-2 text-slate-700 font-medium">{openReservations(m.name)}</td><td className="px-3 py-2"><button onClick={()=>{ if(usedAnywhere){ alert("Machine is being used in records/work orders and cannot be deleted."); return } deleteMachine(m.id) }} className="text-red-600">Delete</button></td></tr>})}</tbody></table></div>
+    <div className="bg-white border rounded-xl overflow-hidden"><table className="w-full text-sm"><thead><tr className="bg-slate-50">{"Name,Process,Operator,Open WO,Actions".split(",").map(h=><th key={h} className="text-left px-3 py-2 text-slate-700 font-semibold">{h}</th>)}</tr></thead><tbody>{machines.map(m=>{ const usedAnywhere = machineUsedAnywhere(m.name); return <tr key={m.id} className="border-t"><td className="px-3 py-2 text-slate-900 font-medium">{m.name}</td><td className="px-3 py-2 text-slate-700">{m.process}</td><td className="px-3 py-2 text-slate-700"><select className={`${CFG_INPUT} py-1 px-2 rounded`} value={m.operatorName || ""} onChange={async e=>{ await updateMachine(m.id,{operatorName:e.target.value}) }}><option value="">Select Operator</option>{operatorOptions.map(name => <option key={name} value={name}>{name}</option>)}</select></td><td className="px-3 py-2 text-slate-700 font-medium">{openReservations(m.name)}</td><td className="px-3 py-2"><button onClick={()=>{ if(usedAnywhere){ alert("Machine is being used in records/work orders and cannot be deleted."); return } deleteMachine(m.id) }} className="text-red-600">Delete</button></td></tr>})}</tbody></table></div>
   </div>
 }
 
 
 function MaterialsTab() {
-  const { materials } = useApp()
-  const groups = Array.from(new Map(materials.map(m => [`${m.material || "Unknown"}__${m.rawMaterialGrade}`, { material: m.material || "Unknown", grade: m.rawMaterialGrade, entries: [] as typeof materials }])).values())
-  groups.forEach(g => { g.entries = materials.filter(m => (m.material || "Unknown")===g.material && m.rawMaterialGrade===g.grade) })
+  const { materialMasters, addMaterialMaster, deleteMaterialMaster, materials } = useApp()
+  const [material, setMaterial] = useState("")
+  const [grade, setGrade] = useState("")
+  const sortedMasters = [...materialMasters].sort((a, b) => (
+    a.material.localeCompare(b.material) || a.grade.localeCompare(b.grade)
+  ))
+  useEffect(() => {
+    if (materialMasters.length > 0 || materials.length === 0) return
+    const unique = Array.from(new Map(
+      materials
+        .filter(m => (m.material || "").trim() && (m.rawMaterialGrade || "").trim())
+        .map(m => {
+          const mat = (m.material || "").trim()
+          const grd = (m.rawMaterialGrade || "").trim().toUpperCase()
+          return [`${mat.toLowerCase().replace(/\s+/g, "_")}__${grd}`, { material: mat, grade: grd }]
+        }),
+    ).values())
+    unique.forEach(item => {
+      const id = `${item.material.toLowerCase().replace(/\s+/g, "_")}__${item.grade}`
+      addMaterialMaster({ id, material: item.material, grade: item.grade }).catch(console.error)
+    })
+  }, [materialMasters, materials, addMaterialMaster])
+  const createMaster = async () => {
+    if (!material.trim() || !grade.trim()) return
+    const id = `${material.trim().toLowerCase().replace(/\s+/g, "_")}__${grade.trim().toUpperCase()}`
+    await addMaterialMaster({ id, material: material.trim(), grade: grade.trim().toUpperCase() })
+    setMaterial("")
+    setGrade("")
+  }
   return <div className="bg-white border rounded-xl p-4">
-    <h3 className="font-black text-slate-800 mb-3">Material Master List</h3>
-    <table className="w-full text-sm"><thead><tr className="bg-slate-50">{["Material","Grade","Entries","Total KG"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead><tbody>{groups.map(g=>{const total=g.entries.reduce((s,m)=>s+m.receivedQuantity,0); return <tr key={`${g.material}-${g.grade}`} className="border-t"><td className="px-3 py-2">{g.material}</td><td className="px-3 py-2">{g.grade}</td><td className="px-3 py-2">{g.entries.length}</td><td className="px-3 py-2">{total.toFixed(1)}</td></tr>})}</tbody></table>
+    <h3 className="font-black text-slate-900 mb-3">Material Master List</h3>
+    <div className="flex gap-2 mb-3">
+      <input value={material} onChange={e=>setMaterial(e.target.value)} placeholder="Material" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
+      <input value={grade} onChange={e=>setGrade(e.target.value)} placeholder="Grade" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
+      <button onClick={createMaster} className={CFG_BTN_PRIMARY}>Add</button>
+    </div>
+    <table className="w-full text-sm border border-slate-200 rounded-lg overflow-hidden">
+      <thead>
+      <tr className="bg-slate-50">
+        {["Material","Grade","Actions"].map(h=><th key={h} className="text-left px-3 py-2 text-slate-700 font-semibold">{h}</th>)}
+      </tr>
+      </thead>
+      <tbody>
+      {sortedMasters.length === 0 ? (
+        <tr className="border-t">
+          <td colSpan={3} className="px-3 py-4 text-slate-500">No material master records yet.</td>
+        </tr>
+      ) : sortedMasters.map(g=><tr key={g.id} className="border-t"><td className="px-3 py-2 text-slate-900">{g.material}</td><td className="px-3 py-2 text-slate-900">{g.grade}</td><td className="px-3 py-2"><button className="text-red-600 hover:text-red-700 font-medium" onClick={()=>deleteMaterialMaster(g.id)}>Delete</button></td></tr>)}
+      </tbody>
+    </table>
+  </div>
+}
+
+function PartsTab() {
+  const { currentUser, partMasters, addPartMaster, deletePartMaster, materialMasters, schedules } = useApp()
+  const [partId, setPartId] = useState("")
+  const [partName, setPartName] = useState("")
+  const [materialRequired, setMaterialRequired] = useState("")
+  const [grade, setGrade] = useState("")
+  const [quantityPerPart, setQuantityPerPart] = useState("")
+  const materialOptions = [...materialMasters].sort((a, b) => (
+    a.material.localeCompare(b.material) || a.grade.localeCompare(b.grade)
+  ))
+  const gradeOptions = materialRequired
+    ? materialOptions.filter(m => m.material === materialRequired).map(m => m.grade)
+    : []
+
+  const createPartMaster = async () => {
+    if (!partId.trim() || !partName.trim() || !materialRequired.trim() || !grade.trim() || Number(quantityPerPart) <= 0) return
+    const id = `${partId.trim().toLowerCase().replace(/\s+/g, "_")}__${grade.trim().toUpperCase()}`
+    await addPartMaster({
+      id,
+      partId: partId.trim(),
+      partName: partName.trim(),
+      materialRequired: materialRequired.trim(),
+      grade: grade.trim().toUpperCase(),
+      quantityPerPart: Number(quantityPerPart),
+    })
+    setPartId("")
+    setPartName("")
+    setMaterialRequired("")
+    setGrade("")
+    setQuantityPerPart("")
+  }
+
+  const sorted = [...partMasters].sort((a, b) => a.partName.localeCompare(b.partName))
+  const displayRows = sorted.length > 0 ? sorted : INITIAL_PART_MASTERS
+  const hasAssignedSchedule = (partMasterId: string) => schedules.some(s => s.partMasterId === partMasterId)
+  const seedDefaultParts = async () => {
+    if (currentUser?.role !== UserRole.ADMIN) {
+      alert("Only Admin users can seed Part Masters for a client.")
+      return
+    }
+    try {
+      await Promise.all(INITIAL_PART_MASTERS.map(async (p) => {
+        await addPartMaster(p)
+      }))
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Unable to seed part masters."
+      alert(message)
+    }
+  }
+
+  return <div className="bg-white border rounded-xl p-4">
+    <h3 className="font-black text-slate-900 mb-3">Part Master List</h3>
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
+      <input value={partId} onChange={e => setPartId(e.target.value)} placeholder="Part ID *" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
+      <input value={partName} onChange={e => setPartName(e.target.value)} placeholder="Part Name *" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
+      <select value={materialRequired} onChange={e => { setMaterialRequired(e.target.value); setGrade("") }} className={CFG_INPUT}>
+        <option value="">Material Required *</option>
+        {Array.from(new Set(materialOptions.map(m => m.material))).map(m => <option key={m} value={m}>{m}</option>)}
+      </select>
+      <select value={grade} onChange={e => setGrade(e.target.value)} disabled={!materialRequired} className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 bg-white disabled:bg-slate-100 disabled:text-slate-400">
+        <option value="">Grade *</option>
+        {gradeOptions.map(g => <option key={g} value={g}>{g}</option>)}
+      </select>
+      <input type="number" min="0.001" step="0.001" value={quantityPerPart} onChange={e => setQuantityPerPart(e.target.value)} placeholder="Quantity Per Part (KG) *" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
+      <button onClick={createPartMaster} className={CFG_BTN_PRIMARY}>Add Part Master</button>
+    </div>
+    <p className="text-xs text-slate-500 mb-3">Material and grade are now selected from Config → Materials master rows ({materialMasters.length} configured).</p>
+    {sorted.length === 0 && (
+      <div className="mb-3 p-3 border border-amber-200 bg-amber-50 rounded-lg flex items-center justify-between gap-3">
+        <p className="text-xs text-amber-800 font-medium">No part master records in DB yet. You can seed the default RE parts.</p>
+        <button onClick={seedDefaultParts} className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-colors">Seed Default Parts</button>
+      </div>
+    )}
+    <table className="w-full text-sm border border-slate-200 rounded-lg overflow-hidden">
+      <thead>
+      <tr className="bg-slate-50">
+        {["Part ID", "Part Name", "Material Required", "Grade", "Qty/Part (KG)", "Actions"].map(h => <th key={h} className="text-left px-3 py-2 text-slate-700 font-semibold">{h}</th>)}
+      </tr>
+      </thead>
+      <tbody>
+      {displayRows.map(p => (
+        <tr key={p.id} className="border-t">
+          <td className="px-3 py-2 text-slate-900 font-mono">{p.partId}</td>
+          <td className="px-3 py-2 text-slate-900">{p.partName}</td>
+          <td className="px-3 py-2 text-slate-900">{p.materialRequired}</td>
+          <td className="px-3 py-2 text-slate-900">{p.grade}</td>
+          <td className="px-3 py-2 text-slate-900">{p.quantityPerPart}</td>
+          <td className="px-3 py-2">
+            {sorted.length > 0
+              ? <button
+                  className="text-red-600 hover:text-red-700 font-medium"
+                  onClick={() => {
+                    if (hasAssignedSchedule(p.id)) {
+                      alert("This Part Master is assigned in Monthly Schedule and cannot be deleted.")
+                      return
+                    }
+                    deletePartMaster(p.id)
+                  }}>
+                  Delete
+                </button>
+              : <span className="text-slate-400 text-xs">Seed to enable</span>}
+          </td>
+        </tr>
+      ))}
+      </tbody>
+    </table>
   </div>
 }
 
