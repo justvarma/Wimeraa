@@ -21,6 +21,7 @@ import {
   type PTC, type DailyProductionEntry, type ProcessRecord,
   type DowntimeEvent, type QIInspection, type FQIInspection,
   type ShiftConfig, type RoleConfig, type MachineDef, type RawMaterialMaster, type PartMaster, type DeviceConfig, type OperationConfig, type ProgramMaster,
+  type MainWorkOrderV2, type ProcessWorkOrderV2, type WoMachineAssignmentV2, type WoAuditLog, type ReworkTrace,
   UserRole, DEFAULT_SHIFT_CONFIGS, DEFAULT_ROLE_CONFIGS, DEFAULT_MACHINE_CONFIGS,
 } from "@/lib/store"
 import { onAuthStateChange, signIn, signOut, fetchUserProfile, auth } from "@/lib/auth"
@@ -118,6 +119,12 @@ interface AppContextType {
   addProgram: (program: ProgramMaster) => Promise<void>
   updateProgram: (id: string, data: Partial<ProgramMaster>) => Promise<void>
   deleteProgram: (id: string) => Promise<void>
+  mainWorkOrdersV2: MainWorkOrderV2[]
+  processWorkOrdersV2: ProcessWorkOrderV2[]
+  woMachineAssignmentsV2: WoMachineAssignmentV2[]
+  woAuditLogs: WoAuditLog[]
+  reworkTraces: ReworkTrace[]
+
 
   // ── Config: Shifts ─────────────────────────────────────────────────────────
   shifts:       ShiftConfig[]
@@ -168,6 +175,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [devices,         setDevices]         = useState<DeviceConfig[]>([])
   const [operations,      setOperations]      = useState<OperationConfig[]>([])
   const [programs,        setPrograms]        = useState<ProgramMaster[]>([])
+  const [mainWorkOrdersV2, setMainWorkOrdersV2] = useState<MainWorkOrderV2[]>([])
+  const [processWorkOrdersV2, setProcessWorkOrdersV2] = useState<ProcessWorkOrderV2[]>([])
+  const [woMachineAssignmentsV2, setWoMachineAssignmentsV2] = useState<WoMachineAssignmentV2[]>([])
+  const [woAuditLogs, setWoAuditLogs] = useState<WoAuditLog[]>([])
+  const [reworkTraces, setReworkTraces] = useState<ReworkTrace[]>([])
 
   const unsubsRef = useRef<Array<() => void>>([])
 
@@ -282,6 +294,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             fs.subscribeDevices(cid, setDevices, onSnapError),
             fs.subscribeOperations(cid, setOperations, onSnapError),
             fs.subscribePrograms(cid, setPrograms, onSnapError),
+            fs.subscribeMainWorkOrdersV2(cid, setMainWorkOrdersV2, onSnapError),
+            fs.subscribeProcessWorkOrdersV2(cid, setProcessWorkOrdersV2, onSnapError),
+            fs.subscribeWoMachineAssignmentsV2(cid, setWoMachineAssignmentsV2, onSnapError),
+            fs.subscribeWoAuditLogs(cid, setWoAuditLogs, onSnapError),
+            fs.subscribeReworkTraces(cid, setReworkTraces, onSnapError),
           ]
         }
       } catch (err) {
@@ -554,6 +571,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         devices, addDevice, updateDevice, deleteDevice,
         operations, addOperation, deleteOperation,
         programs, addProgram, updateProgram, deleteProgram,
+        mainWorkOrdersV2, processWorkOrdersV2, woMachineAssignmentsV2, woAuditLogs, reworkTraces,
     shifts, addShift, deleteShift, updateShift, reorderShift, confirmShifts,
 
         sidebarCollapsed, setSidebarCollapsed,

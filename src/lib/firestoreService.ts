@@ -917,3 +917,49 @@ export async function confirmShiftConfigs(clientId: string): Promise<void> {
   const shifts = await getShiftConfigs(clientId)
   validateShiftConfigs(shifts)
 }
+
+
+// ─── Phase 2: New WO architecture collections ───────────────────────────────
+export function subscribeMainWorkOrdersV2(clientId: string, setter: (items: MainWorkOrderV2[]) => void, onError?: (err: Error) => void): Unsub {
+  return subscribeCol<MainWorkOrderV2>(clientId, "main_work_orders_v2", setter, [], onError)
+}
+export async function addMainWorkOrderV2(clientId: string, data: MainWorkOrderV2): Promise<void> {
+  await setDoc(clientDoc(clientId, "main_work_orders_v2", data.id), stripUndefined(data))
+}
+export async function updateMainWorkOrderV2(clientId: string, id: string, data: Partial<MainWorkOrderV2>): Promise<void> {
+  await updateDoc(clientDoc(clientId, "main_work_orders_v2", id), stripUndefined(data))
+}
+
+export function subscribeProcessWorkOrdersV2(clientId: string, setter: (items: ProcessWorkOrderV2[]) => void, onError?: (err: Error) => void): Unsub {
+  return subscribeCol<ProcessWorkOrderV2>(clientId, "process_work_orders_v2", setter, [], onError)
+}
+export async function addProcessWorkOrderV2(clientId: string, data: ProcessWorkOrderV2): Promise<void> {
+  await setDoc(clientDoc(clientId, "process_work_orders_v2", data.id), stripUndefined(data))
+}
+export async function updateProcessWorkOrderV2(clientId: string, id: string, data: Partial<ProcessWorkOrderV2>): Promise<void> {
+  await updateDoc(clientDoc(clientId, "process_work_orders_v2", id), stripUndefined(data))
+}
+
+export function subscribeWoMachineAssignmentsV2(clientId: string, setter: (items: WoMachineAssignmentV2[]) => void, onError?: (err: Error) => void): Unsub {
+  return subscribeCol<WoMachineAssignmentV2>(clientId, "wo_machine_assignments_v2", setter, [], onError)
+}
+export async function addWoMachineAssignmentV2(clientId: string, data: WoMachineAssignmentV2): Promise<void> {
+  await setDoc(clientDoc(clientId, "wo_machine_assignments_v2", data.id), stripUndefined(data))
+}
+export async function updateWoMachineAssignmentV2(clientId: string, id: string, data: Partial<WoMachineAssignmentV2>): Promise<void> {
+  await updateDoc(clientDoc(clientId, "wo_machine_assignments_v2", id), stripUndefined(data))
+}
+
+export function subscribeWoAuditLogs(clientId: string, setter: (items: WoAuditLog[]) => void, onError?: (err: Error) => void): Unsub {
+  return subscribeCol<WoAuditLog>(clientId, "wo_audit_logs", setter, [], onError)
+}
+export async function addWoAuditLog(clientId: string, data: WoAuditLog): Promise<void> {
+  await setDoc(clientDoc(clientId, "wo_audit_logs", data.id), stripUndefined(data))
+}
+
+export function subscribeReworkTraces(clientId: string, setter: (items: ReworkTrace[]) => void, onError?: (err: Error) => void): Unsub {
+  return subscribeCol<ReworkTrace>(clientId, "rework_traces", setter, [], onError)
+}
+export async function addReworkTrace(clientId: string, data: ReworkTrace): Promise<void> {
+  await setDoc(clientDoc(clientId, "rework_traces", data.id), stripUndefined(data))
+}
