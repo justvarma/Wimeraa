@@ -3,7 +3,7 @@ import { useState, useMemo } from "react"
 import { useApp } from "@/components/providers/AppProvider"
 import {
   UserRole, PROCESS_STAGE_LABELS, PROCESS_PTC_ROLE_MAP, QI_ROLE_PROCESS_MAP, 
-  type ProcessStage, type Shift, type WorkOrder, type WOStatus,
+  type ProcessStage, type Shift, type WorkOrder, type WOStatus, type ShortcomingCategory,
 } from "@/lib/store"
 import { getSelectableShiftOptions, getShiftLabel } from "@/lib/shiftUtils"
 import { buildStageSubWorkOrder, hasOpenMachineAssignment } from "@/lib/workflow"
@@ -42,6 +42,13 @@ const processColor = (p: ProcessStage) =>
 
 const processIcon = (p: ProcessStage) =>
   p === "die_casting" ? "🔥" : p === "coating" ? "🎨" : "⚙️"
+
+type ProgramOption = {
+  id: string
+  programId?: string
+  programName?: string
+  name?: string
+}
 
 // ─── Phase 1 Form (PDC Manager — WO Shell) ────────────────────────────────────
 function Phase1Form({ onClose, onSave, initial }: {
@@ -144,11 +151,11 @@ function Phase1Form({ onClose, onSave, initial }: {
     await addProcessWorkOrderV2({
       id: processId, processWoNumber: v2NextProcessNo, parentWoId: mainId, rootWoId: mainId, processType: "die_casting", status: "scheduled",
       shiftDate: v2ShiftDate, shift: v2Shift, targetParts: planned, requiredQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), bufferPercent: 2,
-      assignedQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), takenQtyKg: 0, leftoverQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), shortcomingCategory: v2Shortcoming as any, createdAt: new Date().toISOString().split("T")[0],
+      assignedQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), takenQtyKg: 0, leftoverQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), shortcomingCategory: v2Shortcoming as ShortcomingCategory, createdAt: new Date().toISOString().split("T")[0],
     })
     await addWoMachineAssignmentV2({
       id: `ma-${Date.now()}`, processWoId: processId, machineId: v2MachineId, machineName: machine?.name || "", operatorName: v2Operator,
-      shiftDate: v2ShiftDate, shift: v2Shift, programId: v2ProgramId, programName: (program as any)?.programName || "",
+      shiftDate: v2ShiftDate, shift: v2Shift, programId: v2ProgramId, programName: (program as ProgramOption | undefined)?.programName || "",
       partsCommitted: planned, producedQty: Number(v2Produced || 0), rejectedQty: 0, reworkQty: 0, createdAt: new Date().toISOString().split("T")[0],
     })
     await addWoAuditLog({ id: `audit-${Date.now()}`, woId: mainId, processWoId: processId, action: "v2_wo_created_and_scheduled", field: "status", oldValue: "draft", newValue: "scheduled", actorId: currentUser.id, actorName: currentUser.name, createdAt: new Date().toISOString().split("T")[0] })
@@ -712,7 +719,7 @@ export default function WorkOrdersPage() {
               <div className="text-xs text-slate-600 mb-2">Select free machines only. Occupied machines are disabled in final phase.</div>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                 <Field label="Machine" req><select className={selectCls} value={v2MachineId} onChange={e=>setV2MachineId(e.target.value)}><option value="">Choose Machine</option>{machines.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></Field>
-                <Field label="Program" req><select className={selectCls} value={v2ProgramId} onChange={e=>setV2ProgramId(e.target.value)}><option value="">From Program Master</option>{programs.map((p:any)=><option key={p.id} value={p.id}>{p.programId || p.id} - {p.programName || p.name}</option>)}</select></Field>
+                <Field label="Program" req><select className={selectCls} value={v2ProgramId} onChange={e=>setV2ProgramId(e.target.value)}><option value="">From Program Master</option>{(programs as ProgramOption[]).map(p=><option key={p.id} value={p.id}>{p.programId || p.id} - {p.programName || p.name}</option>)}</select></Field>
                 <Field label="Operator" req><input className={cls} value={v2Operator} onChange={e=>setV2Operator(e.target.value)} placeholder="Operator Name"/></Field>
                 <Field label="Parts Produced" req><input className={cls} value={v2Produced} onChange={e=>setV2Produced(e.target.value)} placeholder="Machine-wise output"/></Field>
                 <Field label="Shortcoming Category"><select className={selectCls} value={v2Shortcoming} onChange={e=>setV2Shortcoming(e.target.value)}><option value="machine_breakdown">Machine Breakdown</option><option value="material_shortage">Material Shortage</option><option value="operator_absent">Operator Absent</option><option value="power_failure">Power Failure</option><option value="program_issue">Program Issue</option><option value="tool_change">Tool Change</option><option value="qa_hold">QA Hold</option></select></Field>
@@ -736,7 +743,7 @@ export default function WorkOrdersPage() {
       {isProcessPDC && (
         <div className="flex items-start gap-3 p-4 bg-blue-50 border border-blue-200 rounded-2xl text-sm text-blue-800">
           <AlertTriangle size={16} className="shrink-0 mt-0.5 text-blue-500"/>
-          <p><strong>Your role ({PROCESS_STAGE_LABELS[myProcess!]}):</strong> Click <strong>"Fill Details"</strong> on any <em>Draft</em> work order for your process to enter machine, operator, shift, material, and acceptance criteria.</p>
+          <p><strong>Your role ({PROCESS_STAGE_LABELS[myProcess!]}):</strong> Click <strong>&quot;Fill Details&quot;</strong> on any <em>Draft</em> work order for your process to enter machine, operator, shift, material, and acceptance criteria.</p>
         </div>
       )}
 
