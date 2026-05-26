@@ -108,11 +108,20 @@ function Phase1Form({ onClose, onSave, initial }: {
   const v2NextProcessNo = `PWO-${String(processWorkOrdersV2.length + 1).padStart(3, "0")}`
   const v2Save = async () => {
     if (!currentUser || !v2SelectedSchedule || !v2ShiftDate || !v2Shift || !v2MachineId || !v2ProgramId || !v2Operator) return
+    const produced = Number(v2Produced || 0)
+    const planned = Number(v2SelectedSchedule.requiredQuantity || 0)
+    if (produced < 0) { alert("Produced qty cannot be negative."); return }
+    if (produced > planned) { alert("Produced qty cannot exceed planned qty."); return }
+    const machineConflict = woMachineAssignmentsV2.some(a => a.machineId === v2MachineId && a.shiftDate === v2ShiftDate && a.shift === v2Shift)
+    if (machineConflict) { alert("Selected machine is already assigned for this shift/date."); return }
+    const operatorConflict = woMachineAssignmentsV2.some(a => a.operatorName.trim().toLowerCase() === v2Operator.trim().toLowerCase() && a.shiftDate === v2ShiftDate && a.shift === v2Shift)
+    if (operatorConflict) { alert("Selected operator is already assigned on another machine for this shift/date."); return }
+    const processMachineLoad = woMachineAssignmentsV2.filter(a => a.machineId === v2MachineId && a.shiftDate === v2ShiftDate).reduce((sum, a) => sum + Number(a.partsCommitted || 0), 0)
+    if (processMachineLoad + planned > 500) { alert("Machine capacity exceeded for shift (limit 500 parts/shift)."); return }
     const mainId = `main-${Date.now()}`
     const processId = `proc-${Date.now()}`
     const machine = machines.find(m => m.id === v2MachineId)
     const program = programs.find(p => p.id === v2ProgramId)
-    const planned = Number(v2SelectedSchedule.requiredQuantity || 0)
     await addMainWorkOrderV2({
       id: mainId, woNumber: v2NextWoNo, scheduleId: v2SelectedSchedule.id, partMasterId: v2SelectedSchedule.partMasterId || "",
       partId: v2SelectedSchedule.partId, partName: v2SelectedSchedule.partName, scheduleStartDate: v2SelectedSchedule.date, scheduleEndDate: v2SelectedSchedule.date,
@@ -122,14 +131,14 @@ function Phase1Form({ onClose, onSave, initial }: {
     await addProcessWorkOrderV2({
       id: processId, processWoNumber: v2NextProcessNo, parentWoId: mainId, rootWoId: mainId, processType: "die_casting", status: "scheduled",
       shiftDate: v2ShiftDate, shift: v2Shift, targetParts: planned, requiredQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), bufferPercent: 2,
-      assignedQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), takenQtyKg: 0, leftoverQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), createdAt: new Date().toISOString().split("T")[0],
+      assignedQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), takenQtyKg: 0, leftoverQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), shortcomingCategory: v2Shortcoming as any, createdAt: new Date().toISOString().split("T")[0],
     })
     await addWoMachineAssignmentV2({
       id: `ma-${Date.now()}`, processWoId: processId, machineId: v2MachineId, machineName: machine?.name || "", operatorName: v2Operator,
       shiftDate: v2ShiftDate, shift: v2Shift, programId: v2ProgramId, programName: (program as any)?.programName || "",
       partsCommitted: planned, producedQty: Number(v2Produced || 0), rejectedQty: 0, reworkQty: 0, createdAt: new Date().toISOString().split("T")[0],
     })
-    await addWoAuditLog({ id: `audit-${Date.now()}`, woId: mainId, processWoId: processId, action: "v2_wo_created", actorId: currentUser.id, actorName: currentUser.name, createdAt: new Date().toISOString().split("T")[0] })
+    await addWoAuditLog({ id: `audit-${Date.now()}`, woId: mainId, processWoId: processId, action: "v2_wo_created_and_scheduled", field: "status", oldValue: "draft", newValue: "scheduled", actorId: currentUser.id, actorName: currentUser.name, createdAt: new Date().toISOString().split("T")[0] })
     setShowV2Planner(false)
   }
 
@@ -484,6 +493,7 @@ export default function WorkOrdersPage() {
   const [v2ProgramId, setV2ProgramId] = useState("")
   const [v2Operator, setV2Operator] = useState("")
   const [v2Produced, setV2Produced] = useState("")
+  const [v2Shortcoming, setV2Shortcoming] = useState("machine_breakdown")
 
   const isPDCManager   = role === UserRole.PTC_MANAGER
   const isAdmin        = role === UserRole.ADMIN
@@ -662,10 +672,11 @@ export default function WorkOrdersPage() {
                 <Field label="Program" req><select className={selectCls} value={v2ProgramId} onChange={e=>setV2ProgramId(e.target.value)}><option value="">From Program Master</option>{programs.map((p:any)=><option key={p.id} value={p.id}>{p.programId || p.id} - {p.programName || p.name}</option>)}</select></Field>
                 <Field label="Operator" req><input className={cls} value={v2Operator} onChange={e=>setV2Operator(e.target.value)} placeholder="Operator Name"/></Field>
                 <Field label="Parts Produced" req><input className={cls} value={v2Produced} onChange={e=>setV2Produced(e.target.value)} placeholder="Machine-wise output"/></Field>
+                <Field label="Shortcoming Category"><select className={selectCls} value={v2Shortcoming} onChange={e=>setV2Shortcoming(e.target.value)}><option value="machine_breakdown">Machine Breakdown</option><option value="material_shortage">Material Shortage</option><option value="operator_absent">Operator Absent</option><option value="power_failure">Power Failure</option><option value="program_issue">Program Issue</option><option value="tool_change">Tool Change</option><option value="qa_hold">QA Hold</option></select></Field>
               </div>
             </div>
             <div className="border border-blue-200 bg-blue-50 rounded-xl p-3 text-xs text-blue-800">
-              Phase 4: Save is now connected to V2 collections (main WO, process WO, machine assignment, audit log).
+              Phase 5: Added core real-time constraints (machine/operator overlap, capacity, overproduction) and categorized shortcoming capture.
             </div>
             <div className="flex justify-end"><button onClick={v2Save} className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold">Save V2 WO</button></div>
           </div>
