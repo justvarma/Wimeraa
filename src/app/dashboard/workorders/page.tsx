@@ -203,10 +203,6 @@ function Phase2Form({ wo, onClose, onSave }: {
   const { materials, users, ptcs, shifts, workOrders, machines, programs } = useApp()
   const shiftOptions = getSelectableShiftOptions(shifts, wo.shift)
   const approvedMats = materials.filter(m => m.status === "approved")
-  const processOperators = users.filter(u =>
-    u.role === PROCESS_PTC_ROLE_MAP[wo.process] || u.role === UserRole.ADMIN
-  )
-  const ptcManagers = users.filter(u => u.role === UserRole.PTC_MANAGER || u.role === UserRole.ADMIN)
   const processMachines = machines.filter(m => m.process === wo.process && m.status === "active")
   const validPDCs = ptcs.filter(p => p.process === wo.process)
   const qiUsers = users.filter(u => u.role === UserRole.QUALITY_INSPECTOR || u.role === UserRole.ADMIN || QI_ROLE_PROCESS_MAP[u.role] === wo.process)
@@ -236,7 +232,6 @@ function Phase2Form({ wo, onClose, onSave }: {
     takenQtyKg:     wo.requiredQuantityKg || 0,
     shortcomingNotes: "",
   })
-  const [showMachineProcessWindow, setShowMachineProcessWindow] = useState(true)
   const reservedMachines = new Set(
     workOrders
       .filter(w => w.id !== wo.id && w.machine && w.date === wo.date && w.shift === form.shift && !["completed", "finished_goods", "rejected"].includes(w.status))
