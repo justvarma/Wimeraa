@@ -231,6 +231,7 @@ function Phase2Form({ wo, onClose, onSave }: {
     vendorShift:    wo.vendorShift    || wo.shift || shiftOptions[0]?.id || "" as Shift,
     assignedQiId:   wo.assignedQiId   || "",
   })
+  const [showMachineProcessWindow, setShowMachineProcessWindow] = useState(true)
   const reservedMachines = new Set(
     workOrders
       .filter(w => w.id !== wo.id && w.machine && w.date === wo.date && w.shift === form.shift && !["completed", "finished_goods", "rejected"].includes(w.status))
@@ -351,19 +352,54 @@ function Phase2Form({ wo, onClose, onSave }: {
             </div>
           </div>
 
-          {/* Machine & Operator */}
-          <div className="p-4 border border-slate-200 rounded-xl space-y-3">
-            <p className="text-xs font-black text-slate-700 uppercase tracking-wider">Machine & Operator</p>
-            <Field label="Machine" req>
-              <div className="space-y-2">{processMachines.map(m => { const checked = selectedMachineNames.includes(m.name); const occupied = reservedMachines.has(m.name); return <label key={m.id} className={`flex items-center gap-2 text-sm ${occupied?"text-red-600":"text-slate-700"}`}><input type="checkbox" checked={checked} disabled={occupied && !checked} onChange={e=>{ setForm(p=>{ const set=new Set(p.machine.split(",").map(x=>x.trim()).filter(Boolean)); if(e.target.checked) set.add(m.name); else set.delete(m.name); return {...p, machine:Array.from(set).join(", ")} }) }} />{m.name}{occupied && !checked ? " — occupied for selected shift/date" : ""}</label>})}</div>
-            </Field>
-            <Field label="Operator" req>
-              <select required value={form.operator} onChange={e => setForm(p=>({...p,operator:e.target.value}))} className={selectCls}>
-                <option value="">— Select operator —</option>
-                {processOperators.map(u => <option key={u.id} value={u.name}>{u.name} ({u.department})</option>)}
-                <option value="External Operator">External Operator</option>
-              </select>
-            </Field>
+          {/* Machine Process Window */}
+          <div className="p-4 border border-indigo-200 bg-indigo-50/50 rounded-xl space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-black text-indigo-800 uppercase tracking-wider">Machine Process Window</p>
+              <button
+                type="button"
+                onClick={() => setShowMachineProcessWindow(p => !p)}
+                className="text-xs font-bold text-indigo-700 hover:text-indigo-900"
+              >
+                {showMachineProcessWindow ? "Hide" : "Show"}
+              </button>
+            </div>
+            {showMachineProcessWindow && (
+              <>
+                <Field label="Choose Machines" req>
+                  <div className="space-y-2">
+                    {processMachines.map(m => {
+                      const checked = selectedMachineNames.includes(m.name)
+                      const occupied = reservedMachines.has(m.name)
+                      return (
+                        <label key={m.id} className={`flex items-center gap-2 text-sm ${occupied ? "text-red-600" : "text-slate-700"}`}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={occupied && !checked}
+                            onChange={e => {
+                              setForm(p => {
+                                const set = new Set(p.machine.split(",").map(x => x.trim()).filter(Boolean))
+                                if (e.target.checked) set.add(m.name); else set.delete(m.name)
+                                return { ...p, machine: Array.from(set).join(", ") }
+                              })
+                            }}
+                          />
+                          {m.name}{occupied && !checked ? " — occupied for selected shift/date" : ""}
+                        </label>
+                      )
+                    })}
+                  </div>
+                </Field>
+                <Field label="Operator" req>
+                  <select required value={form.operator} onChange={e => setForm(p=>({...p,operator:e.target.value}))} className={selectCls}>
+                    <option value="">— Select operator —</option>
+                    {processOperators.map(u => <option key={u.id} value={u.name}>{u.name} ({u.department})</option>)}
+                    <option value="External Operator">External Operator</option>
+                  </select>
+                </Field>
+              </>
+            )}
           </div>
 
           {/* Production parameters */}
