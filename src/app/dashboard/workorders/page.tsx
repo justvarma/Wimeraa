@@ -231,7 +231,9 @@ function Phase2Form({ wo, onClose, onSave }: {
     bufferPercent:  2,
     takenQtyKg:     wo.requiredQuantityKg || 0,
     shortcomingNotes: "",
+    machineProducedMap: {} as Record<string, number>,
   })
+  const [showMachineProcessWindow, setShowMachineProcessWindow] = useState(true)
   const reservedMachines = new Set(
     workOrders
       .filter(w => w.id !== wo.id && w.machine && w.date === wo.date && w.shift === form.shift && !["completed", "finished_goods", "rejected"].includes(w.status))
