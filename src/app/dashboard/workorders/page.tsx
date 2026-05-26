@@ -459,9 +459,8 @@ export default function WorkOrdersPage() {
   const [v2ScheduleId, setV2ScheduleId] = useState("")
   const [v2ShiftDate, setV2ShiftDate] = useState("")
   const [v2Shift, setV2Shift] = useState<Shift | "">("" as Shift | "")
-  const [v2MachineId, setV2MachineId] = useState("")
+  const [v2MachineIds, setV2MachineIds] = useState<string[]>([])
   const [v2ProgramId, setV2ProgramId] = useState("")
-  const [v2Operator, setV2Operator] = useState("")
   const [v2Produced, setV2Produced] = useState("")
   const [v2Shortcoming, setV2Shortcoming] = useState("machine_breakdown")
   const v2SelectedSchedule = schedules.find(s => s.id === v2ScheduleId)
@@ -598,20 +597,23 @@ export default function WorkOrdersPage() {
   }
 
   const v2Save = async () => {
-    if (!currentUser || !v2SelectedSchedule || !v2ShiftDate || !v2Shift || !v2MachineId || !v2ProgramId || !v2Operator) return
+    if (!currentUser || !v2SelectedSchedule || !v2ShiftDate || !v2Shift || !v2ProgramId) return
+    const selectedMachineIds = v2MachineIds
+    if (selectedMachineIds.length === 0) { alert("Select at least one machine."); return }
     const produced = Number(v2Produced || 0)
     const planned = Number(v2SelectedSchedule.requiredQuantity || 0)
     if (produced < 0) { alert("Produced qty cannot be negative."); return }
     if (produced > planned) { alert("Produced qty cannot exceed planned qty."); return }
-    const machineConflict = woMachineAssignmentsV2.some(a => a.machineId === v2MachineId && a.shiftDate === v2ShiftDate && a.shift === v2Shift)
-    if (machineConflict) { alert("Selected machine is already assigned for this shift/date."); return }
-    const operatorConflict = woMachineAssignmentsV2.some(a => a.operatorName.trim().toLowerCase() === v2Operator.trim().toLowerCase() && a.shiftDate === v2ShiftDate && a.shift === v2Shift)
-    if (operatorConflict) { alert("Selected operator is already assigned on another machine for this shift/date."); return }
-    const processMachineLoad = woMachineAssignmentsV2.filter(a => a.machineId === v2MachineId && a.shiftDate === v2ShiftDate).reduce((sum, a) => sum + Number(a.partsCommitted || 0), 0)
-    if (processMachineLoad + planned > 500) { alert("Machine capacity exceeded for shift (limit 500 parts/shift)."); return }
+    const hasMachineConflict = selectedMachineIds.some(machineId => woMachineAssignmentsV2.some(a => a.machineId === machineId && a.shiftDate === v2ShiftDate && a.shift === v2Shift))
+    if (hasMachineConflict) { alert("One or more selected machines are already assigned for this shift/date."); return }
+    const perMachineCommit = Math.ceil(planned / selectedMachineIds.length)
+    const overCapacityMachine = selectedMachineIds.find(machineId => {
+      const processMachineLoad = woMachineAssignmentsV2.filter(a => a.machineId === machineId && a.shiftDate === v2ShiftDate).reduce((sum, a) => sum + Number(a.partsCommitted || 0), 0)
+      return processMachineLoad + perMachineCommit > 500
+    })
+    if (overCapacityMachine) { alert("Machine capacity exceeded for shift (limit 500 parts/shift)."); return }
     const mainId = createClientId("main")
     const processId = createClientId("proc")
-    const machine = machines.find(m => m.id === v2MachineId)
     const program = programs.find(p => p.id === v2ProgramId)
     await addMainWorkOrderV2({
       id: mainId, woNumber: v2NextWoNo, scheduleId: v2SelectedSchedule.id, partMasterId: v2SelectedSchedule.partMasterId || "",
@@ -624,11 +626,15 @@ export default function WorkOrdersPage() {
       shiftDate: v2ShiftDate, shift: v2Shift, targetParts: planned, requiredQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), bufferPercent: 2,
       assignedQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), takenQtyKg: 0, leftoverQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), shortcomingCategory: v2Shortcoming as ShortcomingCategory, createdAt: new Date().toISOString().split("T")[0],
     })
-    await addWoMachineAssignmentV2({
-      id: createClientId("ma"), processWoId: processId, machineId: v2MachineId, machineName: machine?.name || "", operatorName: v2Operator,
-      shiftDate: v2ShiftDate, shift: v2Shift, programId: v2ProgramId, programName: (program as ProgramOption | undefined)?.programName || "",
-      partsCommitted: planned, producedQty: Number(v2Produced || 0), rejectedQty: 0, reworkQty: 0, createdAt: new Date().toISOString().split("T")[0],
-    })
+    for (const machineId of selectedMachineIds) {
+      const machine = machines.find(m => m.id === machineId)
+      const autoOperator = machine?.operatorName || "Unassigned"
+      await addWoMachineAssignmentV2({
+        id: createClientId("ma"), processWoId: processId, machineId, machineName: machine?.name || "", operatorName: autoOperator,
+        shiftDate: v2ShiftDate, shift: v2Shift, programId: v2ProgramId, programName: (program as ProgramOption | undefined)?.programName || "",
+        partsCommitted: perMachineCommit, producedQty: Number(v2Produced || 0), rejectedQty: 0, reworkQty: 0, createdAt: new Date().toISOString().split("T")[0],
+      })
+    }
     await addWoAuditLog({ id: createClientId("audit"), woId: mainId, processWoId: processId, action: "v2_wo_created_and_scheduled", field: "status", oldValue: "draft", newValue: "scheduled", actorId: currentUser.id, actorName: currentUser.name, createdAt: new Date().toISOString().split("T")[0] })
     setShowV2Planner(false)
   }
@@ -724,17 +730,35 @@ export default function WorkOrdersPage() {
             {isProcessPDC && <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800 font-semibold">
               Process PDC View ({PROCESS_STAGE_LABELS[myProcess!]}): Accept assigned WO, then capture shift-wise machine/program/operator allocation and production.
             </div>}
-            <div className="border border-slate-200 rounded-xl p-4">
+            {isProcessPDC && <div className="border border-slate-200 rounded-xl p-4">
               <p className="text-sm font-black text-slate-800 mb-2">Machine Assignment (Shift-wise)</p>
               <div className="text-xs text-slate-600 mb-2">Select free machines only. Occupied machines are disabled in final phase.</div>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                <Field label="Machine" req><select className={selectCls} value={v2MachineId} onChange={e=>setV2MachineId(e.target.value)}><option value="">Choose Machine</option>{machines.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></Field>
+                <Field label="Machines (multi-select)" req>
+                  <div className="max-h-32 overflow-auto border border-slate-200 rounded-xl p-2 space-y-1">
+                    {machines.map(m => {
+                      const occupied = !!(v2ShiftDate && v2Shift && woMachineAssignmentsV2.some(a => a.machineId === m.id && a.shiftDate === v2ShiftDate && a.shift === v2Shift))
+                      const checked = v2MachineIds.includes(m.id)
+                      return (
+                        <label key={m.id} className={`flex items-center gap-2 text-xs ${occupied ? "text-slate-400" : "text-slate-700"}`}>
+                          <input
+                            type="checkbox"
+                            disabled={occupied}
+                            checked={checked}
+                            onChange={e => setV2MachineIds(prev => e.target.checked ? [...prev, m.id] : prev.filter(id => id !== m.id))}
+                          />
+                          <span>{m.name} {occupied ? "(Occupied)" : `(Operator: ${m.operatorName || "Unassigned"})`}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </Field>
                 <Field label="Program" req><select className={selectCls} value={v2ProgramId} onChange={e=>setV2ProgramId(e.target.value)}><option value="">From Program Master</option>{(programs as ProgramOption[]).map(p=><option key={p.id} value={p.id}>{p.programId || p.id} - {p.programName || p.name}</option>)}</select></Field>
-                <Field label="Operator" req><input className={cls} value={v2Operator} onChange={e=>setV2Operator(e.target.value)} placeholder="Operator Name"/></Field>
+                <Field label="Operator(s)"><input className={cls} value={v2MachineIds.map(id => machines.find(m => m.id === id)?.operatorName || "Unassigned").join(", ")} readOnly /></Field>
                 <Field label="Parts Produced" req><input className={cls} value={v2Produced} onChange={e=>setV2Produced(e.target.value)} placeholder="Machine-wise output"/></Field>
                 <Field label="Shortcoming Category"><select className={selectCls} value={v2Shortcoming} onChange={e=>setV2Shortcoming(e.target.value)}><option value="machine_breakdown">Machine Breakdown</option><option value="material_shortage">Material Shortage</option><option value="operator_absent">Operator Absent</option><option value="power_failure">Power Failure</option><option value="program_issue">Program Issue</option><option value="tool_change">Tool Change</option><option value="qa_hold">QA Hold</option></select></Field>
               </div>
-            </div>
+            </div>}
             {isScopedQI && (
               <div className="border border-emerald-200 bg-emerald-50 rounded-xl p-3 space-y-2">
                 <p className="text-xs font-black text-emerald-800">QI View (Machine-wise inspection context)</p>
