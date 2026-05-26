@@ -585,21 +585,26 @@ export default function WorkOrdersPage() {
     (isAdmin || (isProcessPDC && wo.process === myProcess))
 
   const v2Save = async () => {
-    if (!currentUser || !v2SelectedSchedule || !v2ShiftDate || !v2Shift || !v2ProgramId) return
+    if (!currentUser || !v2SelectedSchedule || !v2ShiftDate || !v2Shift) return
+    const requiresMachineAssignment = isProcessPDC || isAdmin
     const selectedMachineIds = v2MachineIds
-    if (selectedMachineIds.length === 0) { alert("Select at least one machine."); return }
+    if (requiresMachineAssignment && selectedMachineIds.length === 0) { alert("Select at least one machine."); return }
+    if (requiresMachineAssignment && !v2ProgramId) { alert("Select a program."); return }
     const produced = Number(v2Produced || 0)
     const planned = Number(v2SelectedSchedule.requiredQuantity || 0)
     if (produced < 0) { alert("Produced qty cannot be negative."); return }
     if (produced > planned) { alert("Produced qty cannot exceed planned qty."); return }
-    const hasMachineConflict = selectedMachineIds.some(machineId => woMachineAssignmentsV2.some(a => a.machineId === machineId && a.shiftDate === v2ShiftDate && a.shift === v2Shift))
-    if (hasMachineConflict) { alert("One or more selected machines are already assigned for this shift/date."); return }
-    const perMachineCommit = Math.ceil(planned / selectedMachineIds.length)
-    const overCapacityMachine = selectedMachineIds.find(machineId => {
-      const processMachineLoad = woMachineAssignmentsV2.filter(a => a.machineId === machineId && a.shiftDate === v2ShiftDate).reduce((sum, a) => sum + Number(a.partsCommitted || 0), 0)
-      return processMachineLoad + perMachineCommit > 500
-    })
-    if (overCapacityMachine) { alert("Machine capacity exceeded for shift (limit 500 parts/shift)."); return }
+    let perMachineCommit = 0
+    if (requiresMachineAssignment) {
+      const hasMachineConflict = selectedMachineIds.some(machineId => woMachineAssignmentsV2.some(a => a.machineId === machineId && a.shiftDate === v2ShiftDate && a.shift === v2Shift))
+      if (hasMachineConflict) { alert("One or more selected machines are already assigned for this shift/date."); return }
+      perMachineCommit = Math.ceil(planned / selectedMachineIds.length)
+      const overCapacityMachine = selectedMachineIds.find(machineId => {
+        const processMachineLoad = woMachineAssignmentsV2.filter(a => a.machineId === machineId && a.shiftDate === v2ShiftDate).reduce((sum, a) => sum + Number(a.partsCommitted || 0), 0)
+        return processMachineLoad + perMachineCommit > 500
+      })
+      if (overCapacityMachine) { alert("Machine capacity exceeded for shift (limit 500 parts/shift)."); return }
+    }
     const mainId = createClientId("main")
     const processId = createClientId("proc")
     const program = programs.find(p => p.id === v2ProgramId)
@@ -614,14 +619,16 @@ export default function WorkOrdersPage() {
       shiftDate: v2ShiftDate, shift: v2Shift, targetParts: planned, requiredQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), bufferPercent: 2,
       assignedQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), takenQtyKg: 0, leftoverQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), shortcomingCategory: v2Shortcoming as ShortcomingCategory, createdAt: new Date().toISOString().split("T")[0],
     })
-    for (const machineId of selectedMachineIds) {
-      const machine = machines.find(m => m.id === machineId)
-      const autoOperator = machine?.operatorName || "Unassigned"
-      await addWoMachineAssignmentV2({
-        id: createClientId("ma"), processWoId: processId, machineId, machineName: machine?.name || "", operatorName: autoOperator,
-        shiftDate: v2ShiftDate, shift: v2Shift, programId: v2ProgramId, programName: (program as ProgramOption | undefined)?.programName || "",
-        partsCommitted: perMachineCommit, producedQty: Number(v2Produced || 0), rejectedQty: 0, reworkQty: 0, createdAt: new Date().toISOString().split("T")[0],
-      })
+    if (requiresMachineAssignment) {
+      for (const machineId of selectedMachineIds) {
+        const machine = machines.find(m => m.id === machineId)
+        const autoOperator = machine?.operatorName || "Unassigned"
+        await addWoMachineAssignmentV2({
+          id: createClientId("ma"), processWoId: processId, machineId, machineName: machine?.name || "", operatorName: autoOperator,
+          shiftDate: v2ShiftDate, shift: v2Shift, programId: v2ProgramId, programName: (program as ProgramOption | undefined)?.programName || "",
+          partsCommitted: perMachineCommit, producedQty: Number(v2Produced || 0), rejectedQty: 0, reworkQty: 0, createdAt: new Date().toISOString().split("T")[0],
+        })
+      }
     }
     await addWoAuditLog({ id: createClientId("audit"), woId: mainId, processWoId: processId, action: "v2_wo_created_and_scheduled", field: "status", oldValue: "draft", newValue: "scheduled", actorId: currentUser.id, actorName: currentUser.name, createdAt: new Date().toISOString().split("T")[0] })
     setShowV2Planner(false)
