@@ -124,6 +124,14 @@ interface AppContextType {
   woMachineAssignmentsV2: WoMachineAssignmentV2[]
   woAuditLogs: WoAuditLog[]
   reworkTraces: ReworkTrace[]
+  addMainWorkOrderV2: (data: MainWorkOrderV2) => Promise<void>
+  updateMainWorkOrderV2: (id: string, data: Partial<MainWorkOrderV2>) => Promise<void>
+  addProcessWorkOrderV2: (data: ProcessWorkOrderV2) => Promise<void>
+  updateProcessWorkOrderV2: (id: string, data: Partial<ProcessWorkOrderV2>) => Promise<void>
+  addWoMachineAssignmentV2: (data: WoMachineAssignmentV2) => Promise<void>
+  updateWoMachineAssignmentV2: (id: string, data: Partial<WoMachineAssignmentV2>) => Promise<void>
+  addWoAuditLog: (data: WoAuditLog) => Promise<void>
+  addReworkTrace: (data: ReworkTrace) => Promise<void>
 
 
   // ── Config: Shifts ─────────────────────────────────────────────────────────
@@ -544,6 +552,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const updateProgram = useCallback(async (id: string, data: Partial<ProgramMaster>) => { if (!clientId) return; await fs.updateProgramConfig(clientId, id, data) }, [clientId])
   const deleteProgram = useCallback(async (id: string) => { if (!clientId) return; await fs.deleteProgramConfig(clientId, id) }, [clientId])
 
+  const addMainWorkOrderV2 = useCallback(async (data: MainWorkOrderV2) => { if (!clientId) return; await fs.addMainWorkOrderV2(clientId, data) }, [clientId])
+  const updateMainWorkOrderV2 = useCallback(async (id: string, data: Partial<MainWorkOrderV2>) => { if (!clientId) return; await fs.updateMainWorkOrderV2(clientId, id, data) }, [clientId])
+  const addProcessWorkOrderV2 = useCallback(async (data: ProcessWorkOrderV2) => { if (!clientId) return; await fs.addProcessWorkOrderV2(clientId, data) }, [clientId])
+  const updateProcessWorkOrderV2 = useCallback(async (id: string, data: Partial<ProcessWorkOrderV2>) => { if (!clientId) return; await fs.updateProcessWorkOrderV2(clientId, id, data) }, [clientId])
+  const addWoMachineAssignmentV2 = useCallback(async (data: WoMachineAssignmentV2) => { if (!clientId) return; await fs.addWoMachineAssignmentV2(clientId, data) }, [clientId])
+  const updateWoMachineAssignmentV2 = useCallback(async (id: string, data: Partial<WoMachineAssignmentV2>) => { if (!clientId) return; await fs.updateWoMachineAssignmentV2(clientId, id, data) }, [clientId])
+  const addWoAuditLog = useCallback(async (data: WoAuditLog) => { if (!clientId) return; await fs.addWoAuditLog(clientId, data) }, [clientId])
+  const addReworkTrace = useCallback(async (data: ReworkTrace) => { if (!clientId) return; await fs.addReworkTrace(clientId, data) }, [clientId])
+
   const confirmShifts = useCallback(async () => {
     await fs.confirmShiftConfigs(cid())
   }, [clientId])
@@ -572,6 +589,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         operations, addOperation, deleteOperation,
         programs, addProgram, updateProgram, deleteProgram,
         mainWorkOrdersV2, processWorkOrdersV2, woMachineAssignmentsV2, woAuditLogs, reworkTraces,
+        addMainWorkOrderV2, updateMainWorkOrderV2, addProcessWorkOrderV2, updateProcessWorkOrderV2, addWoMachineAssignmentV2, updateWoMachineAssignmentV2, addWoAuditLog, addReworkTrace,
     shifts, addShift, deleteShift, updateShift, reorderShift, confirmShifts,
 
         sidebarCollapsed, setSidebarCollapsed,

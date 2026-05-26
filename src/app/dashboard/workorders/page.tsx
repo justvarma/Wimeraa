@@ -103,6 +103,36 @@ function Phase1Form({ onClose, onSave, initial }: {
     onClose()
   }
 
+  const v2SelectedSchedule = schedules.find(s => s.id === v2ScheduleId)
+  const v2NextWoNo = `WO-${String(mainWorkOrdersV2.length + 1).padStart(3, "0")}`
+  const v2NextProcessNo = `PWO-${String(processWorkOrdersV2.length + 1).padStart(3, "0")}`
+  const v2Save = async () => {
+    if (!currentUser || !v2SelectedSchedule || !v2ShiftDate || !v2Shift || !v2MachineId || !v2ProgramId || !v2Operator) return
+    const mainId = `main-${Date.now()}`
+    const processId = `proc-${Date.now()}`
+    const machine = machines.find(m => m.id === v2MachineId)
+    const program = programs.find(p => p.id === v2ProgramId)
+    const planned = Number(v2SelectedSchedule.requiredQuantity || 0)
+    await addMainWorkOrderV2({
+      id: mainId, woNumber: v2NextWoNo, scheduleId: v2SelectedSchedule.id, partMasterId: v2SelectedSchedule.partMasterId || "",
+      partId: v2SelectedSchedule.partId, partName: v2SelectedSchedule.partName, scheduleStartDate: v2SelectedSchedule.date, scheduleEndDate: v2SelectedSchedule.date,
+      status: "scheduled", qty: { plannedQty: planned, reservedQty: 0, consumedQty: 0, producedQty: 0, balanceQty: planned },
+      createdById: currentUser.id, createdByName: currentUser.name, createdAt: new Date().toISOString().split("T")[0],
+    })
+    await addProcessWorkOrderV2({
+      id: processId, processWoNumber: v2NextProcessNo, parentWoId: mainId, rootWoId: mainId, processType: "die_casting", status: "scheduled",
+      shiftDate: v2ShiftDate, shift: v2Shift, targetParts: planned, requiredQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), bufferPercent: 2,
+      assignedQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), takenQtyKg: 0, leftoverQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), createdAt: new Date().toISOString().split("T")[0],
+    })
+    await addWoMachineAssignmentV2({
+      id: `ma-${Date.now()}`, processWoId: processId, machineId: v2MachineId, machineName: machine?.name || "", operatorName: v2Operator,
+      shiftDate: v2ShiftDate, shift: v2Shift, programId: v2ProgramId, programName: (program as any)?.programName || "",
+      partsCommitted: planned, producedQty: Number(v2Produced || 0), rejectedQty: 0, reworkQty: 0, createdAt: new Date().toISOString().split("T")[0],
+    })
+    await addWoAuditLog({ id: `audit-${Date.now()}`, woId: mainId, processWoId: processId, action: "v2_wo_created", actorId: currentUser.id, actorName: currentUser.name, createdAt: new Date().toISOString().split("T")[0] })
+    setShowV2Planner(false)
+  }
+
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[92vh] overflow-y-auto">
@@ -290,6 +320,7 @@ function Phase2Form({ wo, onClose, onSave }: {
             <div><span className="text-slate-500">Req. Weight: </span><span className="font-bold">{wo.requiredQuantityKg} KG</span></div>
             <div><span className="text-slate-500">Start: </span><span className="font-bold">{wo.workOrderStartDate}</span></div>
             <div><span className="text-slate-500">Due: </span><span className="font-bold">{wo.dueDate}</span></div>
+            <div className="flex justify-end"><button onClick={v2Save} className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold">Save V2 WO</button></div>
           </div>
         </div>
 
@@ -436,7 +467,7 @@ function Phase2Form({ wo, onClose, onSave }: {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function WorkOrdersPage() {
-  const { currentUser, workOrders, materials, shifts, addWorkOrder, updateWorkOrder, deleteWorkOrder, deductMaterial } = useApp()
+  const { currentUser, workOrders, materials, shifts, addWorkOrder, updateWorkOrder, deleteWorkOrder, deductMaterial, schedules, machines, programs, mainWorkOrdersV2, processWorkOrdersV2, woMachineAssignmentsV2, addMainWorkOrderV2, addProcessWorkOrderV2, addWoMachineAssignmentV2, addWoAuditLog } = useApp()
   const role = currentUser?.role as UserRole
 
   const [showPhase1, setShowPhase1] = useState(false)
@@ -446,6 +477,13 @@ export default function WorkOrdersPage() {
   const [statusFilter, setStatusFilter]   = useState("all")
   const [processFilter, setProcessFilter] = useState("all")
   const [showV2Planner, setShowV2Planner] = useState(false)
+  const [v2ScheduleId, setV2ScheduleId] = useState("")
+  const [v2ShiftDate, setV2ShiftDate] = useState("")
+  const [v2Shift, setV2Shift] = useState<Shift | "">("" as Shift | "")
+  const [v2MachineId, setV2MachineId] = useState("")
+  const [v2ProgramId, setV2ProgramId] = useState("")
+  const [v2Operator, setV2Operator] = useState("")
+  const [v2Produced, setV2Produced] = useState("")
 
   const isPDCManager   = role === UserRole.PTC_MANAGER
   const isAdmin        = role === UserRole.ADMIN
@@ -603,11 +641,11 @@ export default function WorkOrdersPage() {
               <button onClick={() => setShowV2Planner(false)} className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 font-bold">Close</button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-              <Field label="Monthly Schedule" req><select className={selectCls}><option>Choose Monthly Schedule</option></select></Field>
-              <Field label="WO Number" req><input className={cls} value="WO-XXX (Auto)" readOnly /></Field>
-              <Field label="Part" req><select className={selectCls}><option>Derived from Schedule</option></select></Field>
-              <Field label="Shift Date" req><input type="date" className={cls} /></Field>
-              <Field label="Shift" req><select className={selectCls}><option>Choose Shift</option></select></Field>
+              <Field label="Monthly Schedule" req><select className={selectCls} value={v2ScheduleId} onChange={e=>setV2ScheduleId(e.target.value)}><option value="">Choose Monthly Schedule</option>{schedules.map(s=><option key={s.id} value={s.id}>{s.partId} — {s.partName}</option>)}</select></Field>
+              <Field label="WO Number" req><input className={cls} value={v2NextWoNo} readOnly /></Field>
+              <Field label="Part" req><input className={cls} value={v2SelectedSchedule ? `${v2SelectedSchedule.partId} — ${v2SelectedSchedule.partName}` : ""} readOnly/></Field>
+              <Field label="Shift Date" req><input type="date" className={cls} value={v2ShiftDate} onChange={e=>setV2ShiftDate(e.target.value)} /></Field>
+              <Field label="Shift" req><select className={selectCls} value={v2Shift} onChange={e=>setV2Shift(e.target.value as Shift)}><option value="">Choose Shift</option>{shifts.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></Field>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
               <Field label="Planned Qty"><input className={cls} placeholder="From Monthly Schedule"/></Field>
@@ -620,15 +658,16 @@ export default function WorkOrdersPage() {
               <p className="text-sm font-black text-slate-800 mb-2">Machine Assignment (Shift-wise)</p>
               <div className="text-xs text-slate-600 mb-2">Select free machines only. Occupied machines are disabled in final phase.</div>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                <Field label="Machine(s)" req><select className={selectCls}><option>Multi-select (Phase 4)</option></select></Field>
-                <Field label="Program" req><select className={selectCls}><option>From Program Master</option></select></Field>
-                <Field label="Operator" req><select className={selectCls}><option>From Operator Master/Config</option></select></Field>
-                <Field label="Parts Produced" req><input className={cls} placeholder="Machine-wise output"/></Field>
+                <Field label="Machine" req><select className={selectCls} value={v2MachineId} onChange={e=>setV2MachineId(e.target.value)}><option value="">Choose Machine</option>{machines.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></Field>
+                <Field label="Program" req><select className={selectCls} value={v2ProgramId} onChange={e=>setV2ProgramId(e.target.value)}><option value="">From Program Master</option>{programs.map((p:any)=><option key={p.id} value={p.id}>{p.programId || p.id} - {p.programName || p.name}</option>)}</select></Field>
+                <Field label="Operator" req><input className={cls} value={v2Operator} onChange={e=>setV2Operator(e.target.value)} placeholder="Operator Name"/></Field>
+                <Field label="Parts Produced" req><input className={cls} value={v2Produced} onChange={e=>setV2Produced(e.target.value)} placeholder="Machine-wise output"/></Field>
               </div>
             </div>
             <div className="border border-blue-200 bg-blue-50 rounded-xl p-3 text-xs text-blue-800">
-              Phase 3 delivers the new V2 planning/execution UI shell and fields. Phase 4 will connect save/validation/QA transitions with v2 collections.
+              Phase 4: Save is now connected to V2 collections (main WO, process WO, machine assignment, audit log).
             </div>
+            <div className="flex justify-end"><button onClick={v2Save} className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold">Save V2 WO</button></div>
           </div>
         </div>
       )}
