@@ -2,7 +2,7 @@
 import { useState, useMemo } from "react"
 import { useApp } from "@/components/providers/AppProvider"
 import {
-  UserRole, PROCESS_STAGE_LABELS, QI_ROLE_PROCESS_MAP, 
+  UserRole, PROCESS_STAGE_LABELS, PROCESS_PTC_ROLE_MAP, QI_ROLE_PROCESS_MAP, 
   type ProcessStage, type Shift, type WorkOrder, type WOStatus, type ShortcomingCategory,
 } from "@/lib/store"
 import { getSelectableShiftOptions, getShiftLabel } from "@/lib/shiftUtils"
@@ -203,6 +203,9 @@ function Phase2Form({ wo, onClose, onSave }: {
   const { materials, users, ptcs, shifts, workOrders, machines, programs } = useApp()
   const shiftOptions = getSelectableShiftOptions(shifts, wo.shift)
   const approvedMats = materials.filter(m => m.status === "approved")
+  const processOperators = users.filter(u =>
+    u.role === QI_ROLE_PROCESS_MAP[wo.process] || u.role === PROCESS_PTC_ROLE_MAP[wo.process] || u.role === UserRole.ADMIN
+  )
   const processMachines = machines.filter(m => m.process === wo.process && m.status === "active")
   const validPDCs = ptcs.filter(p => p.process === wo.process)
   const qiUsers = users.filter(u => u.role === UserRole.QUALITY_INSPECTOR || u.role === UserRole.ADMIN || QI_ROLE_PROCESS_MAP[u.role] === wo.process)
