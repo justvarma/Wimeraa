@@ -320,6 +320,42 @@ service cloud.firestore {
         allow delete: if isSignedIn();
       }
 
+      // ── WO V2 Collections ────────────────────────────────────────────────
+      match /main_work_orders_v2/{woId} {
+        allow read:   if belongsToClient(clientId);
+        allow create: if isPTCManager(clientId) || isAdminOrAbove(clientId);
+        allow update: if isAnyPTC(clientId) || isAnyQI(clientId) || isAdminOrAbove(clientId);
+        allow delete: if isAdminOrAbove(clientId);
+      }
+
+      match /process_work_orders_v2/{processWoId} {
+        allow read:   if belongsToClient(clientId);
+        allow create: if isAnyPTC(clientId) || isAdminOrAbove(clientId);
+        allow update: if isAnyPTC(clientId) || isAnyQI(clientId) || isAdminOrAbove(clientId);
+        allow delete: if isAdminOrAbove(clientId);
+      }
+
+      match /wo_machine_assignments_v2/{assignmentId} {
+        allow read:   if belongsToClient(clientId);
+        allow create: if isAnyPTC(clientId) || isAdminOrAbove(clientId);
+        allow update: if isAnyPTC(clientId) || isAnyQI(clientId) || isAdminOrAbove(clientId);
+        allow delete: if isAdminOrAbove(clientId);
+      }
+
+      match /wo_audit_logs/{auditId} {
+        allow read:   if belongsToClient(clientId);
+        allow create: if isAnyPTC(clientId) || isAnyQI(clientId) || isAdminOrAbove(clientId);
+        allow update: if false;
+        allow delete: if isAdminOrAbove(clientId);
+      }
+
+      match /rework_traces/{traceId} {
+        allow read:   if belongsToClient(clientId);
+        allow create: if isAnyQI(clientId) || isAnyPTC(clientId) || isAdminOrAbove(clientId);
+        allow update: if isAnyQI(clientId) || isAnyPTC(clientId) || isAdminOrAbove(clientId);
+        allow delete: if isAdminOrAbove(clientId);
+      }
+
     } // end /clients/{clientId}
 
   } // end /databases/{database}/documents
