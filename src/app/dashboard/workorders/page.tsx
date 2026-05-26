@@ -474,6 +474,7 @@ export default function WorkOrdersPage() {
   const isPDCCoat      = role === UserRole.PTC_COATING
   const isPDCCNC       = role === UserRole.PTC_CNC_VMC
   const isProcessPDC   = isPDCDC || isPDCCoat || isPDCCNC
+  const isScopedQI     = role === UserRole.QI_DIE_CASTING || role === UserRole.QI_COATING || role === UserRole.QI_MACHINING || role === UserRole.QUALITY_INSPECTOR
 
   // What process can this PDC user see/edit?
   const myProcess: ProcessStage | null =
@@ -701,6 +702,10 @@ export default function WorkOrdersPage() {
               <h3 className="text-xl font-black text-slate-900">WO V2 Execution Window</h3>
               <button onClick={() => setShowV2Planner(false)} className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 font-bold">Close</button>
             </div>
+            {(isPDCManager || isAdmin) && <>
+            <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-xs text-indigo-800 font-semibold">
+              PDC Manager View: Create WO from monthly schedule. WO auto-number is assigned and part details are auto-filled.
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
               <Field label="Monthly Schedule" req><select className={selectCls} value={v2ScheduleId} onChange={e=>setV2ScheduleId(e.target.value)}><option value="">Choose Monthly Schedule</option>{schedules.map(s=><option key={s.id} value={s.id}>{s.partId} — {s.partName}</option>)}</select></Field>
               <Field label="WO Number" req><input className={cls} value={v2NextWoNo} readOnly /></Field>
@@ -715,6 +720,10 @@ export default function WorkOrdersPage() {
               <Field label="Produced Qty"><input className={cls} placeholder="Output Count"/></Field>
               <Field label="Balance Qty"><input className={cls} placeholder="Remaining Reserved"/></Field>
             </div>
+            </>}
+            {isProcessPDC && <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800 font-semibold">
+              Process PDC View ({PROCESS_STAGE_LABELS[myProcess!]}): Accept assigned WO, then capture shift-wise machine/program/operator allocation and production.
+            </div>}
             <div className="border border-slate-200 rounded-xl p-4">
               <p className="text-sm font-black text-slate-800 mb-2">Machine Assignment (Shift-wise)</p>
               <div className="text-xs text-slate-600 mb-2">Select free machines only. Occupied machines are disabled in final phase.</div>
@@ -726,6 +735,21 @@ export default function WorkOrdersPage() {
                 <Field label="Shortcoming Category"><select className={selectCls} value={v2Shortcoming} onChange={e=>setV2Shortcoming(e.target.value)}><option value="machine_breakdown">Machine Breakdown</option><option value="material_shortage">Material Shortage</option><option value="operator_absent">Operator Absent</option><option value="power_failure">Power Failure</option><option value="program_issue">Program Issue</option><option value="tool_change">Tool Change</option><option value="qa_hold">QA Hold</option></select></Field>
               </div>
             </div>
+            {isScopedQI && (
+              <div className="border border-emerald-200 bg-emerald-50 rounded-xl p-3 space-y-2">
+                <p className="text-xs font-black text-emerald-800">QI View (Machine-wise inspection context)</p>
+                <div className="text-xs text-emerald-900 grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {woMachineAssignmentsV2.slice(0, 8).map(a => (
+                    <div key={a.id} className="rounded-lg border border-emerald-200 bg-white p-2">
+                      <p><strong>Machine:</strong> {a.machineName}</p>
+                      <p><strong>Operator:</strong> {a.operatorName}</p>
+                      <p><strong>Shift:</strong> {a.shiftDate} / {a.shift}</p>
+                      <p><strong>Produced:</strong> {a.producedQty} | <strong>Rework:</strong> {a.reworkQty} | <strong>Rejected:</strong> {a.rejectedQty}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="border border-blue-200 bg-blue-50 rounded-xl p-3 text-xs text-blue-800">
               Phase 5: Added core real-time constraints (machine/operator overlap, capacity, overproduction) and categorized shortcoming capture.
             </div>
