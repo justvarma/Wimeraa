@@ -620,7 +620,7 @@ export default function WorkOrdersPage() {
       assignedQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), takenQtyKg: 0, leftoverQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), shortcomingCategory: v2Shortcoming as ShortcomingCategory, createdAt: new Date().toISOString().split("T")[0],
     })
     // Mirror a draft shell in legacy WO list so newly created V2 work orders remain visible in the Work Orders board.
-    await addWorkOrder({
+    const primaryLegacyWoId = await addWorkOrder({
       date: new Date().toISOString().split("T")[0],
       masterId: v2SelectedSchedule.id,
       partId: v2SelectedSchedule.partId,
@@ -655,6 +655,48 @@ export default function WorkOrdersPage() {
       workflowStep: -1,
       workflowLabel: "Primary Work Order",
     })
+    await addWorkOrder(buildStageSubWorkOrder({
+      source: {
+        id: primaryLegacyWoId,
+        createdAt: new Date().toISOString().split("T")[0],
+        date: new Date().toISOString().split("T")[0],
+        masterId: v2SelectedSchedule.id,
+        partId: v2SelectedSchedule.partId,
+        partName: v2SelectedSchedule.partName,
+        process: "die_casting",
+        targetPartNos: planned,
+        requiredQuantityKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0),
+        workOrderStartDate: v2ShiftDate,
+        dueDate: v2SelectedSchedule.date,
+        status: "draft",
+        partsCompleted: 0,
+        goodParts: 0,
+        reworkParts: 0,
+        rejectedParts: 0,
+        scrapWeight: 0,
+        inputWeightKg: 0,
+        productionStarted: false,
+        materialGrade: "",
+        rawMaterialId: "",
+        rawMaterialGrade: "",
+        shift: v2Shift,
+        machine: "",
+        operator: "",
+        actualTarget: planned,
+        partPerCycle: 0,
+        weightPerPart: 0,
+        actualOutputKg: 0,
+        acceptancePoints: "V2 WO created from schedule — pending process execution details.",
+        isExternal: false,
+        createdBy: currentUser.name,
+        woType: "standard",
+        workflowStep: -1,
+        workflowLabel: "Primary Work Order",
+      },
+      process: "die_casting",
+      createdBy: "System Workflow",
+      parentWoId: primaryLegacyWoId,
+    }))
     if (requiresMachineAssignment) {
       for (const machineId of selectedMachineIds) {
         const machine = machines.find(m => m.id === machineId)
