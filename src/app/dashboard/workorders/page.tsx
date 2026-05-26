@@ -299,7 +299,11 @@ function Phase2Form({ wo, onClose, onSave }: {
             <div><span className="text-slate-500">Req. Weight: </span><span className="font-bold">{wo.requiredQuantityKg} KG</span></div>
             <div><span className="text-slate-500">Start: </span><span className="font-bold">{wo.workOrderStartDate}</span></div>
             <div><span className="text-slate-500">Due: </span><span className="font-bold">{wo.dueDate}</span></div>
-            <div className="flex justify-end"><button onClick={v2Save} className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold">Save V2 WO</button></div>
+            <div className="text-right">
+              <span className="inline-flex px-2.5 py-1 rounded-full text-[10px] font-black bg-amber-100 text-amber-800">
+                Draft — Awaiting Process Details
+              </span>
+            </div>
           </div>
         </div>
 
