@@ -106,6 +106,19 @@ function Phase1Form({ onClose, onSave, initial }: {
   const v2SelectedSchedule = schedules.find(s => s.id === v2ScheduleId)
   const v2NextWoNo = `WO-${String(mainWorkOrdersV2.length + 1).padStart(3, "0")}`
   const v2NextProcessNo = `PWO-${String(processWorkOrdersV2.length + 1).padStart(3, "0")}`
+
+  const v2StatusAdvance = async (mainId: string, processId: string, to: "accepted" | "in_progress" | "qa_pending" | "qa_approved" | "completed") => {
+    if (!currentUser) return
+    const main = mainWorkOrdersV2.find(w => w.id === mainId)
+    if (!main) return
+    await updateMainWorkOrderV2(mainId, { status: to, updatedAt: new Date().toISOString().split("T")[0] })
+    await updateProcessWorkOrderV2(processId, { status: to, updatedAt: new Date().toISOString().split("T")[0] })
+    await addWoAuditLog({
+      id: `audit-${Date.now()}`, woId: mainId, processWoId: processId, action: "v2_status_transition",
+      field: "status", oldValue: main.status, newValue: to, actorId: currentUser.id, actorName: currentUser.name, createdAt: new Date().toISOString().split("T")[0],
+    })
+  }
+
   const v2Save = async () => {
     if (!currentUser || !v2SelectedSchedule || !v2ShiftDate || !v2Shift || !v2MachineId || !v2ProgramId || !v2Operator) return
     const produced = Number(v2Produced || 0)
@@ -476,7 +489,7 @@ function Phase2Form({ wo, onClose, onSave }: {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function WorkOrdersPage() {
-  const { currentUser, workOrders, materials, shifts, addWorkOrder, updateWorkOrder, deleteWorkOrder, deductMaterial, schedules, machines, programs, mainWorkOrdersV2, processWorkOrdersV2, woMachineAssignmentsV2, addMainWorkOrderV2, addProcessWorkOrderV2, addWoMachineAssignmentV2, addWoAuditLog } = useApp()
+  const { currentUser, workOrders, materials, shifts, addWorkOrder, updateWorkOrder, deleteWorkOrder, deductMaterial, schedules, machines, programs, mainWorkOrdersV2, processWorkOrdersV2, woMachineAssignmentsV2, addMainWorkOrderV2, updateMainWorkOrderV2, addProcessWorkOrderV2, updateProcessWorkOrderV2, addWoMachineAssignmentV2, updateWoMachineAssignmentV2, addWoAuditLog } = useApp()
   const role = currentUser?.role as UserRole
 
   const [showPhase1, setShowPhase1] = useState(false)
@@ -641,6 +654,36 @@ export default function WorkOrdersPage() {
           </div>
           <button onClick={() => setShowV2Planner(true)} className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold">Open Planner</button>
         </div>
+      <div className="bg-white rounded-2xl border border-indigo-200 p-4">
+        <h3 className="text-sm font-black text-slate-900 mb-3">WO V2 Approval & Lifecycle Board (Phase 6)</h3>
+        <div className="space-y-2">
+          {mainWorkOrdersV2.length === 0 ? (
+            <p className="text-xs text-slate-500">No V2 Work Orders yet.</p>
+          ) : mainWorkOrdersV2.map(main => {
+            const process = processWorkOrdersV2.find(p => p.parentWoId === main.id)
+            const machineAssign = process ? woMachineAssignmentsV2.filter(a => a.processWoId === process.id) : []
+            return <div key={main.id} className="border border-slate-200 rounded-xl p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-bold text-slate-900">{main.woNumber} — {main.partId}</p>
+                  <p className="text-xs text-slate-600">Status: <span className="font-bold">{main.status}</span> · Planned: {main.qty.plannedQty} · Produced: {main.qty.producedQty}</p>
+                </div>
+                {process && <div className="flex flex-wrap gap-2">
+                  <button onClick={() => v2StatusAdvance(main.id, process.id, "accepted")} className="px-2 py-1 text-xs rounded bg-blue-600 text-white font-bold">Accept</button>
+                  <button onClick={() => v2StatusAdvance(main.id, process.id, "in_progress")} className="px-2 py-1 text-xs rounded bg-indigo-600 text-white font-bold">Start</button>
+                  <button onClick={() => v2StatusAdvance(main.id, process.id, "qa_pending")} className="px-2 py-1 text-xs rounded bg-violet-600 text-white font-bold">QA Pending</button>
+                  <button onClick={() => v2StatusAdvance(main.id, process.id, "qa_approved")} className="px-2 py-1 text-xs rounded bg-emerald-600 text-white font-bold">QA Approve</button>
+                  <button onClick={() => v2StatusAdvance(main.id, process.id, "completed")} className="px-2 py-1 text-xs rounded bg-slate-800 text-white font-bold">Complete</button>
+                </div>}
+              </div>
+              {machineAssign.length > 0 && <div className="mt-2 text-xs text-slate-700">
+                {machineAssign.map(a => <div key={a.id}>Machine: <span className="font-semibold">{a.machineName}</span> · Operator: <span className="font-semibold">{a.operatorName}</span> · Produced: <span className="font-semibold">{a.producedQty}</span></div>)}
+              </div>}
+            </div>
+          })}
+        </div>
+      </div>
+
       </div>
 
       {showV2Planner && (
