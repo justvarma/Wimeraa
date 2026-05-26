@@ -498,7 +498,7 @@ export default function WorkOrdersPage() {
   const [expanded, setExpanded]     = useState<string | null>(null)
   const [statusFilter, setStatusFilter]   = useState("all")
   const [processFilter, setProcessFilter] = useState("all")
-  const [showV2Planner, setShowV2Planner] = useState(false)
+  const [showV2Planner, setShowV2Planner] = useState(true)
   const [v2ScheduleId, setV2ScheduleId] = useState("")
   const [v2ShiftDate, setV2ShiftDate] = useState("")
   const [v2Shift, setV2Shift] = useState<Shift | "">("" as Shift | "")
@@ -638,9 +638,9 @@ export default function WorkOrdersPage() {
           </p>
         </div>
         {(isPDCManager || isAdmin) && (
-          <button onClick={() => { setEditWO(null); setShowPhase1(true) }}
+          <button onClick={() => setShowV2Planner(true)}
             className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-md">
-            <Plus size={18}/> New Work Order
+            <Plus size={18}/> Work Order Execution Window
           </button>
         )}
       </header>
@@ -652,7 +652,7 @@ export default function WorkOrdersPage() {
             <h2 className="text-base font-black text-slate-900">WO V2 Planner (Phase 3 UI)</h2>
             <p className="text-xs text-slate-600">Main WO → Process WO → Shift/Machine Assignment with planned/reserved/consumed/produced/balance tracking.</p>
           </div>
-          <button onClick={() => setShowV2Planner(true)} className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold">Open Planner</button>
+          <button onClick={() => setShowV2Planner(true)} className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold">Open Window</button>
         </div>
       <div className="bg-white rounded-2xl border border-indigo-200 p-4">
         <h3 className="text-sm font-black text-slate-900 mb-3">WO V2 Approval & Lifecycle Board (Phase 6)</h3>
