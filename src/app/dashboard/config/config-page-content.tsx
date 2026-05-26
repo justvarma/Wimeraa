@@ -163,6 +163,14 @@ function ProgramsTab() {
   const [pricePerPart, setPricePerPart] = useState("")
   const [configs, setConfigs] = useState<Array<{ operationId: string; loadingSeconds: string; runSeconds: string; unloadingSeconds: string; partsPerCycle: string; totalCycles: string; saved?: boolean }>>([])
   const [opDraft, setOpDraft] = useState("")
+  const toTitleWords = (value: string) => value
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ")
   const addCfg = () => setConfigs(p => [...p, { operationId: opDraft, loadingSeconds: "", runSeconds: "", unloadingSeconds: "", partsPerCycle: "", totalCycles: "" }])
   const removeCfg = (idx: number) => setConfigs(p => p[idx]?.saved ? p : p.filter((_, i) => i !== idx))
   const nextProgramId = `PRG-${String(programs.length + 1).padStart(3, "0")}`
@@ -184,43 +192,43 @@ function ProgramsTab() {
     id: p.id,
     programId: p.programId || p.programID || "—",
     programName: p.programName || p.name || "—",
-    programType: p.programType || p.type || "—",
+    programType: toTitleWords(String(p.programType || p.type || "—")),
     processCount: (p.processConfigs || p.processes || []).length,
   }))
   return <div className="space-y-4">
     <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
       <h3 className="font-black text-slate-900">Program Master</h3>
       <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
-        <input readOnly value={nextProgramId} className={`${CFG_INPUT} bg-slate-50 text-slate-700`} />
-        <input value={programName} onChange={e => setProgramName(e.target.value)} placeholder="programName" className={CFG_INPUT} />
-        <select value={programType} onChange={e => setProgramType(e.target.value as any)} className={CFG_INPUT}><option value="die_casting">die_casting</option><option value="coating">coating</option><option value="machining">machining</option></select>
-        <input value={weightPerPart} onChange={e => setWeightPerPart(e.target.value)} placeholder="weightPerPart" className={CFG_INPUT} />
-        <input value={pricePerPart} onChange={e => setPricePerPart(e.target.value)} placeholder="pricePerPart" className={CFG_INPUT} />
+        <div><p className="text-xs font-bold text-slate-600 mb-1">Program ID</p><input readOnly value={nextProgramId} className={`${CFG_INPUT} bg-slate-50 text-slate-700`} /></div>
+        <div><p className="text-xs font-bold text-slate-600 mb-1">Program Name</p><input value={programName} onChange={e => setProgramName(e.target.value)} placeholder="Program Name" className={CFG_INPUT} /></div>
+        <div><p className="text-xs font-bold text-slate-600 mb-1">Program Type</p><select value={programType} onChange={e => setProgramType(e.target.value as any)} className={CFG_INPUT}><option value="die_casting">Die Casting</option><option value="coating">Coating</option><option value="machining">Machining</option></select></div>
+        <div><p className="text-xs font-bold text-slate-600 mb-1">Weight Per Part</p><input value={weightPerPart} onChange={e => setWeightPerPart(e.target.value)} placeholder="Weight Per Part" className={CFG_INPUT} /></div>
+        <div><p className="text-xs font-bold text-slate-600 mb-1">Price Per Part</p><input value={pricePerPart} onChange={e => setPricePerPart(e.target.value)} placeholder="Price Per Part" className={CFG_INPUT} /></div>
       </div>
       <div className="border border-slate-200 rounded-lg p-3 space-y-2">
         <p className="font-bold text-slate-800 text-sm">Process Configuration</p>
-        <div className="flex gap-2">
-          <select value={opDraft} onChange={e => setOpDraft(e.target.value)} className={`${CFG_INPUT} flex-1`}>
+        <div className="flex gap-2 items-end">
+          <div className="flex-1"><p className="text-xs font-bold text-slate-600 mb-1">Select Process (Multiple Allowed)</p><select value={opDraft} onChange={e => setOpDraft(e.target.value)} className={`${CFG_INPUT} flex-1`}>
             <option value="">Select operation</option>
             {operations.map((o:any)=><option key={o.id} value={o.operationId || o.operationID || o.opId}>{o.operationId || o.operationID || o.opId} - {o.processName || o.process}</option>)}
-          </select>
+          </select></div>
           <button type="button" onClick={addCfg} className={CFG_BTN_DARK}>Add Process</button>
         </div>
         {configs.map((c, i) => <div key={i} className="grid grid-cols-7 gap-2 items-center">
-          <input value={c.operationId} readOnly className="border rounded px-2 py-1 text-xs bg-slate-50" />
-          <input value={c.loadingSeconds} onChange={e => setConfigs(p => p.map((x,idx)=>idx===i?{...x,loadingSeconds:e.target.value}:x))} placeholder="loading(s)" className="border rounded px-2 py-1 text-xs" />
-          <input value={c.runSeconds} onChange={e => setConfigs(p => p.map((x,idx)=>idx===i?{...x,runSeconds:e.target.value}:x))} placeholder="run(s)" className="border rounded px-2 py-1 text-xs" />
-          <input value={c.unloadingSeconds} onChange={e => setConfigs(p => p.map((x,idx)=>idx===i?{...x,unloadingSeconds:e.target.value}:x))} placeholder="unloading(s)" className="border rounded px-2 py-1 text-xs" />
-          <input value={c.partsPerCycle} onChange={e => setConfigs(p => p.map((x,idx)=>idx===i?{...x,partsPerCycle:e.target.value}:x))} placeholder="parts/cycle" className="border rounded px-2 py-1 text-xs" />
-          <input value={c.totalCycles} onChange={e => setConfigs(p => p.map((x,idx)=>idx===i?{...x,totalCycles:e.target.value}:x))} placeholder="total cycles(s)" className="border rounded px-2 py-1 text-xs" />
+          <input value={c.operationId} readOnly className="border rounded px-2 py-1 text-xs bg-slate-50 text-slate-900" />
+          <input value={c.loadingSeconds} onChange={e => setConfigs(p => p.map((x,idx)=>idx===i?{...x,loadingSeconds:e.target.value}:x))} placeholder="Loading (s)" className="border rounded px-2 py-1 text-xs text-slate-900" />
+          <input value={c.runSeconds} onChange={e => setConfigs(p => p.map((x,idx)=>idx===i?{...x,runSeconds:e.target.value}:x))} placeholder="Run (s)" className="border rounded px-2 py-1 text-xs text-slate-900" />
+          <input value={c.unloadingSeconds} onChange={e => setConfigs(p => p.map((x,idx)=>idx===i?{...x,unloadingSeconds:e.target.value}:x))} placeholder="Unloading (s)" className="border rounded px-2 py-1 text-xs text-slate-900" />
+          <input value={c.partsPerCycle} onChange={e => setConfigs(p => p.map((x,idx)=>idx===i?{...x,partsPerCycle:e.target.value}:x))} placeholder="Parts Per Cycle" className="border rounded px-2 py-1 text-xs text-slate-900" />
+          <input value={c.totalCycles} onChange={e => setConfigs(p => p.map((x,idx)=>idx===i?{...x,totalCycles:e.target.value}:x))} placeholder="Total Cycles" className="border rounded px-2 py-1 text-xs text-slate-900" />
           <button type="button" onClick={() => removeCfg(i)} className="text-red-700 hover:text-red-800 text-xs font-bold">Remove</button>
         </div>)}
       </div>
       <button onClick={save} className={`${CFG_BTN_PRIMARY} px-4`}>Save Program</button>
     </div>
     <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-      <table className="w-full text-sm text-slate-900"><thead><tr className="bg-slate-100"><th className="text-left px-3 py-2">programId</th><th className="text-left px-3 py-2">programName</th><th className="text-left px-3 py-2">programType</th><th className="text-left px-3 py-2">processCount</th></tr></thead>
-        <tbody>{programRows.length === 0 ? <tr className="border-t border-slate-200"><td colSpan={4} className="px-3 py-4 text-slate-500">No program masters found in DB.</td></tr> : programRows.map((p:any)=><tr key={p.id} className="border-t border-slate-200"><td className="px-3 py-2">{p.programId}</td><td className="px-3 py-2">{p.programName}</td><td className="px-3 py-2">{p.programType}</td><td className="px-3 py-2">{p.processCount}</td></tr>)}</tbody>
+      <table className="w-full text-sm text-slate-900"><thead><tr className="bg-slate-100"><th className="text-left px-3 py-2">Program ID</th><th className="text-left px-3 py-2">Program Name</th><th className="text-left px-3 py-2">Program Type</th><th className="text-left px-3 py-2">Process Count</th></tr></thead>
+        <tbody>{programRows.length === 0 ? <tr className="border-t border-slate-200"><td colSpan={4} className="px-3 py-4 text-slate-500">No Program Masters Found In DB.</td></tr> : programRows.map((p:any)=><tr key={p.id} className="border-t border-slate-200"><td className="px-3 py-2 text-slate-900">{p.programId}</td><td className="px-3 py-2 text-slate-900">{toTitleWords(String(p.programName))}</td><td className="px-3 py-2 text-slate-900">{p.programType}</td><td className="px-3 py-2 text-slate-900">{p.processCount}</td></tr>)}</tbody>
       </table>
     </div>
   </div>
