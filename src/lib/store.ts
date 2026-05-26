@@ -165,6 +165,7 @@ export interface User {
 
 export interface MachineDef {
   id: string; name: string; process: ProcessStage; type: string; status: "active"|"maintenance"|"inactive"
+  operatorName?: string
 }
 
 export interface DeviceConfig {
@@ -276,6 +277,127 @@ export interface DailyProductionEntry {
 //   "in_progress" → at least one production record exists
 //   "completed"   → target met
 export type WOStatus = "draft" | "not_started" | "in_progress" | "awaiting_qi" | "completed" | "rejected" | "finished_goods"
+
+// ─── Phase 1 (New WO Architecture) ──────────────────────────────────────────
+// NOTE: These types are introduced incrementally so UI/Firestore migration can
+// happen in phases without breaking current WorkOrder flows.
+export type WoLifecycleStatus =
+  | "draft"
+  | "scheduled"
+  | "accepted"
+  | "in_progress"
+  | "qa_pending"
+  | "qa_approved"
+  | "rework"
+  | "completed"
+  | "closed"
+  | "cancelled"
+
+export type ProcessWoType = "die_casting" | "trimming" | "shot_blasting" | "machining" | "packing"
+
+export type ShortcomingCategory =
+  | "machine_breakdown"
+  | "material_shortage"
+  | "operator_absent"
+  | "power_failure"
+  | "program_issue"
+  | "tool_change"
+  | "qa_hold"
+
+export interface QtyLedger {
+  plannedQty: number    // target from monthly schedule
+  reservedQty: number   // allocated for WO
+  consumedQty: number   // actually used in production
+  producedQty: number   // output count
+  balanceQty: number    // remaining reserved material/qty
+}
+
+export interface MainWorkOrderV2 {
+  id: string
+  woNumber: string
+  scheduleId: string
+  partMasterId: string
+  partId: string
+  partName: string
+  scheduleStartDate: string
+  scheduleEndDate: string
+  status: WoLifecycleStatus
+  qty: QtyLedger
+  createdById: string
+  createdByName: string
+  createdAt: string
+  updatedAt?: string
+}
+
+export interface ProcessWorkOrderV2 {
+  id: string
+  processWoNumber: string
+  parentWoId: string
+  rootWoId: string
+  processType: ProcessWoType
+  status: WoLifecycleStatus
+  shiftDate: string
+  shift: Shift | ""
+  targetParts: number
+  requiredQtyKg: number
+  bufferPercent: number
+  assignedQtyKg: number
+  takenQtyKg: number
+  leftoverQtyKg: number
+  shortcomingCategory?: ShortcomingCategory
+  shortcomingNotes?: string
+  createdAt: string
+  updatedAt?: string
+}
+
+export interface WoMachineAssignmentV2 {
+  id: string
+  processWoId: string
+  machineId: string
+  machineName: string
+  operatorId?: string
+  operatorName: string
+  shiftDate: string
+  shift: Shift | ""
+  programId?: string
+  programName?: string
+  partsCommitted: number
+  producedQty: number
+  rejectedQty: number
+  reworkQty: number
+  runtimeMinutes?: number
+  downtimeMinutes?: number
+  qaStatus?: "pending" | "approved" | "rework" | "rejected"
+  createdAt: string
+  updatedAt?: string
+}
+
+export interface WoAuditLog {
+  id: string
+  woId: string
+  processWoId?: string
+  action: string
+  field?: string
+  oldValue?: string
+  newValue?: string
+  actorId: string
+  actorName: string
+  createdAt: string
+}
+
+export interface ReworkTrace {
+  id: string
+  reworkWoId: string
+  parentWoId: string
+  sourceProcessWoId: string
+  sourceMachineId: string
+  sourceMachineName: string
+  sourceOperatorName: string
+  defectCategory: string
+  reason: string
+  quantity: number
+  createdAt: string
+}
 
 export interface WorkOrder {
   id: string
