@@ -165,6 +165,7 @@ export interface User {
 
 export interface MachineDef {
   id: string; name: string; process: ProcessStage; type: string; status: "active"|"maintenance"|"inactive"
+  operatorName?: string
 }
 
 export interface DeviceConfig {
