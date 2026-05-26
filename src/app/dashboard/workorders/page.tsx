@@ -200,7 +200,7 @@ function Phase1Form({ onClose, onSave, initial }: {
 function Phase2Form({ wo, onClose, onSave }: {
   wo: WorkOrder; onClose: () => void; onSave: (data: Partial<WorkOrder>) => void
 }) {
-  const { materials, users, ptcs, shifts, workOrders, machines } = useApp()
+  const { materials, users, ptcs, shifts, workOrders, machines, programs } = useApp()
   const shiftOptions = getSelectableShiftOptions(shifts, wo.shift)
   const approvedMats = materials.filter(m => m.status === "approved")
   const processOperators = users.filter(u =>
@@ -230,6 +230,11 @@ function Phase2Form({ wo, onClose, onSave }: {
     vendorMachine:  wo.vendorMachine  || wo.machine || "",
     vendorShift:    wo.vendorShift    || wo.shift || shiftOptions[0]?.id || "" as Shift,
     assignedQiId:   wo.assignedQiId   || "",
+    programId:      "",
+    requiredQtyKg:  wo.requiredQuantityKg || 0,
+    bufferPercent:  2,
+    takenQtyKg:     wo.requiredQuantityKg || 0,
+    shortcomingNotes: "",
   })
   const [showMachineProcessWindow, setShowMachineProcessWindow] = useState(true)
   const reservedMachines = new Set(
@@ -252,6 +257,8 @@ function Phase2Form({ wo, onClose, onSave }: {
   }
 
   const autoOutputKg = ((form.actualTarget || 0) * (form.weightPerPart || 0)).toFixed(2)
+  const assignedQtyKg = Number((Number(form.requiredQtyKg || 0) * (1 + Number(form.bufferPercent || 0) / 100)).toFixed(2))
+  const leftoverQtyKg = Number((assignedQtyKg - Number(form.takenQtyKg || 0)).toFixed(2))
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -270,6 +277,7 @@ function Phase2Form({ wo, onClose, onSave }: {
       rawMaterialGrade: selectedMat?.rawMaterialGrade || form.materialGrade,
       actualOutputKg: Number(autoOutputKg),
       inputWeightKg: wo.requiredQuantityKg,
+      acceptancePoints: `${form.acceptancePoints || "As per configured QI checkpoints"} | Program: ${form.programId || "NA"} | Req:${form.requiredQtyKg}kg Buffer:${form.bufferPercent}% Taken:${form.takenQtyKg}kg Leftover:${leftoverQtyKg}kg ${form.shortcomingNotes ? `| Notes:${form.shortcomingNotes}` : ""}`,
       status: "not_started",
     })
     onClose()
@@ -405,6 +413,29 @@ function Phase2Form({ wo, onClose, onSave }: {
           {/* Production parameters */}
           <div className="p-4 border border-slate-200 rounded-xl space-y-3">
             <p className="text-xs font-black text-slate-700 uppercase tracking-wider">Production Parameters</p>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Program (Master List)" req>
+                <select required value={form.programId} onChange={e => setForm(p=>({...p,programId:e.target.value}))} className={selectCls}>
+                  <option value="">— Select program —</option>
+                  {(programs as ProgramOption[]).map(p => <option key={p.id} value={p.programId || p.id}>{p.programId || p.id} - {p.programName || p.name}</option>)}
+                </select>
+              </Field>
+              <Field label="Required Qty (KG)" req>
+                <input type="number" required min="0.1" step="0.1" value={form.requiredQtyKg}
+                  onChange={e => setForm(p=>({...p,requiredQtyKg:Number(e.target.value)}))} className={cls}/>
+              </Field>
+              <Field label="Buffer % (CRV)" req>
+                <input type="number" required min="0" step="0.1" value={form.bufferPercent}
+                  onChange={e => setForm(p=>({...p,bufferPercent:Number(e.target.value)}))} className={cls}/>
+              </Field>
+              <Field label="Taken Qty (KG)" req>
+                <input type="number" required min="0" step="0.1" value={form.takenQtyKg}
+                  onChange={e => setForm(p=>({...p,takenQtyKg:Number(e.target.value)}))} className={cls}/>
+              </Field>
+            </div>
+            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700">
+              Assigned Qty: <strong>{assignedQtyKg} KG</strong> · Leftover: <strong>{leftoverQtyKg} KG</strong>
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Actual Target (Nos)" req>
                 <input type="number" required min="1" value={form.actualTarget}
