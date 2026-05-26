@@ -488,7 +488,6 @@ export default function WorkOrdersPage() {
       // - rejected (for rework loop handling)
       const matchRole = !myProcess || (
         w.process === myProcess &&
-        w.woType !== "standard" &&
         (w.status === "draft" || w.status === "rejected")
       )
       return matchStatus && matchProcess && matchRole
@@ -584,7 +583,6 @@ export default function WorkOrdersPage() {
 
   const canFillPhase2 = (wo: WorkOrder) =>
     wo.status === "draft" &&
-    wo.woType !== "standard" &&
     (isAdmin || (isProcessPDC && wo.process === myProcess))
 
   const v2Save = async () => {
