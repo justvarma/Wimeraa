@@ -50,6 +50,8 @@ type ProgramOption = {
   name?: string
 }
 
+const createClientId = (prefix: string) => `${prefix}-${crypto.randomUUID()}`
+
 // ─── Phase 1 Form (PDC Manager — WO Shell) ────────────────────────────────────
 function Phase1Form({ onClose, onSave, initial }: {
   onClose: () => void
@@ -108,58 +110,6 @@ function Phase1Form({ onClose, onSave, initial }: {
       status: isEdit ? initial!.status : "draft",
     })
     onClose()
-  }
-
-  const v2SelectedSchedule = schedules.find(s => s.id === v2ScheduleId)
-  const v2NextWoNo = `WO-${String(mainWorkOrdersV2.length + 1).padStart(3, "0")}`
-  const v2NextProcessNo = `PWO-${String(processWorkOrdersV2.length + 1).padStart(3, "0")}`
-
-  const v2StatusAdvance = async (mainId: string, processId: string, to: "accepted" | "in_progress" | "qa_pending" | "qa_approved" | "completed") => {
-    if (!currentUser) return
-    const main = mainWorkOrdersV2.find(w => w.id === mainId)
-    if (!main) return
-    await updateMainWorkOrderV2(mainId, { status: to, updatedAt: new Date().toISOString().split("T")[0] })
-    await updateProcessWorkOrderV2(processId, { status: to, updatedAt: new Date().toISOString().split("T")[0] })
-    await addWoAuditLog({
-      id: `audit-${Date.now()}`, woId: mainId, processWoId: processId, action: "v2_status_transition",
-      field: "status", oldValue: main.status, newValue: to, actorId: currentUser.id, actorName: currentUser.name, createdAt: new Date().toISOString().split("T")[0],
-    })
-  }
-
-  const v2Save = async () => {
-    if (!currentUser || !v2SelectedSchedule || !v2ShiftDate || !v2Shift || !v2MachineId || !v2ProgramId || !v2Operator) return
-    const produced = Number(v2Produced || 0)
-    const planned = Number(v2SelectedSchedule.requiredQuantity || 0)
-    if (produced < 0) { alert("Produced qty cannot be negative."); return }
-    if (produced > planned) { alert("Produced qty cannot exceed planned qty."); return }
-    const machineConflict = woMachineAssignmentsV2.some(a => a.machineId === v2MachineId && a.shiftDate === v2ShiftDate && a.shift === v2Shift)
-    if (machineConflict) { alert("Selected machine is already assigned for this shift/date."); return }
-    const operatorConflict = woMachineAssignmentsV2.some(a => a.operatorName.trim().toLowerCase() === v2Operator.trim().toLowerCase() && a.shiftDate === v2ShiftDate && a.shift === v2Shift)
-    if (operatorConflict) { alert("Selected operator is already assigned on another machine for this shift/date."); return }
-    const processMachineLoad = woMachineAssignmentsV2.filter(a => a.machineId === v2MachineId && a.shiftDate === v2ShiftDate).reduce((sum, a) => sum + Number(a.partsCommitted || 0), 0)
-    if (processMachineLoad + planned > 500) { alert("Machine capacity exceeded for shift (limit 500 parts/shift)."); return }
-    const mainId = `main-${Date.now()}`
-    const processId = `proc-${Date.now()}`
-    const machine = machines.find(m => m.id === v2MachineId)
-    const program = programs.find(p => p.id === v2ProgramId)
-    await addMainWorkOrderV2({
-      id: mainId, woNumber: v2NextWoNo, scheduleId: v2SelectedSchedule.id, partMasterId: v2SelectedSchedule.partMasterId || "",
-      partId: v2SelectedSchedule.partId, partName: v2SelectedSchedule.partName, scheduleStartDate: v2SelectedSchedule.date, scheduleEndDate: v2SelectedSchedule.date,
-      status: "scheduled", qty: { plannedQty: planned, reservedQty: 0, consumedQty: 0, producedQty: 0, balanceQty: planned },
-      createdById: currentUser.id, createdByName: currentUser.name, createdAt: new Date().toISOString().split("T")[0],
-    })
-    await addProcessWorkOrderV2({
-      id: processId, processWoNumber: v2NextProcessNo, parentWoId: mainId, rootWoId: mainId, processType: "die_casting", status: "scheduled",
-      shiftDate: v2ShiftDate, shift: v2Shift, targetParts: planned, requiredQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), bufferPercent: 2,
-      assignedQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), takenQtyKg: 0, leftoverQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), shortcomingCategory: v2Shortcoming as ShortcomingCategory, createdAt: new Date().toISOString().split("T")[0],
-    })
-    await addWoMachineAssignmentV2({
-      id: `ma-${Date.now()}`, processWoId: processId, machineId: v2MachineId, machineName: machine?.name || "", operatorName: v2Operator,
-      shiftDate: v2ShiftDate, shift: v2Shift, programId: v2ProgramId, programName: (program as ProgramOption | undefined)?.programName || "",
-      partsCommitted: planned, producedQty: Number(v2Produced || 0), rejectedQty: 0, reworkQty: 0, createdAt: new Date().toISOString().split("T")[0],
-    })
-    await addWoAuditLog({ id: `audit-${Date.now()}`, woId: mainId, processWoId: processId, action: "v2_wo_created_and_scheduled", field: "status", oldValue: "draft", newValue: "scheduled", actorId: currentUser.id, actorName: currentUser.name, createdAt: new Date().toISOString().split("T")[0] })
-    setShowV2Planner(false)
   }
 
   return (
@@ -514,6 +464,9 @@ export default function WorkOrdersPage() {
   const [v2Operator, setV2Operator] = useState("")
   const [v2Produced, setV2Produced] = useState("")
   const [v2Shortcoming, setV2Shortcoming] = useState("machine_breakdown")
+  const v2SelectedSchedule = schedules.find(s => s.id === v2ScheduleId)
+  const v2NextWoNo = `WO-${String(mainWorkOrdersV2.length + 1).padStart(3, "0")}`
+  const v2NextProcessNo = `PWO-${String(processWorkOrdersV2.length + 1).padStart(3, "0")}`
 
   const isPDCManager   = role === UserRole.PTC_MANAGER
   const isAdmin        = role === UserRole.ADMIN
@@ -630,6 +583,54 @@ export default function WorkOrdersPage() {
     wo.status === "draft" &&
     wo.woType !== "standard" &&
     (isAdmin || (isProcessPDC && wo.process === myProcess))
+
+  const v2StatusAdvance = async (mainId: string, processId: string, to: "accepted" | "in_progress" | "qa_pending" | "qa_approved" | "completed") => {
+    if (!currentUser) return
+    const main = mainWorkOrdersV2.find(w => w.id === mainId)
+    if (!main) return
+    await updateMainWorkOrderV2(mainId, { status: to, updatedAt: new Date().toISOString().split("T")[0] })
+    await updateProcessWorkOrderV2(processId, { status: to, updatedAt: new Date().toISOString().split("T")[0] })
+    await addWoAuditLog({
+      id: createClientId("audit"), woId: mainId, processWoId: processId, action: "v2_status_transition",
+      field: "status", oldValue: main.status, newValue: to, actorId: currentUser.id, actorName: currentUser.name, createdAt: new Date().toISOString().split("T")[0],
+    })
+  }
+
+  const v2Save = async () => {
+    if (!currentUser || !v2SelectedSchedule || !v2ShiftDate || !v2Shift || !v2MachineId || !v2ProgramId || !v2Operator) return
+    const produced = Number(v2Produced || 0)
+    const planned = Number(v2SelectedSchedule.requiredQuantity || 0)
+    if (produced < 0) { alert("Produced qty cannot be negative."); return }
+    if (produced > planned) { alert("Produced qty cannot exceed planned qty."); return }
+    const machineConflict = woMachineAssignmentsV2.some(a => a.machineId === v2MachineId && a.shiftDate === v2ShiftDate && a.shift === v2Shift)
+    if (machineConflict) { alert("Selected machine is already assigned for this shift/date."); return }
+    const operatorConflict = woMachineAssignmentsV2.some(a => a.operatorName.trim().toLowerCase() === v2Operator.trim().toLowerCase() && a.shiftDate === v2ShiftDate && a.shift === v2Shift)
+    if (operatorConflict) { alert("Selected operator is already assigned on another machine for this shift/date."); return }
+    const processMachineLoad = woMachineAssignmentsV2.filter(a => a.machineId === v2MachineId && a.shiftDate === v2ShiftDate).reduce((sum, a) => sum + Number(a.partsCommitted || 0), 0)
+    if (processMachineLoad + planned > 500) { alert("Machine capacity exceeded for shift (limit 500 parts/shift)."); return }
+    const mainId = createClientId("main")
+    const processId = createClientId("proc")
+    const machine = machines.find(m => m.id === v2MachineId)
+    const program = programs.find(p => p.id === v2ProgramId)
+    await addMainWorkOrderV2({
+      id: mainId, woNumber: v2NextWoNo, scheduleId: v2SelectedSchedule.id, partMasterId: v2SelectedSchedule.partMasterId || "",
+      partId: v2SelectedSchedule.partId, partName: v2SelectedSchedule.partName, scheduleStartDate: v2SelectedSchedule.date, scheduleEndDate: v2SelectedSchedule.date,
+      status: "scheduled", qty: { plannedQty: planned, reservedQty: 0, consumedQty: 0, producedQty: 0, balanceQty: planned },
+      createdById: currentUser.id, createdByName: currentUser.name, createdAt: new Date().toISOString().split("T")[0],
+    })
+    await addProcessWorkOrderV2({
+      id: processId, processWoNumber: v2NextProcessNo, parentWoId: mainId, rootWoId: mainId, processType: "die_casting", status: "scheduled",
+      shiftDate: v2ShiftDate, shift: v2Shift, targetParts: planned, requiredQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), bufferPercent: 2,
+      assignedQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), takenQtyKg: 0, leftoverQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), shortcomingCategory: v2Shortcoming as ShortcomingCategory, createdAt: new Date().toISOString().split("T")[0],
+    })
+    await addWoMachineAssignmentV2({
+      id: createClientId("ma"), processWoId: processId, machineId: v2MachineId, machineName: machine?.name || "", operatorName: v2Operator,
+      shiftDate: v2ShiftDate, shift: v2Shift, programId: v2ProgramId, programName: (program as ProgramOption | undefined)?.programName || "",
+      partsCommitted: planned, producedQty: Number(v2Produced || 0), rejectedQty: 0, reworkQty: 0, createdAt: new Date().toISOString().split("T")[0],
+    })
+    await addWoAuditLog({ id: createClientId("audit"), woId: mainId, processWoId: processId, action: "v2_wo_created_and_scheduled", field: "status", oldValue: "draft", newValue: "scheduled", actorId: currentUser.id, actorName: currentUser.name, createdAt: new Date().toISOString().split("T")[0] })
+    setShowV2Planner(false)
+  }
 
   return (
     <div className="space-y-8">
