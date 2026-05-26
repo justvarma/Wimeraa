@@ -507,12 +507,15 @@ export default function WorkOrdersPage() {
   }, [workOrders, statusFilter, processFilter, myProcess])
 
   const visibleGrouped = useMemo(() => {
+    if (isProcessPDC) {
+      return visible.map(wo => ({ root: wo, children: [] as WorkOrder[] }))
+    }
     const roots = visible.filter(w => !w.parentWoId)
     return roots.map(root => ({
       root,
       children: visible.filter(w => w.parentWoId === root.id),
     }))
-  }, [visible])
+  }, [visible, isProcessPDC])
 
   // Build a lookup: parentWoId → child SWOs (for expanded view)
   const swoByParent = useMemo(() => {
