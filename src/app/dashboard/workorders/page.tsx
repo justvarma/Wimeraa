@@ -2,11 +2,11 @@
 import { useState, useMemo } from "react"
 import { useApp } from "@/components/providers/AppProvider"
 import {
-  UserRole, PROCESS_STAGE_LABELS, PROCESS_PTC_ROLE_MAP, QI_ROLE_PROCESS_MAP, 
+  UserRole, PROCESS_STAGE_LABELS, QI_ROLE_PROCESS_MAP, 
   type ProcessStage, type Shift, type WorkOrder, type WOStatus, type ShortcomingCategory,
 } from "@/lib/store"
 import { getSelectableShiftOptions, getShiftLabel } from "@/lib/shiftUtils"
-import { buildStageSubWorkOrder, hasOpenMachineAssignment } from "@/lib/workflow"
+import { buildStageSubWorkOrder } from "@/lib/workflow"
 import { ClipboardList, Plus, X, Edit2, Trash2, Lock, AlertTriangle, ChevronDown, ChevronRight, CheckCircle2, Building2, Pencil, GitBranch, ArrowUpRight } from "lucide-react"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -514,7 +514,7 @@ function Phase2Form({ wo, onClose, onSave }: {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function WorkOrdersPage() {
-  const { currentUser, workOrders, materials, shifts, addWorkOrder, updateWorkOrder, deleteWorkOrder, deductMaterial, schedules, machines, programs, mainWorkOrdersV2, processWorkOrdersV2, woMachineAssignmentsV2, addMainWorkOrderV2, updateMainWorkOrderV2, addProcessWorkOrderV2, updateProcessWorkOrderV2, addWoMachineAssignmentV2, updateWoMachineAssignmentV2, addWoAuditLog } = useApp()
+  const { currentUser, workOrders, shifts, addWorkOrder, updateWorkOrder, deleteWorkOrder, deductMaterial, schedules, machines, programs, mainWorkOrdersV2, processWorkOrdersV2, woMachineAssignmentsV2, addMainWorkOrderV2, addProcessWorkOrderV2, addWoMachineAssignmentV2, addWoAuditLog } = useApp()
   const role = currentUser?.role as UserRole
 
   const [showPhase1, setShowPhase1] = useState(false)
