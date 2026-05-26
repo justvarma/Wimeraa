@@ -574,11 +574,23 @@ function UsersTab() {
 type MachineStatus = "active"|"maintenance"|"inactive"
 
 function MachinesTab() {
-  const { machines, users, addMachine, updateMachine, deleteMachine, workOrders, dailyEntries, downtimeEvents, fqiInspections } = useApp()
+  const { machines, addMachine, updateMachine, deleteMachine, workOrders, dailyEntries, downtimeEvents, fqiInspections } = useApp()
   const [name,setName]=useState("")
   const [process,setProcess]=useState<"die_casting"|"coating"|"cnc_vmc">("die_casting")
   const [operatorName, setOperatorName] = useState("")
-  const operatorOptions = users.filter(u => u.role !== UserRole.ADMIN && u.role !== UserRole.SYSTEM_ADMIN)
+  const operatorOptions = [
+    "Arun Kumar",
+    "Bala Subramanian",
+    "Chitra Devi",
+    "Dinesh Raj",
+    "Eswar Prasad",
+    "Farhan Ali",
+    "Gokul Nath",
+    "Hari Krishnan",
+    "Indu Priya",
+    "Jagadeesh Kumar",
+  ]
+
   const openReservations = (machineName: string) => workOrders.filter(wo => String(wo.machine).split(",").map(m=>m.trim()).includes(machineName) && ["not_started","in_progress","awaiting_qi"].includes(wo.status)).length
   const machineInUse = (machineName: string) => openReservations(machineName) > 0
   const machineUsedAnywhere = (machineName: string) => machineInUse(machineName) || dailyEntries.some(e => e.machine === machineName) || downtimeEvents.some(d => d.machineName === machineName) || fqiInspections.some(f => f.machine === machineName)
@@ -586,10 +598,10 @@ function MachinesTab() {
     <div className="bg-white border rounded-xl p-4 grid grid-cols-1 md:grid-cols-4 gap-2">
       <div><p className="text-xs font-bold text-slate-600 mb-1">Machine Name</p><input value={name} onChange={e=>setName(e.target.value)} placeholder="Machine Name" className={CFG_INPUT}/></div>
       <div><p className="text-xs font-bold text-slate-600 mb-1">Process</p><select value={process} onChange={e=>setProcess(e.target.value as any)} className={CFG_INPUT}><option value="die_casting">Die Casting</option><option value="coating">Coating</option><option value="cnc_vmc">CNC/VMC</option></select></div>
-      <div><p className="text-xs font-bold text-slate-600 mb-1">Operator</p><select value={operatorName} onChange={e=>setOperatorName(e.target.value)} className={CFG_INPUT}><option value="">Select Operator</option>{operatorOptions.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}</select></div>
+      <div><p className="text-xs font-bold text-slate-600 mb-1">Operator</p><select value={operatorName} onChange={e=>setOperatorName(e.target.value)} className={CFG_INPUT}><option value="">Select Operator</option>{operatorOptions.map(name => <option key={name} value={name}>{name}</option>)}</select></div>
       <div className="flex items-end"><button onClick={async()=>{const id=`m-${Date.now()}`; if(!name.trim()||!process) return; await addMachine({id,name:name.trim(),process,type:"",status:"active", operatorName: operatorName || ""}); setName(""); setOperatorName("")}} className={CFG_BTN_PRIMARY}>Add</button></div>
     </div>
-    <div className="bg-white border rounded-xl overflow-hidden"><table className="w-full text-sm"><thead><tr className="bg-slate-50">{"Name,Process,Operator,Open WO,Actions".split(",").map(h=><th key={h} className="text-left px-3 py-2 text-slate-700 font-semibold">{h}</th>)}</tr></thead><tbody>{machines.map(m=>{ const usedAnywhere = machineUsedAnywhere(m.name); return <tr key={m.id} className="border-t"><td className="px-3 py-2 text-slate-900 font-medium">{m.name}</td><td className="px-3 py-2 text-slate-700">{m.process}</td><td className="px-3 py-2 text-slate-700"><select className={`${CFG_INPUT} py-1 px-2 rounded`} value={m.operatorName || ""} onChange={async e=>{ await updateMachine(m.id,{operatorName:e.target.value}) }}><option value="">Select Operator</option>{operatorOptions.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}</select></td><td className="px-3 py-2 text-slate-700 font-medium">{openReservations(m.name)}</td><td className="px-3 py-2"><button onClick={()=>{ if(usedAnywhere){ alert("Machine is being used in records/work orders and cannot be deleted."); return } deleteMachine(m.id) }} className="text-red-600">Delete</button></td></tr>})}</tbody></table></div>
+    <div className="bg-white border rounded-xl overflow-hidden"><table className="w-full text-sm"><thead><tr className="bg-slate-50">{"Name,Process,Operator,Open WO,Actions".split(",").map(h=><th key={h} className="text-left px-3 py-2 text-slate-700 font-semibold">{h}</th>)}</tr></thead><tbody>{machines.map(m=>{ const usedAnywhere = machineUsedAnywhere(m.name); return <tr key={m.id} className="border-t"><td className="px-3 py-2 text-slate-900 font-medium">{m.name}</td><td className="px-3 py-2 text-slate-700">{m.process}</td><td className="px-3 py-2 text-slate-700"><select className={`${CFG_INPUT} py-1 px-2 rounded`} value={m.operatorName || ""} onChange={async e=>{ await updateMachine(m.id,{operatorName:e.target.value}) }}><option value="">Select Operator</option>{operatorOptions.map(name => <option key={name} value={name}>{name}</option>)}</select></td><td className="px-3 py-2 text-slate-700 font-medium">{openReservations(m.name)}</td><td className="px-3 py-2"><button onClick={()=>{ if(usedAnywhere){ alert("Machine is being used in records/work orders and cannot be deleted."); return } deleteMachine(m.id) }} className="text-red-600">Delete</button></td></tr>})}</tbody></table></div>
   </div>
 }
 
