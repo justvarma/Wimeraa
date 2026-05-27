@@ -200,12 +200,18 @@ function Phase1Form({ onClose, onSave, initial }: {
 function Phase2Form({ wo, onClose, onSave }: {
   wo: WorkOrder; onClose: () => void; onSave: (data: Partial<WorkOrder>) => void
 }) {
-  const { materials, users, ptcs, shifts, workOrders, machines } = useApp()
+  const { materials, users, ptcs, shifts, workOrders, machines, processWorkOrdersV2, mainWorkOrdersV2 } = useApp()
   const shiftOptions = getSelectableShiftOptions(shifts, wo.shift)
   const approvedMats = materials.filter(m => m.status === "approved")
   const processMachines = machines.filter(m => m.process === wo.process && m.status === "active")
   const validPDCs = ptcs.filter(p => p.process === wo.process)
   const qiUsers = users.filter(u => u.role === UserRole.QUALITY_INSPECTOR || u.role === UserRole.ADMIN || QI_ROLE_PROCESS_MAP[u.role] === wo.process)
+
+  const assignedProcessRows = processWorkOrdersV2.filter(p => {
+    if (p.processType !== wo.process) return false
+    const parent = mainWorkOrdersV2.find(m => m.id === p.parentWoId)
+    return parent?.partId === wo.partId
+  })
 
   const [form, setForm] = useState({
     materialGrade:  wo.materialGrade  || "",
@@ -355,6 +361,22 @@ function Phase2Form({ wo, onClose, onSave }: {
             </div>
           </div>
 
+          {/* Assigned Sub Work Order Snapshot */}
+          <div className="p-4 border border-slate-200 rounded-xl space-y-3">
+            <p className="text-xs font-black text-slate-700 uppercase tracking-wider">Assigned Sub Work Order Snapshot</p>
+            <Field label="Assigned Sub Work Orders">
+              <select className={selectCls} defaultValue="" disabled>
+                <option value="">Select to view committed / taken / leftover</option>
+                {assignedProcessRows.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.processWoNumber} | Committed: {p.targetParts} | Required: {p.requiredQtyKg}KG | Taken: {p.takenQtyKg}KG | Leftover: {p.leftoverQtyKg}KG
+                  </option>
+                ))}
+              </select>
+            </Field>
+            {assignedProcessRows.length === 0 && <p className="text-xs text-slate-500">No assigned sub work orders found yet for this part/process.</p>}
+          </div>
+
           {/* Window 1: Material Claim & Quantity Planning */}
           <div className="p-4 border border-slate-200 rounded-xl space-y-3">
             <p className="text-xs font-black text-slate-700 uppercase tracking-wider">Window 1 — Material Claim & Quantity Planning</p>
@@ -486,7 +508,7 @@ function Phase2Form({ wo, onClose, onSave }: {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function WorkOrdersPage() {
-  const { currentUser, workOrders, shifts, addWorkOrder, updateWorkOrder, deleteWorkOrder, deductMaterial, schedules, machines, programs, mainWorkOrdersV2, processWorkOrdersV2, woMachineAssignmentsV2, addMainWorkOrderV2, addProcessWorkOrderV2, addWoMachineAssignmentV2, addWoAuditLog } = useApp()
+  const { currentUser, workOrders, shifts, addWorkOrder, updateWorkOrder, deleteWorkOrder, deductMaterial, schedules, machines, programs, mainWorkOrdersV2, processWorkOrdersV2, woMachineAssignmentsV2, addMainWorkOrderV2, addProcessWorkOrderV2, updateProcessWorkOrderV2, addWoMachineAssignmentV2, addWoAuditLog } = useApp()
   const role = currentUser?.role as UserRole
 
   const [showPhase1, setShowPhase1] = useState(false)
@@ -505,7 +527,11 @@ export default function WorkOrdersPage() {
   const [v2MachineIds, setV2MachineIds] = useState<string[]>([])
   const [v2ProgramId, setV2ProgramId] = useState("")
   const [v2Produced, setV2Produced] = useState("")
+  const [v2TakenQtyKg, setV2TakenQtyKg] = useState("")
+  const [v2BufferPercent, setV2BufferPercent] = useState("2")
   const [v2Shortcoming, setV2Shortcoming] = useState("machine_breakdown")
+  const [v2Notes, setV2Notes] = useState("")
+  const [v2ProcessWoId, setV2ProcessWoId] = useState("")
   const v2SelectedSchedule = schedules.find(s => s.id === v2ScheduleId)
   const v2ScheduleMonthRange = useMemo(() => {
     if (!v2SelectedSchedule?.date) return null
@@ -530,6 +556,12 @@ export default function WorkOrdersPage() {
   }, [v2StartDate, v2EndDate])
   const v2NextWoNo = `WO-${String(mainWorkOrdersV2.length + 1).padStart(3, "0")}`
   const v2NextProcessNo = `PWO-${String(processWorkOrdersV2.length + 1).padStart(3, "0")}`
+  const v2ChosenProcessWO = processWorkOrdersV2.find(p => p.id === v2ProcessWoId)
+  const v2RequiredQtyKg = Number(v2ChosenProcessWO?.requiredQtyKg || v2SelectedSchedule?.requiredQuantityInKgs || 0)
+  const v2AssignedQtyKg = Number((v2RequiredQtyKg * (1 + Number(v2BufferPercent || 0) / 100)).toFixed(2))
+  const v2TakenQty = Number(v2TakenQtyKg || 0)
+  const v2AdditionalQty = Number((v2TakenQty - v2AssignedQtyKg).toFixed(2))
+  const v2LeftoverQty = Number((v2AssignedQtyKg - v2TakenQty).toFixed(2))
 
   const isPDCManager   = role === UserRole.PTC_MANAGER
   const isAdmin        = role === UserRole.ADMIN
@@ -676,9 +708,37 @@ export default function WorkOrdersPage() {
       })
       if (overCapacityMachine) { alert("Machine capacity exceeded for shift (limit 500 parts/shift)."); return }
     }
+    const program = programs.find(p => p.id === v2ProgramId)
+    if (isProcessPDC && v2ChosenProcessWO) {
+      await updateProcessWorkOrderV2(v2ChosenProcessWO.id, {
+        shiftDate: effectiveShiftDate,
+        shift: effectiveShift,
+        targetParts: planned,
+        requiredQtyKg: v2RequiredQtyKg,
+        bufferPercent: Number(v2BufferPercent || 0),
+        assignedQtyKg: v2AssignedQtyKg,
+        takenQtyKg: v2TakenQty,
+        leftoverQtyKg: v2LeftoverQty,
+        shortcomingCategory: v2Shortcoming as ShortcomingCategory,
+        shortcomingNotes: v2Notes.trim(),
+        updatedAt: new Date().toISOString().split("T")[0],
+      })
+      const selectedCount = selectedMachineIds.length || 1
+      const machineParts = Math.floor(planned / selectedCount)
+      for (const machineId of selectedMachineIds) {
+        const machine = machines.find(m => m.id === machineId)
+        await addWoMachineAssignmentV2({
+          id: createClientId("ma"), processWoId: v2ChosenProcessWO.id, machineId, machineName: machine?.name || "", operatorName: machine?.operatorName || "Unassigned",
+          shiftDate: effectiveShiftDate, shift: effectiveShift, programId: v2ProgramId, programName: (program as ProgramOption | undefined)?.programName || "",
+          partsCommitted: machineParts, producedQty: Number(v2Produced || 0), rejectedQty: 0, reworkQty: 0, createdAt: new Date().toISOString().split("T")[0],
+        })
+      }
+      await addWoAuditLog({ id: createClientId("audit"), woId: v2ChosenProcessWO.parentWoId, processWoId: v2ChosenProcessWO.id, action: "v2_process_wo_filled_by_pdc", field: "status", oldValue: String(v2ChosenProcessWO.status || "scheduled"), newValue: "scheduled", actorId: currentUser.id, actorName: currentUser.name, createdAt: new Date().toISOString().split("T")[0] })
+      setShowV2Planner(false)
+      return
+    }
     const mainId = createClientId("main")
     const processId = createClientId("proc")
-    const program = programs.find(p => p.id === v2ProgramId)
     await addMainWorkOrderV2({
       id: mainId, woNumber: v2NextWoNo, scheduleId: v2SelectedSchedule.id, partMasterId: v2SelectedSchedule.partMasterId || "",
       partId: v2SelectedSchedule.partId, partName: v2SelectedSchedule.partName, scheduleStartDate: v2StartDate, scheduleEndDate: v2EndDate,
@@ -688,7 +748,7 @@ export default function WorkOrdersPage() {
     await addProcessWorkOrderV2({
       id: processId, processWoNumber: v2NextProcessNo, parentWoId: mainId, rootWoId: mainId, processType: "die_casting", status: "scheduled",
       shiftDate: effectiveShiftDate, shift: effectiveShift, targetParts: planned, requiredQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), bufferPercent: 2,
-      assignedQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), takenQtyKg: 0, leftoverQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), shortcomingCategory: v2Shortcoming as ShortcomingCategory, createdAt: new Date().toISOString().split("T")[0],
+      assignedQtyKg: v2AssignedQtyKg, takenQtyKg: v2TakenQty, leftoverQtyKg: v2LeftoverQty, shortcomingCategory: v2Shortcoming as ShortcomingCategory, shortcomingNotes: v2Notes.trim(), createdAt: new Date().toISOString().split("T")[0],
     })
     // Mirror a draft shell in legacy WO list so newly created V2 work orders remain visible in the Work Orders board.
     const primaryLegacyWoId = await addWorkOrder({
@@ -827,13 +887,13 @@ export default function WorkOrdersPage() {
             <div className="p-3 border border-slate-200 rounded-xl bg-slate-50">
               <p className="text-xs font-black text-slate-700 uppercase tracking-wider mb-2">Sub Work Orders (Process) Snapshot</p>
               <select className={selectCls} value={v2ScheduleId} onChange={e=>setV2ScheduleId(e.target.value)}>
-                <option value="">Select schedule to view committed/taken/leftover</option>
+                <option value="">Select schedule to view committed/taken/leftover/raw material</option>
                 {processWorkOrdersV2
                   .filter(p => !v2ScheduleId || mainWorkOrdersV2.find(m => m.id === p.parentWoId)?.scheduleId === v2ScheduleId)
                   .map(p => {
                     const parent = mainWorkOrdersV2.find(m => m.id === p.parentWoId)
                     return <option key={p.id} value={parent?.scheduleId || ""}>
-                      {parent?.woNumber || p.parentWoId} | Committed: {p.targetParts} | Taken: {p.takenQtyKg}KG | Leftover: {p.leftoverQtyKg}KG
+                      {parent?.woNumber || p.parentWoId} | Committed: {p.targetParts} | Taken: {p.takenQtyKg}KG | Leftover: {p.leftoverQtyKg}KG | Required: {p.requiredQtyKg}KG
                     </option>
                   })}
               </select>
@@ -841,6 +901,16 @@ export default function WorkOrdersPage() {
             </>}
             {isProcessPDC && <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800 font-semibold">
               Process PDC View ({PROCESS_STAGE_LABELS[myProcess!]}): Accept assigned WO, then capture shift-wise machine/program/operator allocation and production.
+            </div>}
+            {isProcessPDC && <div className="border border-slate-200 rounded-xl p-4 space-y-3">
+              <p className="text-sm font-black text-slate-800">Window 1 — Assigned Sub Work Order + Material Claim</p>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <Field label="Sub Work Order" req><select className={selectCls} value={v2ProcessWoId} onChange={e=>setV2ProcessWoId(e.target.value)}><option value="">Select assigned sub work order</option>{processWorkOrdersV2.filter(p=>p.processType===myProcess).map(p=><option key={p.id} value={p.id}>{p.processWoNumber} | Committed {p.targetParts} | Taken {p.takenQtyKg}KG | Leftover {p.leftoverQtyKg}KG</option>)}</select></Field>
+                <Field label="Required Qty (KG)"><input className={cls} value={v2RequiredQtyKg || ""} readOnly/></Field>
+                <Field label="Buffer %"><input className={cls} value={v2BufferPercent} onChange={e=>setV2BufferPercent(e.target.value)} /></Field>
+                <Field label="Acquired Qty (KG)"><input className={cls} value={v2TakenQtyKg} onChange={e=>setV2TakenQtyKg(e.target.value)} /></Field>
+              </div>
+              <div className="text-xs text-slate-700 p-2 rounded-lg bg-slate-50 border border-slate-200">Assigned (Required+Buffer): <strong>{v2AssignedQtyKg} KG</strong> · Additional (Acquired-Assigned): <strong>{v2AdditionalQty} KG</strong> · Leftover: <strong>{v2LeftoverQty} KG</strong></div>
             </div>}
             {isProcessPDC && <div className="border border-slate-200 rounded-xl p-4">
               <p className="text-sm font-black text-slate-800 mb-2">Machine Assignment (Shift-wise)</p>
