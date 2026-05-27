@@ -1,6 +1,7 @@
 "use client"
 import { useState, useMemo } from "react"
 import { useApp } from "@/components/providers/AppProvider"
+import { ShiftProductionEntry } from "@/components/ShiftProductionEntry"
 import {
   UserRole, PROCESS_STAGE_LABELS, PROCESS_OPERATION_LABELS, PROCESS_RULES, PROCESS_PTC_ROLE_MAP,
   REASON_CODES, 
@@ -792,6 +793,16 @@ export default function ProductionPage() {
             : "Die Casting → Coating → CNC/VMC — Record production, QI inspection & inventory update"}
         </p>
       </header>
+
+      {(isProcessPTC || isAdmin) && (
+        <section className="bg-white rounded-2xl border border-slate-200 p-4">
+          <div className="mb-3">
+            <h2 className="text-lg font-black text-slate-900">Shift-end Machine Actuals</h2>
+            <p className="text-xs text-slate-500">PDC subroles must submit end-of-shift machine production, raw usage and downtime here.</p>
+          </div>
+          <ShiftProductionEntry />
+        </section>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
