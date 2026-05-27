@@ -407,11 +407,13 @@ type MachineAssignmentDropdownProps = { clientId: string; processWoId?: string; 
 export function MachineAssignmentDropdown({ clientId, processWoId, woId, processType, shiftDate, shift }: MachineAssignmentDropdownProps) {
   const [assignments, setAssignments] = useState<MachineAssignment[]>([])
   const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!clientId) return
     const load = async () => {
       setLoading(true)
+      setLoadError(null)
       try {
         let resolvedProcessWoId = processWoId
         if (!resolvedProcessWoId && woId) {
@@ -434,6 +436,9 @@ export function MachineAssignmentDropdown({ clientId, processWoId, woId, process
         if (!resolvedProcessWoId) { setAssignments([]); return }
         const snap = await getDocs(query(collection(db, "clients", clientId, "wo_machine_assignments_v2"), where("processWoId", "==", resolvedProcessWoId)))
         setAssignments(snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<MachineAssignment, "id">) })))
+      } catch (e: unknown) {
+        setLoadError(e instanceof Error ? e.message : "Failed to load machine assignments")
+        setAssignments([])
       } finally {
         setLoading(false)
       }
@@ -442,6 +447,7 @@ export function MachineAssignmentDropdown({ clientId, processWoId, woId, process
   }, [clientId, processWoId, woId, processType, shiftDate, shift])
 
   if (loading) return <div className="flex items-center gap-1.5 text-[10px] text-slate-400 py-1"><Loader2 size={10} className="animate-spin"/> Loading machine data…</div>
+  if (loadError) return <p className="text-[10px] text-red-600 py-1">Could not load machine assignments: {loadError}</p>
   if (assignments.length === 0) return <p className="text-[10px] text-slate-400 italic py-1">No machine assignments in DB for this SWO yet.</p>
 
   return <div className="space-y-1.5"><p className="text-[10px] font-black text-indigo-700 uppercase tracking-wider flex items-center gap-1.5"><Settings2 size={9}/> Machine-wise Actuals</p><select defaultValue="" className="w-full text-xs border border-indigo-200 rounded-xl px-3 py-2 bg-indigo-50 text-indigo-900 font-semibold" onChange={() => {}}><option value="" disabled>🔧 {assignments.length} machine{assignments.length > 1 ? "s" : ""} — select to view actuals</option>{assignments.map(a => { const produced = (a.goodParts ?? 0) + (a.reworkParts ?? 0) + (a.rejectedParts ?? 0); return <option key={a.id} value={a.id}>{a.machineName}{a.actualsLocked ? ` | ✓ Produced: ${produced} (Good: ${a.goodParts ?? 0} · Rework: ${a.reworkParts ?? 0} · Rejected: ${a.rejectedParts ?? 0}) | Raw Used: ${a.rawMaterialUsedKg ?? 0} KG | Leftover: ${a.leftoverKg ?? 0} KG | Downtime: ${a.downtimeMinutes ?? 0} min | Op: ${a.operatorConfirmedBy || "—"}` : ` | ⏳ Pending actuals | Committed: ${a.partsCommitted} parts`}</option> })}</select>{assignments.some(a => a.actualsLocked) && <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-1">{assignments.filter(a => a.actualsLocked).map(a => { const produced=(a.goodParts ?? 0)+(a.reworkParts ?? 0)+(a.rejectedParts ?? 0); return <div key={a.id} className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-2"><p className="text-[10px] font-black text-emerald-800">{a.machineName}</p><p className="text-[10px] text-slate-700">Produced: {produced} (G:{a.goodParts ?? 0} / Rw:{a.reworkParts ?? 0} / Rj:{a.rejectedParts ?? 0})</p><p className="text-[10px] text-slate-700">Raw: {a.rawMaterialUsedKg ?? 0} KG · Leftover: {a.leftoverKg ?? 0} KG · Down: {a.downtimeMinutes ?? 0} min</p></div>})}</div>}</div>
