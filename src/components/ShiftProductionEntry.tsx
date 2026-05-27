@@ -402,9 +402,9 @@ export function ShiftProductionEntry() {
   return <div className="space-y-6 max-w-4xl mx-auto"><div className="flex items-center justify-between flex-wrap gap-3"><div><h2 className="text-2xl font-black text-slate-900">Shift Production Entry</h2><p className="text-sm text-slate-500 mt-0.5">{PROCESS_STAGE_LABELS[myProcess]} · Fill machine-wise actuals after each shift</p></div><button type="button" onClick={reload} disabled={loading} className="flex items-center gap-2 px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50">{loading ? <Loader2 size={13} className="animate-spin"/> : <RefreshCw size={13}/>}Refresh</button></div>{error && <div className="p-4 bg-red-50 border border-red-200 rounded-2xl text-sm text-red-700 flex items-center gap-2"><AlertTriangle size={15}/>{error}</div>}<div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4"><p className="text-[10px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1.5"><Calendar size={10}/> Select Process Work Order (SWO)</p><select value={selectedPwoId} onChange={e => setSelectedPwoId(e.target.value)} className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-900 bg-white focus:ring-2 focus:ring-indigo-500 outline-none"><option value="">— Select a process work order —</option>{pwos.map(p => <option key={p.id} value={p.id}>{p.processWoNumber} · {p.shiftDate} / {String(p.shift)} · Target: {p.targetParts} parts · {p.actualsSubmittedAt ? "✓ Actuals Submitted" : "Pending actuals"}</option>)}</select></div>{selectedPwo && <div className="space-y-4">{mergedAssignments.length === 0 ? <div className="bg-white rounded-2xl border border-slate-200 p-6 text-center text-sm text-slate-500">No machine assignments were found in DB. We loaded fallback machines from SWO allocation if available; you can enter and submit now to create DB assignment rows.</div> : mergedAssignments.map(ma => <MachineRow key={ma.id} assignment={ma} assignedKg={perMachineKg} onChange={handleChange} isLocked={!!ma.actualsLocked} />)}{mergedAssignments.length > 0 && !allLocked && <div className="sticky bottom-4 flex items-center gap-3 bg-white border border-slate-200 rounded-2xl p-3 shadow-xl"><div className="flex-1">{saved && <span className="flex items-center gap-1.5 text-sm text-emerald-700 font-bold"><CheckCircle2 size={15}/> Actuals saved successfully</span>}{!saved && hasUnsaved && <span className="text-sm text-amber-700 font-semibold">Unsaved changes — submit to lock actuals in DB</span>}</div><button type="button" onClick={handleSubmit} disabled={saving || !hasUnsaved} className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-black shadow-md disabled:opacity-40 disabled:cursor-not-allowed transition-colors">{saving ? <><Loader2 size={15} className="animate-spin"/> Saving…</> : <><Save size={15}/> Submit Shift Actuals</>}</button><button type="button" onClick={handleSaveDraft} disabled={savingDraft || !hasUnsaved} className="flex items-center gap-2 px-4 py-2.5 bg-white border border-indigo-300 text-indigo-700 rounded-xl text-sm font-black disabled:opacity-40">{savingDraft ? <><Loader2 size={15} className="animate-spin"/> Saving Draft…</> : "Save Draft"}</button></div>}</div>}</div>
 }
 
-type MachineAssignmentDropdownProps = { clientId: string; processWoId?: string; woId?: string }
+type MachineAssignmentDropdownProps = { clientId: string; processWoId?: string; woId?: string; processType?: string; shiftDate?: string; shift?: string }
 
-export function MachineAssignmentDropdown({ clientId, processWoId, woId }: MachineAssignmentDropdownProps) {
+export function MachineAssignmentDropdown({ clientId, processWoId, woId, processType, shiftDate, shift }: MachineAssignmentDropdownProps) {
   const [assignments, setAssignments] = useState<MachineAssignment[]>([])
   const [loading, setLoading] = useState(false)
 
@@ -422,6 +422,15 @@ export function MachineAssignmentDropdown({ clientId, processWoId, woId }: Machi
             if (!p2.empty) resolvedProcessWoId = p2.docs[0].id
           }
         }
+        if (!resolvedProcessWoId && processType && shiftDate && shift) {
+          const p3 = await getDocs(query(
+            collection(db, "clients", clientId, "process_work_orders_v2"),
+            where("processType", "==", processType),
+            where("shiftDate", "==", shiftDate),
+            where("shift", "==", shift)
+          ))
+          if (!p3.empty) resolvedProcessWoId = p3.docs[0].id
+        }
         if (!resolvedProcessWoId) { setAssignments([]); return }
         const snap = await getDocs(query(collection(db, "clients", clientId, "wo_machine_assignments_v2"), where("processWoId", "==", resolvedProcessWoId)))
         setAssignments(snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<MachineAssignment, "id">) })))
@@ -430,7 +439,7 @@ export function MachineAssignmentDropdown({ clientId, processWoId, woId }: Machi
       }
     }
     load()
-  }, [clientId, processWoId, woId])
+  }, [clientId, processWoId, woId, processType, shiftDate, shift])
 
   if (loading) return <div className="flex items-center gap-1.5 text-[10px] text-slate-400 py-1"><Loader2 size={10} className="animate-spin"/> Loading machine data…</div>
   if (assignments.length === 0) return <p className="text-[10px] text-slate-400 italic py-1">No machine assignments in DB for this SWO yet.</p>
