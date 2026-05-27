@@ -256,6 +256,7 @@ function Phase2Form({ wo, onClose, onSave }: {
   const autoOutputKg = ((form.actualTarget || 0) * (form.weightPerPart || 0)).toFixed(2)
   const assignedQtyKg = Number((Number(form.requiredQtyKg || 0) * (1 + Number(form.bufferPercent || 0) / 100)).toFixed(2))
   const leftoverQtyKg = Number((assignedQtyKg - Number(form.takenQtyKg || 0)).toFixed(2))
+  const additionalQtyKg = Number((Number(form.takenQtyKg || 0) - assignedQtyKg).toFixed(2))
   const machineProducedTotal = Object.values(form.machineProducedMap || {}).reduce((s, v) => s + (Number(v) || 0), 0)
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -354,9 +355,9 @@ function Phase2Form({ wo, onClose, onSave }: {
             </div>
           </div>
 
-          {/* Production parameters */}
+          {/* Window 1: Material Claim & Quantity Planning */}
           <div className="p-4 border border-slate-200 rounded-xl space-y-3">
-            <p className="text-xs font-black text-slate-700 uppercase tracking-wider">Production Parameters</p>
+            <p className="text-xs font-black text-slate-700 uppercase tracking-wider">Window 1 — Material Claim & Quantity Planning</p>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Target Quantity (Nos)" req>
                 <input type="number" required min="1" value={form.actualTarget}
@@ -376,7 +377,7 @@ function Phase2Form({ wo, onClose, onSave }: {
               </Field>
             </div>
             <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700">
-              Assigned Qty: <strong>{assignedQtyKg} KG</strong> · Leftover: <strong>{leftoverQtyKg} KG</strong>
+              Required Qty: <strong>{form.requiredQtyKg} KG</strong> · Buffer+Required (Assigned): <strong>{assignedQtyKg} KG</strong> · Acquired (Taken): <strong>{form.takenQtyKg} KG</strong> · Additional (Taken-Assigned): <strong>{additionalQtyKg} KG</strong> · Leftover: <strong>{leftoverQtyKg} KG</strong>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Parts per Cycle" req>
@@ -394,10 +395,10 @@ function Phase2Form({ wo, onClose, onSave }: {
               </div>
             )}
           </div>
-          {/* Machine Process Window (last step) */}
+          {/* Window 2: Day-wise Shift + Machine Allocation */}
           <div className="p-4 border border-indigo-200 bg-indigo-50/50 rounded-xl space-y-3">
             <div className="flex items-center justify-between">
-              <p className="text-xs font-black text-indigo-800 uppercase tracking-wider">Machine Selection & Details</p>
+              <p className="text-xs font-black text-indigo-800 uppercase tracking-wider">Window 2 — Day/Shift Machine Allocation</p>
               <button type="button" onClick={() => setShowMachineProcessWindow(p => !p)} className="text-xs font-bold text-indigo-700 hover:text-indigo-900">
                 {showMachineProcessWindow ? "Hide" : "Show"}
               </button>
@@ -822,6 +823,20 @@ export default function WorkOrdersPage() {
               <Field label="Start Date" req><input type="date" min={v2ScheduleMonthRange?.start} max={v2ScheduleMonthRange?.end} className={cls} value={v2StartDate} onChange={e=>setV2StartDate(e.target.value)} /></Field>
               <Field label="End Date" req><input type="date" min={v2ScheduleMonthRange?.start} max={v2ScheduleMonthRange?.end} className={cls} value={v2EndDate} onChange={e=>setV2EndDate(e.target.value)} /></Field>
               <Field label="No. of Days"><input className={cls} value={v2DayCount ? String(v2DayCount) : ""} readOnly /></Field>
+            </div>
+            <div className="p-3 border border-slate-200 rounded-xl bg-slate-50">
+              <p className="text-xs font-black text-slate-700 uppercase tracking-wider mb-2">Sub Work Orders (Process) Snapshot</p>
+              <select className={selectCls} value={v2ScheduleId} onChange={e=>setV2ScheduleId(e.target.value)}>
+                <option value="">Select schedule to view committed/taken/leftover</option>
+                {processWorkOrdersV2
+                  .filter(p => !v2ScheduleId || mainWorkOrdersV2.find(m => m.id === p.parentWoId)?.scheduleId === v2ScheduleId)
+                  .map(p => {
+                    const parent = mainWorkOrdersV2.find(m => m.id === p.parentWoId)
+                    return <option key={p.id} value={parent?.scheduleId || ""}>
+                      {parent?.woNumber || p.parentWoId} | Committed: {p.targetParts} | Taken: {p.takenQtyKg}KG | Leftover: {p.leftoverQtyKg}KG
+                    </option>
+                  })}
+              </select>
             </div>
             </>}
             {isProcessPDC && <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800 font-semibold">
