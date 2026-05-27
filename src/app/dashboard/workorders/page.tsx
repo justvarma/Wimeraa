@@ -1250,12 +1250,55 @@ export default function WorkOrdersPage() {
         return
       }
     }
-    updateWorkOrder(phase2WO.id, {
+    await updateWorkOrder(phase2WO.id, {
       ...data,
       status: "not_started",
       phase2CompletedBy: currentUser!.name,
       phase2CompletedAt: new Date().toISOString().split("T")[0],
     })
+
+    const machineMap = data.machineProducedMap || {}
+    const machineIds = Object.keys(machineMap)
+    const linkedProcessWoId = (phase2WO as unknown as { processWoId?: string }).processWoId || ""
+    const resolvedProcessWO = linkedProcessWoId
+      ? processWorkOrdersV2.find(p => p.id === linkedProcessWoId)
+      : processWorkOrdersV2.find(p =>
+          p.processType === phase2WO.process &&
+          p.shiftDate === (data.shiftDate || data.date || phase2WO.date) &&
+          p.shift === (data.shift || phase2WO.shift)
+        )
+
+    if (resolvedProcessWO) {
+      await updateProcessWorkOrderV2(resolvedProcessWO.id, {
+        shiftDate: String(data.shiftDate || data.date || phase2WO.date || ""),
+        shift: (data.shift || phase2WO.shift || "") as Shift,
+        targetParts: Number(data.actualTarget || phase2WO.targetPartNos || 0),
+        requiredQtyKg: Number(data.requiredQtyKg || data.requiredQuantityKg || phase2WO.requiredQuantityKg || 0),
+        assignedQtyKg: Number(data.assignedQtyKg || 0),
+        takenQtyKg: Number(data.takenQtyKg || 0),
+        leftoverQtyKg: Number(data.leftoverQtyKg || 0),
+        shortcomingCategory: (data.shortcomingCategory as ShortcomingCategory) || "machine_breakdown",
+        shortcomingNotes: String(data.notes || ""),
+        updatedAt: new Date().toISOString().split("T")[0],
+      })
+
+      for (const machineId of machineIds) {
+        const already = woMachineAssignmentsV2.find(a => a.processWoId === resolvedProcessWO.id && a.machineId === machineId)
+        if (already) continue
+        const machine = machines.find(m => m.id === machineId)
+        await addWoMachineAssignmentV2({
+          id: createClientId("ma"), processWoId: resolvedProcessWO.id, machineId,
+          machineName: machine?.name || machineId, operatorName: machine?.operatorName || "Unassigned",
+          shiftDate: String(data.shiftDate || data.date || phase2WO.date || ""),
+          shift: (data.shift || phase2WO.shift || "") as Shift,
+          programId: String(data.programId || ""),
+          programName: String(data.programName || ""),
+          partsCommitted: Number(machineMap[machineId] || 0), producedQty: 0,
+          rejectedQty: 0, reworkQty: 0, createdAt: new Date().toISOString().split("T")[0],
+        })
+      }
+    }
+
     setPhase2WO(null)
   }
 
