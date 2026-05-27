@@ -11,7 +11,7 @@ import {
   ClipboardList, Plus, X, Edit2, Trash2, Lock, AlertTriangle,
   ChevronDown, ChevronRight, CheckCircle2, Building2, Pencil,
   GitBranch, ArrowUpRight, Package, Layers, Calendar, Settings2,
-  ChevronLeft, Info,
+  ChevronLeft, Info, RefreshCw, ShieldCheck, AlertCircle,
 } from "lucide-react"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -62,11 +62,328 @@ type ProgramOption = {
   programId?: string
   programName?: string
   name?: string
-  /** Raw material KG required to produce 1 part — from config/program master */
   rawMaterialKgPerPart?: number
 }
 
 const createClientId = (prefix: string) => `${prefix}-${crypto.randomUUID()}`
+
+// ─── WO Hierarchy Tree ────────────────────────────────────────────────────────
+// Renders the full drill-down: WO → SWOs (per shift) → QI row → Rework WOs → ...
+// Each level is independently collapsible. Driven entirely by live workOrders data.
+
+type ReworkNodeProps = {
+  reworkWO: WorkOrder
+  allWorkOrders: WorkOrder[]
+  shifts: ReturnType<typeof useApp>["shifts"]
+  machines: ReturnType<typeof useApp>["machines"]
+  depth: number
+}
+
+function ReworkNode({ reworkWO, allWorkOrders, shifts, machines, depth }: ReworkNodeProps) {
+  const [open, setOpen] = useState(false)
+
+  // Children of this rework WO = further rework cycles spawned from it
+  const children = allWorkOrders.filter(
+    w => w.parentWoId === reworkWO.id && (w.woType === "rework" || w.woType === "rejection") && (w.reworkCycleNumber ?? 0) > (reworkWO.reworkCycleNumber ?? 0)
+  )
+
+  const hasQIResult = ["completed", "finished_goods", "awaiting_qi", "rejected"].includes(reworkWO.status)
+  const indentPx = depth * 16
+
+  return (
+    <div style={{ marginLeft: indentPx }} className="relative">
+      {/* Vertical connector line */}
+      <div className="absolute left-[-12px] top-0 bottom-0 w-px bg-amber-200" style={{ display: depth > 0 ? "block" : "none" }}/>
+
+      {/* Rework WO row */}
+      <div className="border border-amber-200 bg-amber-50/40 rounded-xl overflow-hidden mb-2">
+        <button
+          onClick={() => setOpen(o => !o)}
+          className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-amber-50/80 transition-colors"
+        >
+          <RefreshCw size={12} className="text-amber-600 shrink-0"/>
+          <span className="text-[10px] font-black text-amber-700 uppercase tracking-wider">
+            Rework SWO · Cycle #{reworkWO.reworkCycleNumber ?? 1}
+          </span>
+          <span className="font-mono text-[10px] text-amber-600 ml-1">{reworkWO.id}</span>
+          <span className={`ml-auto text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider ${statusStyle(reworkWO.status)}`}>
+            {statusLabel(reworkWO.status)}
+          </span>
+          <span className="text-slate-400 text-[10px] shrink-0">{reworkWO.reworkPartCount ?? reworkWO.targetPartNos} parts</span>
+          {(children.length > 0 || hasQIResult) && (
+            open ? <ChevronDown size={13} className="text-amber-500 shrink-0"/> : <ChevronRight size={13} className="text-amber-500 shrink-0"/>
+          )}
+        </button>
+
+        {/* Rework WO detail strip */}
+        {open && (
+          <div className="px-3 pb-3 space-y-2 border-t border-amber-100">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2 text-[10px]">
+              {[
+                ["Machine",  reworkWO.machine || "—"],
+                ["Shift",    getShiftLabel(shifts, reworkWO.shift)],
+                ["Operator", reworkWO.operator || "—"],
+                ["Grade",    reworkWO.materialGrade || "—"],
+                ["Target",   `${reworkWO.targetPartNos} nos`],
+                ["Good",     `${reworkWO.goodParts ?? 0}`],
+                ["Rework",   `${reworkWO.reworkParts ?? 0}`],
+                ["Rejected", `${reworkWO.rejectedParts ?? 0}`],
+              ].map(([k, v]) => (
+                <div key={k} className="bg-white rounded-lg px-2 py-1.5 border border-amber-100">
+                  <p className="text-amber-600 font-bold uppercase tracking-wider mb-0.5">{k}</p>
+                  <p className="font-semibold text-slate-800">{v}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* QI result for this rework WO */}
+            {hasQIResult && (
+              <QIResultRow wo={reworkWO}/>
+            )}
+
+            {/* Further rework children */}
+            {children.map(child => (
+              <ReworkNode
+                key={child.id}
+                reworkWO={child}
+                allWorkOrders={allWorkOrders}
+                shifts={shifts}
+                machines={machines}
+                depth={depth + 1}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function QIResultRow({ wo }: { wo: WorkOrder }) {
+  const isPass    = wo.status === "completed" || wo.status === "finished_goods"
+  const isRejected = wo.status === "rejected"
+  const isPending  = wo.status === "awaiting_qi"
+
+  return (
+    <div className={`rounded-xl border px-3 py-2.5 flex items-center gap-3 flex-wrap text-xs
+      ${isPass ? "bg-emerald-50 border-emerald-200" : isRejected ? "bg-red-50 border-red-200" : "bg-violet-50 border-violet-200"}`}>
+      {isPass
+        ? <ShieldCheck size={13} className="text-emerald-600 shrink-0"/>
+        : isRejected
+        ? <AlertCircle size={13} className="text-red-500 shrink-0"/>
+        : <ShieldCheck size={13} className="text-violet-500 shrink-0"/>
+      }
+      <span className={`font-black text-[10px] uppercase tracking-wider ${isPass ? "text-emerald-700" : isRejected ? "text-red-700" : "text-violet-700"}`}>
+        {isPending ? "Awaiting QI" : isPass ? "QI Passed" : "QI Rejected — Rework Required"}
+      </span>
+      <span className="text-slate-500 ml-auto flex gap-3">
+        <span>Good: <strong className="text-emerald-700">{wo.goodParts ?? 0}</strong></span>
+        <span>Rework: <strong className="text-amber-600">{wo.reworkParts ?? 0}</strong></span>
+        <span>Rejected: <strong className="text-red-600">{wo.rejectedParts ?? 0}</strong></span>
+      </span>
+      {wo.phase2CompletedBy && (
+        <span className="text-[10px] text-slate-400">Ops by: <em>{wo.phase2CompletedBy}</em></span>
+      )}
+    </div>
+  )
+}
+
+type SWONodeProps = {
+  swo: WorkOrder
+  allWorkOrders: WorkOrder[]
+  shifts: ReturnType<typeof useApp>["shifts"]
+  machines: ReturnType<typeof useApp>["machines"]
+  swoIndex: number
+}
+
+function SWONode({ swo, allWorkOrders, shifts, machines, swoIndex }: SWONodeProps) {
+  const [open, setOpen] = useState(false)
+
+  // Direct rework WOs whose parent is this SWO (cycle #1 reworks)
+  const directReworks = allWorkOrders.filter(
+    w => w.parentWoId === swo.id &&
+    (w.woType === "rework" || w.woType === "rejection") &&
+    (w.reworkCycleNumber ?? 0) >= 1
+  )
+
+  const hasQIResult  = ["completed", "finished_goods", "awaiting_qi", "rejected"].includes(swo.status)
+  const isDraft      = swo.status === "draft"
+  const hasChildren  = hasQIResult || directReworks.length > 0
+
+  return (
+    <div className="border border-teal-200 bg-teal-50/20 rounded-xl overflow-hidden">
+      {/* SWO header row — always visible */}
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-2.5 px-3 py-3 text-left hover:bg-teal-50/50 transition-colors"
+      >
+        {/* Shift indicator badge */}
+        <span className="flex items-center justify-center w-5 h-5 rounded-full bg-teal-600 text-white text-[9px] font-black shrink-0">
+          {swoIndex}
+        </span>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-black text-teal-800">
+              {swo.date || swo.shiftDate
+                ? `${swo.date || swo.shiftDate} · ${getShiftLabel(shifts, swo.shift) || swo.shift || "—"}`
+                : "Shift details pending"}
+            </span>
+            {swo.machine && (
+              <span className="text-[10px] text-slate-500">
+                {swo.machine}
+              </span>
+            )}
+            <span className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider ${statusStyle(swo.status)}`}>
+              {statusLabel(swo.status)}
+            </span>
+            {directReworks.length > 0 && (
+              <span className="flex items-center gap-1 text-[10px] bg-amber-100 text-amber-700 font-bold px-2 py-0.5 rounded-full border border-amber-200">
+                <RefreshCw size={8}/> {directReworks.length} rework{directReworks.length > 1 ? "s" : ""}
+              </span>
+            )}
+          </div>
+          <p className="text-[10px] text-slate-400 mt-0.5">
+            {isDraft
+              ? "⏳ Awaiting process PDC to fill details"
+              : `Target: ${swo.targetPartNos} nos · Req: ${swo.requiredQuantityKg} KG · Op: ${swo.operator || "—"} · Grade: ${swo.materialGrade || "—"}`
+            }
+          </p>
+        </div>
+
+        <span className="font-mono text-[10px] text-slate-300 shrink-0 hidden sm:block">{swo.id}</span>
+        {hasChildren && (
+          open
+            ? <ChevronDown size={14} className="text-teal-500 shrink-0"/>
+            : <ChevronRight size={14} className="text-teal-500 shrink-0"/>
+        )}
+      </button>
+
+      {/* SWO expanded body */}
+      {open && (
+        <div className="px-3 pb-3 space-y-2 border-t border-teal-100">
+
+          {/* Operational detail grid */}
+          {!isDraft && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2 text-[10px]">
+              {[
+                ["Machine",      swo.machine || "—"],
+                ["Operator",     swo.operator || "—"],
+                ["Shift",        getShiftLabel(shifts, swo.shift) || swo.shift || "—"],
+                ["Grade",        swo.materialGrade || "—"],
+                ["Target",       `${swo.targetPartNos} nos`],
+                ["Req. Weight",  `${swo.requiredQuantityKg} KG`],
+                ["Input KG",     `${swo.inputWeightKg ?? 0} KG`],
+                ["Output KG",    `${swo.actualOutputKg ?? 0} KG`],
+                ["Parts/Cycle",  String(swo.partPerCycle ?? 0)],
+                ["Parts Done",   String(swo.partsCompleted ?? 0)],
+                ["Good",         String(swo.goodParts ?? 0)],
+                ["Rework",       String(swo.reworkParts ?? 0)],
+              ].map(([k, v]) => (
+                <div key={k} className="bg-white rounded-lg px-2 py-1.5 border border-teal-100">
+                  <p className="text-teal-600 font-bold uppercase tracking-wider mb-0.5">{k}</p>
+                  <p className="font-semibold text-slate-800">{v}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Machine-wise allocation */}
+          {swo.machineProducedMap && Object.keys(swo.machineProducedMap).length > 0 && (
+            <div className="bg-white border border-teal-100 rounded-xl p-2.5">
+              <p className="text-[10px] font-black text-teal-700 uppercase tracking-wider mb-2">Machine allocation</p>
+              <div className="flex flex-wrap gap-1.5">
+                {Object.entries(swo.machineProducedMap).map(([machineId, qty]) => (
+                  <span key={machineId} className="text-[10px] bg-teal-50 border border-teal-200 rounded-lg px-2 py-1 font-semibold text-teal-800">
+                    {machineId} → {qty} parts
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* QI result strip */}
+          {hasQIResult && <QIResultRow wo={swo}/>}
+
+          {/* Rework children — each recursively rendered */}
+          {directReworks.length > 0 && (
+            <div className="space-y-2 mt-1 pl-3 border-l-2 border-amber-200">
+              <p className="text-[10px] font-black text-amber-600 uppercase tracking-wider flex items-center gap-1.5 mt-1">
+                <RefreshCw size={9}/> Rework Work Orders
+              </p>
+              {directReworks
+                .sort((a, b) => (a.reworkCycleNumber ?? 0) - (b.reworkCycleNumber ?? 0))
+                .map(rwo => (
+                  <ReworkNode
+                    key={rwo.id}
+                    reworkWO={rwo}
+                    allWorkOrders={allWorkOrders}
+                    shifts={shifts}
+                    machines={machines}
+                    depth={0}
+                  />
+                ))
+              }
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+type WOHierarchyTreeProps = {
+  rootWO: WorkOrder
+  allWorkOrders: WorkOrder[]
+  shifts: ReturnType<typeof useApp>["shifts"]
+  machines: ReturnType<typeof useApp>["machines"]
+}
+
+function WOHierarchyTree({ rootWO, allWorkOrders, shifts, machines }: WOHierarchyTreeProps) {
+  // All SWOs directly under this root WO:
+  // - Stage SWOs: woType === "rework", parentWoId === rootWO.id, reworkCycleNumber is 0 or undefined (system-generated per process/shift)
+  // - Each time a PDC fills details for a new shift, a new SWO is created under this root
+  const stageSWOs = allWorkOrders
+    .filter(w =>
+      w.parentWoId === rootWO.id &&
+      w.woType === "rework" &&
+      (w.reworkCycleNumber === undefined || w.reworkCycleNumber === 0)
+    )
+    .sort((a, b) => {
+      // Sort by shift date, then shift id
+      const dateA = a.date || a.shiftDate || a.createdAt || ""
+      const dateB = b.date || b.shiftDate || b.createdAt || ""
+      if (dateA !== dateB) return dateA.localeCompare(dateB)
+      return (a.shift || "").localeCompare(b.shift || "")
+    })
+
+  if (stageSWOs.length === 0) {
+    return (
+      <div className="text-xs text-slate-400 py-3 flex items-center gap-2">
+        <GitBranch size={12} className="text-slate-300"/>
+        No shift SWOs yet — process PDC will create them when filling details.
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1.5 mb-3">
+        <GitBranch size={10}/> {stageSWOs.length} Shift SWO{stageSWOs.length > 1 ? "s" : ""} — click to expand
+      </p>
+      {stageSWOs.map((swo, idx) => (
+        <SWONode
+          key={swo.id}
+          swo={swo}
+          allWorkOrders={allWorkOrders}
+          shifts={shifts}
+          machines={machines}
+          swoIndex={idx + 1}
+        />
+      ))}
+    </div>
+  )
+}
 
 // ─── Phase 1 Form (PDC Manager — WO Shell) ────────────────────────────────────
 function Phase1Form({ onClose, onSave, initial }: {
@@ -207,10 +524,8 @@ function Phase2Form({ wo, onClose, onSave }: {
     processWorkOrdersV2, mainWorkOrdersV2, woMachineAssignmentsV2,
   } = useApp()
 
-  // Which window we are on (1 = Material Claim, 2 = Day/Shift/Machine)
   const [window, setWindow] = useState<1 | 2>(1)
 
-  // ── Derived config ───────────────────────────────────────────────────────────
   const shiftOptions     = getSelectableShiftOptions(shifts, wo.shift)
   const approvedMats     = materials.filter(m => m.status === "approved")
   const processMachines  = machines.filter(m => m.process === wo.process && m.status === "active")
@@ -219,19 +534,15 @@ function Phase2Form({ wo, onClose, onSave }: {
     p => !("process" in p) || (p as unknown as { process?: string }).process === wo.process
   )
 
-  // Sub-WOs already assigned to this part/process (for PDC manager snapshot)
-  // FIX 1: Only show sub-WOs whose parent legacy WO still exists (not deleted)
   const assignedProcessRows = processWorkOrdersV2.filter(p => {
     if (p.processType !== wo.process) return false
     const parent = mainWorkOrdersV2.find(m => m.id === p.parentWoId)
     if (!parent) return false
-    // Ensure corresponding legacy WO has not been deleted
     const legacyExists = workOrders.some(w => w.masterId === parent.scheduleId && w.partId === parent.partId)
     if (!legacyExists) return false
     return parent?.partId === wo.partId
   })
 
-  // ── Window 1 State ───────────────────────────────────────────────────────────
   const [rawMaterialId,  setRawMaterialId]  = useState(wo.rawMaterialId  || "")
   const [materialGrade,  setMaterialGrade]  = useState(wo.materialGrade  || "")
   const [claimPartsQty,  setClaimPartsQty]  = useState<number>(wo.actualTarget || wo.targetPartNos)
@@ -245,28 +556,23 @@ function Phase2Form({ wo, onClose, onSave }: {
   const [vendorId,       setVendorId]       = useState(wo.vendorId || "")
   const [vendorName,     setVendorName]     = useState(wo.vendorName || "")
 
-  // ── Window 2 State ───────────────────────────────────────────────────────────
   const [shiftDate,      setShiftDate]      = useState(wo.date || new Date().toISOString().split("T")[0])
   const [selectedShift,  setSelectedShift]  = useState<Shift>(wo.shift || (shiftOptions[0]?.id as Shift) || "" as Shift)
   const [selectedMachineIds, setSelectedMachineIds] = useState<string[]>(
     wo.machine ? wo.machine.split(",").map(s => s.trim()).filter(Boolean).map(name => machines.find(m => m.name === name)?.id || "").filter(Boolean) : []
   )
   const [programId,      setProgramId]      = useState(wo.programId || (processPrograms[0]?.id || ""))
-  // Per-machine committed parts: { machineId: qty }
   const [machinePartsMap, setMachinePartsMap] = useState<Record<string, number>>(wo.machineProducedMap || {})
   const [notes,          setNotes]          = useState("")
 
-  // ── Derived calculations ─────────────────────────────────────────────────────
   const selectedMat     = approvedMats.find(m => m.id === rawMaterialId)
   const availableKg     = selectedMat ? selectedMat.receivedQuantity - (selectedMat.usedQuantity || 0) : 0
   const stockShortfall  = availableKg < wo.requiredQuantityKg
 
-  // From config: kg per part (program master or fallback)
   const selectedProgram = processPrograms.find(p => p.id === programId)
   const kgPerPartConfig = selectedProgram?.rawMaterialKgPerPart || weightPerPart || 0
   const configDerivedKg = Number((claimPartsQty * kgPerPartConfig).toFixed(3))
 
-  // FIX 3: Validate claimed parts against available raw material stock
   const maxPartsFromStock = (kgPerPartConfig > 0 && availableKg > 0)
     ? Math.floor(availableKg / kgPerPartConfig)
     : null
@@ -275,24 +581,18 @@ function Phase2Form({ wo, onClose, onSave }: {
     : false
 
   const assignedQtyKg   = Number((requiredQtyKg * (1 + bufferPercent / 100)).toFixed(2))
-
-  // Additional qty cannot be negative — clamp to 0
   const additionalQtyKgRaw    = Number((acquiredQtyKg - assignedQtyKg).toFixed(2))
   const additionalQtyKg       = Math.max(0, additionalQtyKgRaw)
-  const acquiredBelowAssigned = acquiredQtyKg < assignedQtyKg        // block: must take at least assigned
-  // Fix: acquired cannot exceed the physically available stock in the chosen material batch
+  const acquiredBelowAssigned = acquiredQtyKg < assignedQtyKg
   const acquiredExceedsStock  = !!(rawMaterialId && acquiredQtyKg > availableKg)
-
   const leftoverQtyKg   = Number((assignedQtyKg  - acquiredQtyKg).toFixed(2))
   const autoOutputKg    = Number((claimPartsQty  * (weightPerPart || 0)).toFixed(2))
 
-  // Occupied machines for this shift+date
   const occupiedMachineIds = new Set(
     woMachineAssignmentsV2
       .filter(a => a.shiftDate === shiftDate && a.shift === selectedShift)
       .map(a => a.machineId)
   )
-  // Also check legacy WO machine reservations
   const legacyOccupiedNames = new Set(
     workOrders
       .filter(w => w.id !== wo.id && w.machine && w.date === shiftDate && w.shift === selectedShift &&
@@ -304,9 +604,7 @@ function Phase2Form({ wo, onClose, onSave }: {
 
   const totalMachineCommit = Object.values(machinePartsMap).reduce((s, v) => s + (Number(v) || 0), 0)
   const selectedMachineNames = selectedMachineIds.map(id => machines.find(m => m.id === id)?.name || "").filter(Boolean)
-  const operatorsDisplay = selectedMachineIds.map(id => machines.find(m => m.id === id)?.operatorName || "Unassigned").join(", ")
 
-  // Toggle machine selection
   const toggleMachine = (id: string) => {
     setSelectedMachineIds(prev => {
       if (prev.includes(id)) {
@@ -318,12 +616,10 @@ function Phase2Form({ wo, onClose, onSave }: {
     })
   }
 
-  // ── Window 1 validation ──────────────────────────────────────────────────────
   const w1Valid = rawMaterialId && !stockShortfall && !partsExceedStock
     && claimPartsQty > 0 && requiredQtyKg > 0 && ptcId
     && !acquiredBelowAssigned && !acquiredExceedsStock
 
-  // ── Final submit ─────────────────────────────────────────────────────────────
   const handleSubmit = () => {
     if (!w1Valid) { setWindow(1); return }
     if (acquiredBelowAssigned) { alert("Acquired quantity cannot be less than Assigned (Required + Buffer). Please increase Acquired Qty or reduce Buffer %."); return }
@@ -353,14 +649,12 @@ function Phase2Form({ wo, onClose, onSave }: {
       actualOutputKg:  autoOutputKg,
       inputWeightKg:   wo.requiredQuantityKg,
       machineProducedMap: machinePartsMap,
-      // Store full material-claim context in acceptancePoints for audit
       acceptancePoints: [
         "As per configured QI checkpoints",
         `Req:${requiredQtyKg}kg Buffer:${bufferPercent}% Assigned:${assignedQtyKg}kg Acquired:${acquiredQtyKg}kg Additional:${additionalQtyKg}kg Leftover:${leftoverQtyKg}kg`,
         `MachineParts:${JSON.stringify(machinePartsMap)}`,
         notes ? `Notes:${notes}` : "",
       ].filter(Boolean).join(" | "),
-      // Granular fields for DB / downstream use
       requiredQtyKg,
       bufferPercent,
       assignedQtyKg,
@@ -375,12 +669,10 @@ function Phase2Form({ wo, onClose, onSave }: {
     })
   }
 
-  // ── UI ───────────────────────────────────────────────────────────────────────
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[94vh] flex flex-col">
 
-        {/* ── Header ── */}
         <div className="flex items-center justify-between p-6 border-b border-slate-200 shrink-0">
           <div>
             <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -397,7 +689,6 @@ function Phase2Form({ wo, onClose, onSave }: {
           <button onClick={onClose}><X size={22} className="text-slate-400 hover:text-slate-700"/></button>
         </div>
 
-        {/* ── Step tabs ── */}
         <div className="flex border-b border-slate-200 shrink-0">
           {([
             { n: 1 as const, icon: Package,   label: "Window 1 — Material Claim" },
@@ -416,15 +707,9 @@ function Phase2Form({ wo, onClose, onSave }: {
           ))}
         </div>
 
-        {/* ── Scrollable body ── */}
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
 
-          {/* ═══════════════════════════════════════════════════════════
-              WINDOW 1 — Material Claim & Quantity Planning
-          ═══════════════════════════════════════════════════════════ */}
           {window === 1 && <>
-
-            {/* PDC Manager context — what the manager entered */}
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2">
               <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
                 <Info size={11}/> PDC Manager Context (read-only)
@@ -446,7 +731,6 @@ function Phase2Form({ wo, onClose, onSave }: {
               </div>
             </div>
 
-            {/* Sub-WO Snapshot (from process work orders) — FIX 1: deleted-WO sub-WOs filtered out above */}
             {assignedProcessRows.length > 0 && (
               <div className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-4 space-y-2">
                 <p className="text-[10px] font-black text-indigo-700 uppercase tracking-wider flex items-center gap-1.5">
@@ -466,7 +750,6 @@ function Phase2Form({ wo, onClose, onSave }: {
               </div>
             )}
 
-            {/* Raw Material Selection */}
             <div className="rounded-xl border border-slate-200 p-4 space-y-3">
               <p className="text-[10px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
                 <Package size={11}/> Raw Material Selection
@@ -493,7 +776,6 @@ function Phase2Form({ wo, onClose, onSave }: {
                   {stockShortfall ? " — ⚠ INSUFFICIENT STOCK" : " — ✓ Stock OK"}
                 </div>
               )}
-              {/* FIX 3: Show max parts derivable from this stock */}
               {rawMaterialId && kgPerPartConfig > 0 && (
                 <div className={`p-2.5 rounded-lg text-xs font-medium border ${partsExceedStock ? "bg-red-50 border-red-200 text-red-700" : "bg-teal-50 border-teal-200 text-teal-700"}`}>
                   At <strong>{kgPerPartConfig} KG/part</strong> → this stock supports up to <strong>{maxPartsFromStock} parts</strong>.
@@ -504,19 +786,16 @@ function Phase2Form({ wo, onClose, onSave }: {
               )}
             </div>
 
-            {/* Material Claim & Quantity Planning */}
             <div className="rounded-xl border border-slate-200 p-4 space-y-4">
               <p className="text-[10px] font-black text-slate-700 uppercase tracking-wider">
                 Quantity Planning & Material Claim
               </p>
 
-              {/* FIX 2: Program selection moved up so kg/part rate is known before claim qty */}
               <Field label="Program (from Program Master)" req hint="Selecting a program auto-fills the required KG from its configured rate">
                 <select required value={programId} onChange={e => {
                   const newProgId = e.target.value
                   setProgramId(newProgId)
                   const prog = (programs as ProgramOption[]).find(p => p.id === newProgId)
-                  // FIX 2: auto-derive required KG when program changes
                   if (prog?.rawMaterialKgPerPart && claimPartsQty > 0) {
                     setRequiredQtyKg(Number((claimPartsQty * prog.rawMaterialKgPerPart).toFixed(3)))
                   }
@@ -540,12 +819,10 @@ function Phase2Form({ wo, onClose, onSave }: {
                     onChange={e => {
                       const v = Number(e.target.value)
                       setClaimPartsQty(v)
-                      // FIX 2: Auto-derive required kg from config whenever claim qty changes
                       if (kgPerPartConfig > 0) setRequiredQtyKg(Number((v * kgPerPartConfig).toFixed(3)))
                     }}
                     className={`${cls} ${partsExceedStock ? "border-red-400 focus:ring-red-400" : ""}`}
                   />
-                  {/* FIX 3: inline hint when parts exceed available stock */}
                   {partsExceedStock && rawMaterialId && (
                     <p className="text-[10px] text-red-600 font-bold mt-1">
                       ⚠ Max {maxPartsFromStock} parts from current stock. Reduce claim or select a larger material batch.
@@ -553,7 +830,6 @@ function Phase2Form({ wo, onClose, onSave }: {
                   )}
                 </Field>
                 <Field label="Required Qty (KG)" req hint="Auto-filled from program rate (parts × KG/part)">
-                  {/* FIX 2: read-only when program rate is known; editable as override otherwise */}
                   {kgPerPartConfig > 0 ? (
                     <input readOnly value={requiredQtyKg} className={readOnlyCls}/>
                   ) : (
@@ -601,14 +877,12 @@ function Phase2Form({ wo, onClose, onSave }: {
                     </p>
                   )}
                 </Field>
-                {/* FIX 4: Additional qty clamped to ≥ 0, label clarified */}
                 <Field label="Additional Qty (KG)" hint="Acquired − Assigned (cannot be negative)">
                   <input readOnly value={additionalQtyKg}
                     className={`${readOnlyCls} ${additionalQtyKgRaw < 0 ? "text-red-600" : additionalQtyKg > 0 ? "text-amber-600" : ""}`}/>
                 </Field>
               </div>
 
-              {/* Summary strip */}
               <div className="grid grid-cols-5 text-center gap-1">
                 {[
                   { label: "Required",  value: `${requiredQtyKg} KG`,  color: "bg-slate-100 text-slate-700" },
@@ -631,7 +905,6 @@ function Phase2Form({ wo, onClose, onSave }: {
               )}
             </div>
 
-            {/* External vendor toggle */}
             <div className="rounded-xl border border-slate-200 p-4 space-y-3">
               <label className="flex items-center gap-3 cursor-pointer">
                 <input type="checkbox" checked={isExternal} onChange={e => setIsExternal(e.target.checked)} className="w-4 h-4 accent-violet-600"/>
@@ -650,12 +923,7 @@ function Phase2Form({ wo, onClose, onSave }: {
             </div>
           </>}
 
-          {/* ═══════════════════════════════════════════════════════════
-              WINDOW 2 — Day / Shift / Machine Allocation
-          ═══════════════════════════════════════════════════════════ */}
           {window === 2 && <>
-
-            {/* W1 summary strip */}
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
                 <Package size={11}/> Window 1 Summary
@@ -675,7 +943,6 @@ function Phase2Form({ wo, onClose, onSave }: {
               </div>
             </div>
 
-            {/* Date + Shift */}
             <div className="rounded-xl border border-slate-200 p-4 space-y-3">
               <p className="text-[10px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
                 <Calendar size={11}/> Production Day &amp; Shift
@@ -695,7 +962,6 @@ function Phase2Form({ wo, onClose, onSave }: {
               </div>
             </div>
 
-            {/* Machine Allocation */}
             <div className="rounded-xl border border-indigo-200 bg-indigo-50/30 p-4 space-y-3">
               <p className="text-[10px] font-black text-indigo-800 uppercase tracking-wider flex items-center gap-1.5">
                 <Settings2 size={11}/> Machine Allocation — {PROCESS_STAGE_LABELS[wo.process]} only
@@ -756,7 +1022,6 @@ function Phase2Form({ wo, onClose, onSave }: {
               )}
             </div>
 
-            {/* Notes */}
             <div className="rounded-xl border border-slate-200 p-4 space-y-3">
               <Field label="Notes (optional)" hint="Shift-wise observations, shortcomings, remarks">
                 <textarea
@@ -771,7 +1036,6 @@ function Phase2Form({ wo, onClose, onSave }: {
           </>}
         </div>
 
-        {/* ── Footer ── */}
         <div className="shrink-0 border-t border-slate-200 p-4 flex items-center gap-3">
           {window === 2 && (
             <button type="button" onClick={() => setWindow(1)}
@@ -893,7 +1157,6 @@ export default function WorkOrdersPage() {
   const myProcess: ProcessStage | null =
     isPDCDC ? "die_casting" : isPDCCoat ? "coating" : isPDCCNC ? "cnc_vmc" : null
 
-  // Set of all live WO ids — used to detect orphaned stage SWOs whose parent was deleted
   const liveWoIds = useMemo(() => new Set(workOrders.map(w => w.id)), [workOrders])
 
   const visible = useMemo(() => {
@@ -903,9 +1166,6 @@ export default function WorkOrdersPage() {
       const matchRole = !myProcess || (
         w.process === myProcess && (w.status === "draft" || w.status === "rejected")
       )
-      // Fix: hide stage SWOs whose parent WO has been deleted.
-      // A stage SWO always has a parentWoId; if that parent no longer exists in workOrders
-      // (i.e. it was deleted), this child should not appear in any role's list.
       if (w.parentWoId && !liveWoIds.has(w.parentWoId)) return false
       return matchStatus && matchProcess && matchRole
     })
@@ -920,35 +1180,21 @@ export default function WorkOrdersPage() {
     })
   }, [workOrders, statusFilter, processFilter, myProcess])
 
-  const visibleGrouped = useMemo(() => {
-    if (isProcessPDC) return visible.map(wo => ({ root: wo, children: [] as WorkOrder[] }))
-    const roots = visible.filter(w => !w.parentWoId)
-    return roots.map(root => ({
-      root,
-      children: visible.filter(w => w.parentWoId === root.id),
-    }))
+  // For PDC Manager: only show root WOs (no parentWoId), all children rendered inside WOHierarchyTree
+  // For process PDC roles: flat list of their drafts as before
+  const visibleRoots = useMemo(() => {
+    if (isProcessPDC) return visible.map(wo => wo)
+    return visible.filter(w => !w.parentWoId)
   }, [visible, isProcessPDC])
 
-  const swoByParent = useMemo(() => {
-    const map: Record<string, typeof workOrders> = {}
-    workOrders.filter(w => (w.woType === "rework" || w.woType === "rejection") && w.parentWoId).forEach(w => {
-      map[w.parentWoId!] = [...(map[w.parentWoId!] ?? []), w]
-    })
-    return map
-  }, [workOrders])
-
-  // ── PDC Manager: sub-WO dropdown per parent WO ──────────────────────────────
-  // FIX 1: When building the map, skip processWOs whose parent main-WO's legacy WO was deleted
   const subWOsByParentLegacyId = useMemo(() => {
     const map: Record<string, typeof processWorkOrdersV2> = {}
     processWorkOrdersV2.forEach(p => {
       const parent = mainWorkOrdersV2.find(m => m.id === p.parentWoId)
       if (parent) {
-        // Find the corresponding legacy WO — must still exist (not deleted)
         const legacyWO = workOrders.find(
           w => w.masterId === parent.scheduleId && w.partId === parent.partId
         )
-        // Only add if legacy WO is still present
         if (legacyWO) {
           map[legacyWO.id] = [...(map[legacyWO.id] || []), p]
         }
@@ -1083,7 +1329,6 @@ export default function WorkOrdersPage() {
       shortcomingCategory: v2Shortcoming as ShortcomingCategory, shortcomingNotes: v2Notes.trim(),
       createdAt: new Date().toISOString().split("T")[0],
     })
-    // Mirror draft shell in legacy WO list
     const primaryLegacyWoId = await addWorkOrder({
       date: new Date().toISOString().split("T")[0],
       masterId: v2SelectedSchedule.id, partId: v2SelectedSchedule.partId,
@@ -1182,15 +1427,12 @@ export default function WorkOrdersPage() {
               <Field label="End Date" req><input type="date" min={v2ScheduleMonthRange?.start} max={v2ScheduleMonthRange?.end} className={cls} value={v2EndDate} onChange={e=>setV2EndDate(e.target.value)} /></Field>
               <Field label="No. of Days"><input className={cls} value={v2DayCount ? String(v2DayCount) : ""} readOnly /></Field>
             </div>
-            {/* FIX 1: Sub-WO snapshot — filter out entries whose parent legacy WO was deleted */}
             <div className="p-3 border border-slate-200 rounded-xl bg-slate-50">
               <p className="text-xs font-black text-slate-700 uppercase tracking-wider mb-2">Sub Work Orders Snapshot — Committed / Taken / Leftover / Raw Material</p>
               {processWorkOrdersV2.filter(p => {
-                // Must match schedule filter if set
                 const parent = mainWorkOrdersV2.find(m => m.id === p.parentWoId)
                 if (!parent) return false
                 if (v2ScheduleId && parent.scheduleId !== v2ScheduleId) return false
-                // FIX 1: Only show if corresponding legacy WO still exists (not deleted)
                 return workOrders.some(w => w.masterId === parent.scheduleId && w.partId === parent.partId)
               }).length === 0 ? (
                 <p className="text-xs text-slate-400">No sub work orders yet for this schedule.</p>
@@ -1202,7 +1444,6 @@ export default function WorkOrdersPage() {
                       const parent = mainWorkOrdersV2.find(m => m.id === p.parentWoId)
                       if (!parent) return false
                       if (v2ScheduleId && parent.scheduleId !== v2ScheduleId) return false
-                      // FIX 1: guard against deleted legacy WOs
                       return workOrders.some(w => w.masterId === parent.scheduleId && w.partId === parent.partId)
                     })
                     .map(p => {
@@ -1227,7 +1468,6 @@ export default function WorkOrdersPage() {
                 <Field label="Sub Work Order" req>
                   <select className={selectCls} value={v2ProcessWoId} onChange={e=>setV2ProcessWoId(e.target.value)}>
                     <option value="">Select assigned sub work order</option>
-                    {/* FIX 1: filter out sub-WOs whose parent legacy WO was deleted */}
                     {processWorkOrdersV2
                       .filter(p => {
                         if (p.processType !== myProcess) return false
@@ -1246,7 +1486,6 @@ export default function WorkOrdersPage() {
               </div>
               <div className="text-xs text-slate-700 p-2 rounded-lg bg-slate-50 border border-slate-200">
                 Assigned (Required+Buffer): <strong>{v2AssignedQtyKg} KG</strong> ·
-                {/* FIX 4: clamp additional to 0 in v2 planner display too */}
                 Additional (Acquired−Assigned): <strong>{Math.max(0, v2AdditionalQty)} KG</strong> · Leftover: <strong>{v2LeftoverQty} KG</strong>
                 {v2TakenQty > 0 && v2TakenQty < v2AssignedQtyKg && (
                   <span className="ml-2 text-red-600 font-bold">⚠ Acquired is below Assigned — please take at least {v2AssignedQtyKg} KG</span>
@@ -1318,7 +1557,7 @@ export default function WorkOrdersPage() {
       {isPDCManager && (
         <div className="flex items-start gap-3 p-4 bg-indigo-50 border border-indigo-200 rounded-2xl text-sm text-indigo-800">
           <AlertTriangle size={16} className="shrink-0 mt-0.5 text-indigo-500"/>
-          <p><strong>Your role:</strong> Create Work Order shells with part, dates, and quantities. Draft WOs appear in yellow — process PDCs will complete operational details to activate them.</p>
+          <p><strong>Your role:</strong> Create Work Order shells with part, dates, and quantities. Expand any WO below to see its full shift-by-shift SWO tree, QI results, and rework cycles.</p>
         </div>
       )}
       {isProcessPDC && (
@@ -1356,39 +1595,62 @@ export default function WorkOrdersPage() {
         <div className="space-y-1">
           <p className="text-[11px] font-black text-slate-500 uppercase tracking-wider">View Summary</p>
           <div className="px-3 py-2.5 text-xs rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-700 font-medium">
-            Showing {visibleGrouped.length} parent WO(s). Expand a parent to view SWO branches.
+            {isPDCManager || isAdmin
+              ? `${visibleRoots.length} parent WO(s) — expand each to see SWOs, QI & reworks`
+              : `${visibleRoots.length} WO(s) visible for your process`}
           </div>
         </div>
       </div>
 
       {/* ── Work Order Cards ── */}
       <div className="space-y-4">
-        {visible.length === 0 ? (
+        {visibleRoots.length === 0 ? (
           <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
             <ClipboardList size={40} className="mx-auto text-slate-200 mb-3"/>
             <p className="text-slate-400 font-medium">No work orders found</p>
           </div>
-        ) : visibleGrouped.map(({ root: wo, children: childSWOs }) => {
-          const progress    = wo.targetPartNos > 0 ? Math.round((wo.partsCompleted / wo.targetPartNos) * 100) : 0
-          const isDraft     = wo.status === "draft"
+        ) : visibleRoots.map(wo => {
+          const progress = wo.targetPartNos > 0 ? Math.round((wo.partsCompleted / wo.targetPartNos) * 100) : 0
+          const isDraft  = wo.status === "draft"
 
-          // FIX 5: Differentiate system-generated stage SWOs from actual rework SWOs.
-          // A true rework SWO has reworkCycleNumber ≥ 1 AND a parentWoId (it was spawned from a rejection).
-          // Stage SWOs created by buildStageSubWorkOrder have woType === "rework" but are NOT rework cycles.
-          const isActualReworkSWO = wo.woType === "rework" && !!wo.parentWoId && (wo.reworkCycleNumber ?? 0) >= 1
-          const isStageSWO        = wo.woType === "rework" && !!wo.parentWoId && !isActualReworkSWO
-          // Keep the general "isSWO" flag for structural grouping (child indent, etc.)
-          const isSWO             = wo.woType === "rework"
+          // For PDC Manager: root WOs are always "standard" type
+          // For process PDC: may be stage SWOs they need to fill
+          const isStageWO = wo.woType === "rework" && !!wo.parentWoId
 
-          const parentWo    = isSWO && wo.parentWoId ? workOrders.find(w => w.id === wo.parentWoId) : null
-          const treeChildren = childSWOs.length > 0 ? childSWOs : (swoByParent[wo.id] ?? [])
+          // Count direct shift-SWO children (for badge in manager view)
+          const stageSWOCount = (isPDCManager || isAdmin)
+            ? workOrders.filter(w =>
+                w.parentWoId === wo.id &&
+                w.woType === "rework" &&
+                (w.reworkCycleNumber === undefined || w.reworkCycleNumber === 0)
+              ).length
+            : 0
 
-          // Sub-WOs for this WO (PDC manager view)
+          // Count total rework cycles across all SWOs of this WO
+          const totalReworks = (isPDCManager || isAdmin)
+            ? workOrders.filter(w =>
+                w.woType === "rework" &&
+                (w.reworkCycleNumber ?? 0) >= 1 &&
+                (() => {
+                  // Walk up: is this rework's root ancestor = wo.id?
+                  let cur: WorkOrder | undefined = w
+                  while (cur?.parentWoId) {
+                    if (cur.parentWoId === wo.id) return true
+                    cur = workOrders.find(x => x.id === cur!.parentWoId)
+                  }
+                  return false
+                })()
+              ).length
+            : 0
+
           const linkedSubWOs = subWOsByParentLegacyId[wo.id] || []
 
           return (
-            <div key={wo.id} className={`bg-white rounded-2xl border shadow-sm overflow-hidden ${isSWO ? "border-l-4 border-l-amber-400 border-t border-r border-b border-slate-200 ml-4" : isDraft ? "border-amber-200" : "border-slate-200"}`}>
-              <div className={`p-5 flex items-start justify-between flex-wrap gap-3 ${isSWO ? "bg-amber-50/30" : isDraft ? "bg-amber-50/40" : ""}`}>
+            <div key={wo.id} className={`bg-white rounded-2xl border shadow-sm overflow-hidden
+              ${isStageWO ? "border-l-4 border-l-teal-400 border-t border-r border-b border-slate-200 ml-4" : isDraft ? "border-amber-200" : "border-slate-200"}`}>
+
+              {/* ── Card header ── */}
+              <div className={`p-5 flex items-start justify-between flex-wrap gap-3 ${isDraft ? "bg-amber-50/30" : ""}`}>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                     <span className="text-xs font-mono text-slate-400">{wo.id}</span>
@@ -1403,29 +1665,16 @@ export default function WorkOrdersPage() {
                         <Building2 size={9}/> Vendor: {wo.vendorName}
                       </span>
                     )}
-
-                    {/* FIX 5: Stage SWOs (system-created for each process) show as "Sub Work Order" */}
-                    {isStageSWO && (
-                      <span className="flex items-center gap-1 text-[10px] bg-slate-100 text-slate-700 font-black px-2 py-0.5 rounded-full border border-slate-300">
-                        <GitBranch size={9}/> SUB WORK ORDER
+                    {/* SWO count badge — PDC Manager view */}
+                    {(isPDCManager || isAdmin) && stageSWOCount > 0 && (
+                      <span className="flex items-center gap-1 text-[10px] bg-teal-100 text-teal-700 font-bold px-2 py-0.5 rounded-full border border-teal-200">
+                        <GitBranch size={9}/> {stageSWOCount} SWO{stageSWOCount > 1 ? "s" : ""}
                       </span>
                     )}
-
-                    {/* FIX 5: Only actual rework cycles get the "REWORK SWO" label */}
-                    {isActualReworkSWO && (
-                      <span className="flex items-center gap-1 text-[10px] bg-amber-100 text-amber-800 font-black px-2 py-0.5 rounded-full border border-amber-300">
-                        <GitBranch size={9}/> REWORK SWO · Cycle #{wo.reworkCycleNumber ?? 1}
-                      </span>
-                    )}
-
-                    {isSWO && parentWo && (
-                      <span className="flex items-center gap-1 text-[10px] bg-slate-100 text-slate-600 font-bold px-2 py-0.5 rounded-full border border-slate-200">
-                        <ArrowUpRight size={9}/> Parent: {parentWo.id}
-                      </span>
-                    )}
-                    {!isSWO && treeChildren.length > 0 && (
-                      <span className="flex items-center gap-1 text-[10px] bg-indigo-100 text-indigo-700 font-bold px-2 py-0.5 rounded-full border border-indigo-200">
-                        <GitBranch size={9}/> {treeChildren.length} Rework SWO{treeChildren.length > 1 ? "s" : ""}
+                    {/* Rework count badge */}
+                    {(isPDCManager || isAdmin) && totalReworks > 0 && (
+                      <span className="flex items-center gap-1 text-[10px] bg-amber-100 text-amber-700 font-bold px-2 py-0.5 rounded-full border border-amber-200">
+                        <RefreshCw size={9}/> {totalReworks} rework{totalReworks > 1 ? "s" : ""}
                       </span>
                     )}
                     {wo.status !== "draft" && wo.status !== "not_started" && <Lock size={11} className="text-slate-300"/>}
@@ -1436,10 +1685,11 @@ export default function WorkOrdersPage() {
 
                   {!isDraft ? (
                     <p className="text-xs text-slate-500 mt-1.5">
-                      <span className="font-bold text-slate-700">{wo.machine}</span> ·
-                      <span className="ml-1">{getShiftLabel(shifts, wo.shift)}</span> ·
-                      Operator: <span className="font-bold text-slate-700">{wo.operator}</span> ·
-                      Grade <span className="font-bold text-slate-700">{wo.materialGrade}</span>
+                      <span className="font-bold text-slate-700">{wo.machine}</span>
+                      {wo.machine && " · "}
+                      <span>{getShiftLabel(shifts, wo.shift)}</span>
+                      {wo.operator && <> · Operator: <span className="font-bold text-slate-700">{wo.operator}</span></>}
+                      {wo.materialGrade && <> · Grade <span className="font-bold text-slate-700">{wo.materialGrade}</span></>}
                     </p>
                   ) : (
                     <p className="text-xs text-amber-700 mt-1.5 font-medium">⏳ Awaiting process PDC to fill operational details</p>
@@ -1452,28 +1702,22 @@ export default function WorkOrdersPage() {
                     {wo.phase2CompletedBy && <span className="ml-2 text-slate-400">· Ops filled by: <em>{wo.phase2CompletedBy}</em></span>}
                   </p>
 
-                  {/* ── Sub-WO summary dropdown (PDC Manager view) — FIX 1: deleted WOs already excluded via subWOsByParentLegacyId */}
+                  {/* V2 sub-WO snapshot dropdown — PDC Manager */}
                   {(isPDCManager || isAdmin) && linkedSubWOs.length > 0 && (
                     <div className="mt-2">
                       <select
                         defaultValue=""
                         className="text-xs border border-indigo-200 rounded-lg px-2.5 py-1.5 bg-indigo-50 text-indigo-800 font-semibold max-w-full"
-                        onChange={() => {/* read-only view — no action */}}
+                        onChange={() => {}}
                       >
                         <option value="" disabled>
-                          📋 {linkedSubWOs.length} Sub-WO{linkedSubWOs.length > 1 ? "s" : ""} — select to view details
+                          📋 {linkedSubWOs.length} V2 Sub-WO{linkedSubWOs.length > 1 ? "s" : ""} — select to view
                         </option>
-                        {linkedSubWOs.map(p => {
-                          const committed  = p.targetParts || 0
-                          const leftover   = p.leftoverQtyKg ?? 0
-                          const taken      = p.takenQtyKg ?? 0
-                          const required   = p.requiredQtyKg ?? 0
-                          return (
-                            <option key={p.id} value={p.id}>
-                              {p.processWoNumber} | Process: {PROCESS_STAGE_LABELS[p.processType as ProcessStage] || p.processType} | Committed: {committed} nos | Required: {required} KG | Taken: {taken} KG | Leftover: {leftover} KG
-                            </option>
-                          )
-                        })}
+                        {linkedSubWOs.map(p => (
+                          <option key={p.id} value={p.id}>
+                            {p.processWoNumber} | Process: {PROCESS_STAGE_LABELS[p.processType as ProcessStage] || p.processType} | Committed: {p.targetParts ?? 0} nos | Required: {p.requiredQtyKg ?? 0} KG | Taken: {p.takenQtyKg ?? 0} KG | Leftover: {p.leftoverQtyKg ?? 0} KG
+                          </option>
+                        ))}
                       </select>
                     </div>
                   )}
@@ -1499,13 +1743,14 @@ export default function WorkOrdersPage() {
                     </button>
                   )}
                   <button onClick={() => setExpanded(expanded === wo.id ? null : wo.id)}
-                    className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg">
+                    className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"
+                    title={expanded === wo.id ? "Collapse" : "Expand SWO tree"}>
                     {expanded === wo.id ? <ChevronDown size={18}/> : <ChevronRight size={18}/>}
                   </button>
                 </div>
               </div>
 
-              {/* Progress bar */}
+              {/* Progress bar — shown when not draft */}
               {!isDraft && (
                 <div className="px-5 pb-4">
                   <div className="flex justify-between text-xs text-slate-500 mb-1">
@@ -1518,119 +1763,73 @@ export default function WorkOrdersPage() {
                 </div>
               )}
 
-              {/* Expanded details */}
+              {/* ── Expanded section ── */}
               {expanded === wo.id && (
-                <div className="border-t border-slate-100 bg-slate-50 p-5">
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                    {[
-                      ["WO ID",    wo.id],
-                      ["Part ID",  wo.partId],
-                      ["Process",  PROCESS_STAGE_LABELS[wo.process]],
-                      ["Status",   statusLabel(wo.status)],
-                      ...(!isDraft ? [
-                        ["Machine",       wo.machine],
-                        ["Operator",      wo.operator],
-                        ["Shift",         getShiftLabel(shifts, wo.shift)],
-                        ["Material Grade",wo.materialGrade],
-                        ["Parts/Cycle",   String(wo.partPerCycle)],
-                        ["Weight/Part",   `${wo.weightPerPart} KG`],
-                        ["Output KG",     `${wo.actualOutputKg} KG`],
-                        ["Acceptance",    wo.acceptancePoints],
-                      ] : []),
-                      ["Created By", wo.createdBy],
-                      ["Created At", wo.createdAt],
-                    ].map(([k, v]) => (
-                      <div key={k} className="bg-white rounded-xl p-3 border border-slate-100">
-                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">{k}</p>
-                        <p className="font-semibold text-slate-800 text-xs break-words">{v}</p>
-                      </div>
-                    ))}
-                  </div>
+                <div className="border-t border-slate-100 bg-slate-50/60 p-5 space-y-5">
 
-                  {/* Machine-wise parts breakdown (if stored) */}
-                  {wo.machineProducedMap && Object.keys(wo.machineProducedMap).length > 0 && (
-                    <div className="mt-3 p-3 bg-white border border-slate-200 rounded-xl">
-                      <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Machine-wise Parts Allocation</p>
-                      <div className="flex flex-wrap gap-2">
-                        {Object.entries(wo.machineProducedMap).map(([machineId, qty]) => {
-                          const m = machines.find(mc => mc.id === machineId)
-                          return (
-                            <div key={machineId} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 border border-indigo-200 rounded-lg text-xs">
-                              <span className="font-bold text-indigo-800">{m?.name || machineId}</span>
-                              <span className="text-indigo-600">→ {qty} parts</span>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
+                  {/* PDC Manager: full hierarchy tree */}
+                  {(isPDCManager || isAdmin) && (
+                    <WOHierarchyTree
+                      rootWO={wo}
+                      allWorkOrders={workOrders}
+                      shifts={shifts}
+                      machines={machines}
+                    />
                   )}
 
-                  {!isDraft && wo.acceptancePoints && (
-                    <div className="mt-3 p-3 bg-amber-50 border border-amber-100 rounded-xl">
-                      <p className="text-[10px] font-black text-amber-700 uppercase tracking-wider mb-1">Acceptance Criteria / Audit Log</p>
-                      <p className="text-xs text-amber-800">{wo.acceptancePoints}</p>
-                    </div>
-                  )}
-
-                  {/* SWO Traceability — only for actual rework SWOs */}
-                  {isActualReworkSWO && parentWo && (
-                    <div className="mt-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
-                      <p className="text-[10px] font-black text-amber-700 uppercase tracking-wider mb-2 flex items-center gap-1">
-                        <GitBranch size={11}/> Rework Traceability
-                      </p>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                  {/* Process PDC / other roles: flat detail grid as before */}
+                  {!isPDCManager && !isAdmin && (
+                    <>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                         {[
-                          ["Parent WO ID",  parentWo.id],
-                          ["Parent Part",   parentWo.partName],
-                          ["Rework Cycle",  `#${wo.reworkCycleNumber ?? 1}`],
-                          ["Rework Parts",  `${wo.reworkPartCount ?? wo.targetPartNos} parts`],
-                          ["Parent Status", parentWo.status.replace("_"," ")],
-                          ["Parent Progress", `${parentWo.goodParts} good / ${parentWo.reworkParts} rework / ${parentWo.rejectedParts} rejected`],
-                        ].map(([k,v]) => (
-                          <div key={k} className="bg-white border border-amber-100 rounded-lg p-2">
-                            <p className="text-[10px] text-amber-600 font-bold uppercase tracking-wider mb-0.5">{k}</p>
-                            <p className="font-bold text-slate-800 break-words">{v}</p>
+                          ["WO ID",    wo.id],
+                          ["Part ID",  wo.partId],
+                          ["Process",  PROCESS_STAGE_LABELS[wo.process]],
+                          ["Status",   statusLabel(wo.status)],
+                          ...(!isDraft ? [
+                            ["Machine",       wo.machine],
+                            ["Operator",      wo.operator],
+                            ["Shift",         getShiftLabel(shifts, wo.shift)],
+                            ["Material Grade",wo.materialGrade],
+                            ["Parts/Cycle",   String(wo.partPerCycle)],
+                            ["Weight/Part",   `${wo.weightPerPart} KG`],
+                            ["Output KG",     `${wo.actualOutputKg} KG`],
+                            ["Acceptance",    wo.acceptancePoints],
+                          ] : []),
+                          ["Created By", wo.createdBy],
+                          ["Created At", wo.createdAt],
+                        ].map(([k, v]) => (
+                          <div key={k} className="bg-white rounded-xl p-3 border border-slate-100">
+                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">{k}</p>
+                            <p className="font-semibold text-slate-800 text-xs break-words">{v}</p>
                           </div>
                         ))}
                       </div>
-                    </div>
-                  )}
 
-                  {/* Stage SWO — show simple parent link instead of full rework traceability */}
-                  {isStageSWO && parentWo && (
-                    <div className="mt-3 p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                      <p className="text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1 flex items-center gap-1">
-                        <GitBranch size={11}/> Sub Work Order — Parent WO
-                      </p>
-                      <p className="text-xs text-slate-700">
-                        Parent: <span className="font-mono font-bold">{parentWo.id}</span> ·
-                        <span className="ml-1">{parentWo.partName}</span> ·
-                        Status: <span className="font-bold">{statusLabel(parentWo.status)}</span>
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Child SWO list */}
-                  {!isSWO && treeChildren.length > 0 && (
-                    <div className="mt-3 p-4 bg-indigo-50 border border-indigo-200 rounded-xl">
-                      <p className="text-[10px] font-black text-indigo-700 uppercase tracking-wider mb-2 flex items-center gap-1">
-                        <GitBranch size={11}/> Rework Sub Work Orders ({treeChildren.length})
-                      </p>
-                      <div className="space-y-2">
-                        {treeChildren.map(swo => (
-                          <div key={swo.id} className="flex items-center gap-3 bg-white border border-indigo-100 rounded-xl p-3 text-xs">
-                            <GitBranch size={12} className="text-amber-500 shrink-0"/>
-                            <span className="font-mono font-bold text-indigo-700">{swo.id}</span>
-                            <span className="text-slate-500">Cycle #{swo.reworkCycleNumber ?? 1}</span>
-                            <span className="font-bold text-slate-700">{swo.reworkPartCount ?? swo.targetPartNos} parts</span>
-                            <span className={`ml-auto px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${statusStyle(swo.status)}`}>
-                              {statusLabel(swo.status)}
-                            </span>
-                            <span className="text-slate-400 shrink-0">{swo.createdAt}</span>
+                      {wo.machineProducedMap && Object.keys(wo.machineProducedMap).length > 0 && (
+                        <div className="mt-3 p-3 bg-white border border-slate-200 rounded-xl">
+                          <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Machine-wise Parts Allocation</p>
+                          <div className="flex flex-wrap gap-2">
+                            {Object.entries(wo.machineProducedMap).map(([machineId, qty]) => {
+                              const m = machines.find(mc => mc.id === machineId)
+                              return (
+                                <div key={machineId} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 border border-indigo-200 rounded-lg text-xs">
+                                  <span className="font-bold text-indigo-800">{m?.name || machineId}</span>
+                                  <span className="text-indigo-600">→ {qty} parts</span>
+                                </div>
+                              )
+                            })}
                           </div>
-                        ))}
-                      </div>
-                    </div>
+                        </div>
+                      )}
+
+                      {!isDraft && wo.acceptancePoints && (
+                        <div className="mt-3 p-3 bg-amber-50 border border-amber-100 rounded-xl">
+                          <p className="text-[10px] font-black text-amber-700 uppercase tracking-wider mb-1">Acceptance Criteria / Audit Log</p>
+                          <p className="text-xs text-amber-800">{wo.acceptancePoints}</p>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               )}
