@@ -307,7 +307,7 @@ function SWONode({ swo, allWorkOrders, shifts, machines, swoIndex, clientId }: S
           {/* QI result strip */}
           {hasQIResult && <QIResultRow wo={swo}/>}
 
-          <MachineAssignmentDropdown clientId={clientId} processWoId={swo.processWoId} woId={swo.id} processType={swo.process} shiftDate={swo.shiftDate || swo.date} shift={swo.shift} />
+          <MachineAssignmentDropdown clientId={clientId} processWoId={swo.processWoId} woId={swo.id} processType={swo.process} shiftDate={swo.shiftDate || swo.date} shift={swo.shift} fallbackMachineMap={swo.machineProducedMap || {}} />
 
           {/* Rework children — each recursively rendered */}
           {directReworks.length > 0 && (
