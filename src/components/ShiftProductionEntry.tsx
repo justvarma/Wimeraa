@@ -58,6 +58,7 @@ export type MachineAssignment = {
   programName: string
   partsCommitted: number
   producedQty: number
+  partsProduced?: number
   goodParts: number
   reworkParts: number
   rejectedParts: number
@@ -313,7 +314,7 @@ export function ShiftProductionEntry() {
         const rework = Number(edits.reworkParts ?? ma.reworkParts ?? 0)
         const rejected = Number(edits.rejectedParts ?? ma.rejectedParts ?? 0)
         const used = Number(edits.rawMaterialUsedKg ?? ma.rawMaterialUsedKg ?? 0)
-        await updateDoc(doc(db, "clients", clientId, "wo_machine_assignments_v2", ma.id), { producedQty: good + rework + rejected, goodParts: good, reworkParts: rework, rejectedParts: rejected, rawMaterialUsedKg: used, leftoverKg: Number((perMachineKg - used).toFixed(3)), downtimeMinutes: Number(edits.downtimeMinutes ?? ma.downtimeMinutes ?? 0), shortcomingCategory: edits.shortcomingCategory ?? ma.shortcomingCategory ?? "none", shortcomingNotes: edits.shortcomingNotes ?? ma.shortcomingNotes ?? "", operatorConfirmedBy: edits.operatorConfirmedBy ?? ma.operatorConfirmedBy ?? "", operatorConfirmedAt: now, actualsLocked: true, updatedAt: serverTimestamp() })
+        await updateDoc(doc(db, "clients", clientId, "wo_machine_assignments_v2", ma.id), { producedQty: good + rework + rejected, partsProduced: good + rework + rejected, goodParts: good, reworkParts: rework, rejectedParts: rejected, rawMaterialUsedKg: used, leftoverKg: Number(((ma.leftoverKg ?? 0) + (perMachineKg - used)).toFixed(3)), downtimeMinutes: Number(edits.downtimeMinutes ?? ma.downtimeMinutes ?? 0), shortcomingCategory: edits.shortcomingCategory ?? ma.shortcomingCategory ?? "none", shortcomingNotes: edits.shortcomingNotes ?? ma.shortcomingNotes ?? "", operatorConfirmedBy: edits.operatorConfirmedBy ?? ma.operatorConfirmedBy ?? "", operatorConfirmedAt: now, actualsLocked: true, updatedAt: serverTimestamp() })
       }
       await updateDoc(doc(db, "clients", clientId, "process_work_orders_v2", selectedPwo.id), { totalProduced: totals.produced, totalGood: totals.good, totalRework: totals.rework, totalRejected: totals.rejected, totalRawUsedKg: Number(totals.rawUsed.toFixed(3)), totalLeftoverKg: Number(totals.leftover.toFixed(3)), actualsSubmittedAt: now, actualsSubmittedBy: currentUser!.name, status: "completed", updatedAt: serverTimestamp() })
       const legacyWO = workOrders.find(w => w.id === selectedPwo.rootWoId || w.id === selectedPwo.parentWoId)
