@@ -8,6 +8,8 @@ import {
 } from "@/lib/store"
 import { getSelectableShiftOptions, getShiftLabel } from "@/lib/shiftUtils"
 import { buildStageSubWorkOrder } from "@/lib/workflow"
+import { db } from "@/lib/firebase"
+import { collection, query, where, getDocs, deleteDoc, doc } from "firebase/firestore"
 import {
   ClipboardList, Plus, X, Edit2, Trash2, Lock, AlertTriangle,
   ChevronDown, ChevronRight, CheckCircle2, Building2, Pencil,
@@ -1306,6 +1308,51 @@ export default function WorkOrdersPage() {
   const canEditPhase1 = (wo: WorkOrder) => (isPDCManager || isAdmin) && (wo.status === "draft" || wo.status === "not_started")
   const canFillPhase2 = (wo: WorkOrder) => wo.status === "draft" && (isAdmin || (isProcessPDC && wo.process === myProcess))
 
+  const handleDeleteWODeep = async (wo: WorkOrder) => {
+    if (!confirm("Delete this Work Order and all linked SWOs/assignments from DB?")) return
+
+    const subtreeIds = new Set<string>()
+    const stack = [wo.id]
+    while (stack.length) {
+      const id = stack.pop()!
+      if (subtreeIds.has(id)) continue
+      subtreeIds.add(id)
+      workOrders.filter(w => w.parentWoId === id).forEach(ch => stack.push(ch.id))
+    }
+
+    // delete legacy work_orders subtree
+    for (const id of Array.from(subtreeIds)) await deleteWorkOrder(id)
+
+    if (!clientId) return
+
+    // delete linked process WOs + machine assignments + audit logs
+    const pSnap = await getDocs(collection(db, "clients", clientId, "process_work_orders_v2"))
+    const linkedProcessIds = pSnap.docs
+      .filter(d => {
+        const v = d.data() as { rootWoId?: string; parentWoId?: string }
+        return subtreeIds.has(d.id) || (v.rootWoId && subtreeIds.has(v.rootWoId)) || (v.parentWoId && subtreeIds.has(v.parentWoId))
+      })
+      .map(d => d.id)
+
+    for (const pid of linkedProcessIds) {
+      const aSnap = await getDocs(query(collection(db, "clients", clientId, "wo_machine_assignments_v2"), where("processWoId", "==", pid)))
+      for (const a of aSnap.docs) await deleteDoc(doc(db, "clients", clientId, "wo_machine_assignments_v2", a.id))
+
+      const lSnap = await getDocs(query(collection(db, "clients", clientId, "wo_audit_logs"), where("processWoId", "==", pid)))
+      for (const l of lSnap.docs) await deleteDoc(doc(db, "clients", clientId, "wo_audit_logs", l.id))
+
+      await deleteDoc(doc(db, "clients", clientId, "process_work_orders_v2", pid))
+    }
+
+    const mSnap = await getDocs(collection(db, "clients", clientId, "main_work_orders_v2"))
+    for (const m of mSnap.docs) {
+      const mv = m.data() as { partId?: string; scheduleId?: string }
+      if (mv.partId === wo.partId && mv.scheduleId === wo.masterId) {
+        await deleteDoc(doc(db, "clients", clientId, "main_work_orders_v2", m.id))
+      }
+    }
+  }
+
   const v2Save = async () => {
     const effectiveShiftDate = v2ShiftDate || v2StartDate
     const effectiveShift = v2Shift || (shifts[0]?.id as Shift | undefined) || ""
@@ -1787,7 +1834,7 @@ export default function WorkOrdersPage() {
                     </button>
                   )}
                   {canDeleteWO(wo) && (
-                    <button onClick={() => deleteWorkOrder(wo.id)}
+                    <button onClick={() => handleDeleteWODeep(wo)}
                       className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
                       <Trash2 size={15}/>
                     </button>
