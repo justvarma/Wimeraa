@@ -2,11 +2,11 @@
 import { useState, useMemo } from "react"
 import { useApp } from "@/components/providers/AppProvider"
 import {
-  UserRole, PROCESS_STAGE_LABELS, PROCESS_PTC_ROLE_MAP, QI_ROLE_PROCESS_MAP, 
-  type ProcessStage, type Shift, type WorkOrder, type WOStatus,
+  UserRole, PROCESS_STAGE_LABELS, QI_ROLE_PROCESS_MAP, 
+  type ProcessStage, type Shift, type WorkOrder, type WOStatus, type ShortcomingCategory,
 } from "@/lib/store"
 import { getSelectableShiftOptions, getShiftLabel } from "@/lib/shiftUtils"
-import { buildStageSubWorkOrder, hasOpenMachineAssignment } from "@/lib/workflow"
+import { buildStageSubWorkOrder } from "@/lib/workflow"
 import { ClipboardList, Plus, X, Edit2, Trash2, Lock, AlertTriangle, ChevronDown, ChevronRight, CheckCircle2, Building2, Pencil, GitBranch, ArrowUpRight } from "lucide-react"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -42,6 +42,15 @@ const processColor = (p: ProcessStage) =>
 
 const processIcon = (p: ProcessStage) =>
   p === "die_casting" ? "🔥" : p === "coating" ? "🎨" : "⚙️"
+
+type ProgramOption = {
+  id: string
+  programId?: string
+  programName?: string
+  name?: string
+}
+
+const createClientId = (prefix: string) => `${prefix}-${crypto.randomUUID()}`
 
 // ─── Phase 1 Form (PDC Manager — WO Shell) ────────────────────────────────────
 function Phase1Form({ onClose, onSave, initial }: {
@@ -101,58 +110,6 @@ function Phase1Form({ onClose, onSave, initial }: {
       status: isEdit ? initial!.status : "draft",
     })
     onClose()
-  }
-
-  const v2SelectedSchedule = schedules.find(s => s.id === v2ScheduleId)
-  const v2NextWoNo = `WO-${String(mainWorkOrdersV2.length + 1).padStart(3, "0")}`
-  const v2NextProcessNo = `PWO-${String(processWorkOrdersV2.length + 1).padStart(3, "0")}`
-
-  const v2StatusAdvance = async (mainId: string, processId: string, to: "accepted" | "in_progress" | "qa_pending" | "qa_approved" | "completed") => {
-    if (!currentUser) return
-    const main = mainWorkOrdersV2.find(w => w.id === mainId)
-    if (!main) return
-    await updateMainWorkOrderV2(mainId, { status: to, updatedAt: new Date().toISOString().split("T")[0] })
-    await updateProcessWorkOrderV2(processId, { status: to, updatedAt: new Date().toISOString().split("T")[0] })
-    await addWoAuditLog({
-      id: `audit-${Date.now()}`, woId: mainId, processWoId: processId, action: "v2_status_transition",
-      field: "status", oldValue: main.status, newValue: to, actorId: currentUser.id, actorName: currentUser.name, createdAt: new Date().toISOString().split("T")[0],
-    })
-  }
-
-  const v2Save = async () => {
-    if (!currentUser || !v2SelectedSchedule || !v2ShiftDate || !v2Shift || !v2MachineId || !v2ProgramId || !v2Operator) return
-    const produced = Number(v2Produced || 0)
-    const planned = Number(v2SelectedSchedule.requiredQuantity || 0)
-    if (produced < 0) { alert("Produced qty cannot be negative."); return }
-    if (produced > planned) { alert("Produced qty cannot exceed planned qty."); return }
-    const machineConflict = woMachineAssignmentsV2.some(a => a.machineId === v2MachineId && a.shiftDate === v2ShiftDate && a.shift === v2Shift)
-    if (machineConflict) { alert("Selected machine is already assigned for this shift/date."); return }
-    const operatorConflict = woMachineAssignmentsV2.some(a => a.operatorName.trim().toLowerCase() === v2Operator.trim().toLowerCase() && a.shiftDate === v2ShiftDate && a.shift === v2Shift)
-    if (operatorConflict) { alert("Selected operator is already assigned on another machine for this shift/date."); return }
-    const processMachineLoad = woMachineAssignmentsV2.filter(a => a.machineId === v2MachineId && a.shiftDate === v2ShiftDate).reduce((sum, a) => sum + Number(a.partsCommitted || 0), 0)
-    if (processMachineLoad + planned > 500) { alert("Machine capacity exceeded for shift (limit 500 parts/shift)."); return }
-    const mainId = `main-${Date.now()}`
-    const processId = `proc-${Date.now()}`
-    const machine = machines.find(m => m.id === v2MachineId)
-    const program = programs.find(p => p.id === v2ProgramId)
-    await addMainWorkOrderV2({
-      id: mainId, woNumber: v2NextWoNo, scheduleId: v2SelectedSchedule.id, partMasterId: v2SelectedSchedule.partMasterId || "",
-      partId: v2SelectedSchedule.partId, partName: v2SelectedSchedule.partName, scheduleStartDate: v2SelectedSchedule.date, scheduleEndDate: v2SelectedSchedule.date,
-      status: "scheduled", qty: { plannedQty: planned, reservedQty: 0, consumedQty: 0, producedQty: 0, balanceQty: planned },
-      createdById: currentUser.id, createdByName: currentUser.name, createdAt: new Date().toISOString().split("T")[0],
-    })
-    await addProcessWorkOrderV2({
-      id: processId, processWoNumber: v2NextProcessNo, parentWoId: mainId, rootWoId: mainId, processType: "die_casting", status: "scheduled",
-      shiftDate: v2ShiftDate, shift: v2Shift, targetParts: planned, requiredQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), bufferPercent: 2,
-      assignedQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), takenQtyKg: 0, leftoverQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), shortcomingCategory: v2Shortcoming as any, createdAt: new Date().toISOString().split("T")[0],
-    })
-    await addWoMachineAssignmentV2({
-      id: `ma-${Date.now()}`, processWoId: processId, machineId: v2MachineId, machineName: machine?.name || "", operatorName: v2Operator,
-      shiftDate: v2ShiftDate, shift: v2Shift, programId: v2ProgramId, programName: (program as any)?.programName || "",
-      partsCommitted: planned, producedQty: Number(v2Produced || 0), rejectedQty: 0, reworkQty: 0, createdAt: new Date().toISOString().split("T")[0],
-    })
-    await addWoAuditLog({ id: `audit-${Date.now()}`, woId: mainId, processWoId: processId, action: "v2_wo_created_and_scheduled", field: "status", oldValue: "draft", newValue: "scheduled", actorId: currentUser.id, actorName: currentUser.name, createdAt: new Date().toISOString().split("T")[0] })
-    setShowV2Planner(false)
   }
 
   return (
@@ -246,10 +203,6 @@ function Phase2Form({ wo, onClose, onSave }: {
   const { materials, users, ptcs, shifts, workOrders, machines } = useApp()
   const shiftOptions = getSelectableShiftOptions(shifts, wo.shift)
   const approvedMats = materials.filter(m => m.status === "approved")
-  const processOperators = users.filter(u =>
-    u.role === PROCESS_PTC_ROLE_MAP[wo.process] || u.role === UserRole.ADMIN
-  )
-  const ptcManagers = users.filter(u => u.role === UserRole.PTC_MANAGER || u.role === UserRole.ADMIN)
   const processMachines = machines.filter(m => m.process === wo.process && m.status === "active")
   const validPDCs = ptcs.filter(p => p.process === wo.process)
   const qiUsers = users.filter(u => u.role === UserRole.QUALITY_INSPECTOR || u.role === UserRole.ADMIN || QI_ROLE_PROCESS_MAP[u.role] === wo.process)
@@ -273,7 +226,14 @@ function Phase2Form({ wo, onClose, onSave }: {
     vendorMachine:  wo.vendorMachine  || wo.machine || "",
     vendorShift:    wo.vendorShift    || wo.shift || shiftOptions[0]?.id || "" as Shift,
     assignedQiId:   wo.assignedQiId   || "",
+    programId:      "",
+    requiredQtyKg:  wo.requiredQuantityKg || 0,
+    bufferPercent:  2,
+    takenQtyKg:     wo.requiredQuantityKg || 0,
+    shortcomingNotes: "",
+    machineProducedMap: {} as Record<string, number>,
   })
+  const [showMachineProcessWindow, setShowMachineProcessWindow] = useState(true)
   const reservedMachines = new Set(
     workOrders
       .filter(w => w.id !== wo.id && w.machine && w.date === wo.date && w.shift === form.shift && !["completed", "finished_goods", "rejected"].includes(w.status))
@@ -294,12 +254,16 @@ function Phase2Form({ wo, onClose, onSave }: {
   }
 
   const autoOutputKg = ((form.actualTarget || 0) * (form.weightPerPart || 0)).toFixed(2)
+  const assignedQtyKg = Number((Number(form.requiredQtyKg || 0) * (1 + Number(form.bufferPercent || 0) / 100)).toFixed(2))
+  const leftoverQtyKg = Number((assignedQtyKg - Number(form.takenQtyKg || 0)).toFixed(2))
+  const machineProducedTotal = Object.values(form.machineProducedMap || {}).reduce((s, v) => s + (Number(v) || 0), 0)
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (shortfall) { alert(`Insufficient stock! Available: ${availableKg.toFixed(1)} KG, Required: ${wo.requiredQuantityKg} KG`); return }
     if (!form.isExternal && selectedMachineNames.length===0) { alert("At least one machine is required."); return }
     if (!form.isExternal && selectedMachineNames.some(machine => reservedMachines.has(machine))) { alert("One or more machines are already occupied for this shift"); return }
+    if (!form.isExternal && machineProducedTotal > Number(form.actualTarget || 0)) { alert("Sum of machine parts cannot exceed total committed target."); return }
     if (!vendorReady) { alert("Vendor production requires vendor name, date, machine, and assigned QI user."); return }
     onSave({
       ...form,
@@ -312,6 +276,8 @@ function Phase2Form({ wo, onClose, onSave }: {
       rawMaterialGrade: selectedMat?.rawMaterialGrade || form.materialGrade,
       actualOutputKg: Number(autoOutputKg),
       inputWeightKg: wo.requiredQuantityKg,
+      operator: form.isExternal ? form.operator : selectedMachineNames.map(name => machines.find(mm => mm.name === name)?.operatorName || "Unassigned").join(", "),
+      acceptancePoints: `${form.acceptancePoints || "As per configured QI checkpoints"} | Req:${form.requiredQtyKg}kg Buffer:${form.bufferPercent}% Taken:${form.takenQtyKg}kg Leftover:${leftoverQtyKg}kg | MachineParts:${JSON.stringify(form.machineProducedMap || {})} ${form.shortcomingNotes ? `| Notes:${form.shortcomingNotes}` : ""}`,
       status: "not_started",
     })
     onClose()
@@ -342,7 +308,11 @@ function Phase2Form({ wo, onClose, onSave }: {
             <div><span className="text-slate-500">Req. Weight: </span><span className="font-bold">{wo.requiredQuantityKg} KG</span></div>
             <div><span className="text-slate-500">Start: </span><span className="font-bold">{wo.workOrderStartDate}</span></div>
             <div><span className="text-slate-500">Due: </span><span className="font-bold">{wo.dueDate}</span></div>
-            <div className="flex justify-end"><button onClick={v2Save} className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold">Save V2 WO</button></div>
+            <div className="text-right">
+              <span className="inline-flex px-2.5 py-1 rounded-full text-[10px] font-black bg-amber-100 text-amber-800">
+                Draft — Awaiting Process Details
+              </span>
+            </div>
           </div>
         </div>
 
@@ -371,48 +341,44 @@ function Phase2Form({ wo, onClose, onSave }: {
             )}
           </div>
 
-          {/* Scheduling */}
+          {/* Assignment Context (set by PDC Manager) */}
           <div className="p-4 border border-slate-200 rounded-xl space-y-3">
-            <p className="text-xs font-black text-slate-700 uppercase tracking-wider">Scheduling</p>
+            <p className="text-xs font-black text-slate-700 uppercase tracking-wider">Assignment Context</p>
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Shift" req>
-                <select required value={form.shift} onChange={e => setForm(p=>({...p,shift:e.target.value as Shift}))} className={selectCls}>
-                  <option value="">— Select shift —</option>
-                  {shiftOptions.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-                </select>
+              <Field label="Shift (from manager)">
+                <input className={`${cls} bg-slate-50`} value={getShiftLabel(shifts, form.shift)} readOnly />
               </Field>
-              <Field label="PDC Code" req>
-                <select required value={form.ptcId} onChange={e => setForm(p=>({...p,ptcId:e.target.value}))} className={selectCls}>
-                  <option value="">— Select PDC —</option>
-                  {validPDCs.map(p => <option key={p.id} value={p.id}>{p.id} · {getShiftLabel(shifts, p.shift)} · {p.date}</option>)}
-                </select>
+              <Field label="PDC Code">
+                <input className={`${cls} bg-slate-50`} value={form.ptcId} readOnly />
               </Field>
             </div>
-          </div>
-
-          {/* Machine & Operator */}
-          <div className="p-4 border border-slate-200 rounded-xl space-y-3">
-            <p className="text-xs font-black text-slate-700 uppercase tracking-wider">Machine & Operator</p>
-            <Field label="Machine" req>
-              <div className="space-y-2">{processMachines.map(m => { const checked = selectedMachineNames.includes(m.name); const occupied = reservedMachines.has(m.name); return <label key={m.id} className={`flex items-center gap-2 text-sm ${occupied?"text-red-600":"text-slate-700"}`}><input type="checkbox" checked={checked} disabled={occupied && !checked} onChange={e=>{ setForm(p=>{ const set=new Set(p.machine.split(",").map(x=>x.trim()).filter(Boolean)); if(e.target.checked) set.add(m.name); else set.delete(m.name); return {...p, machine:Array.from(set).join(", ")} }) }} />{m.name}{occupied && !checked ? " — occupied for selected shift/date" : ""}</label>})}</div>
-            </Field>
-            <Field label="Operator" req>
-              <select required value={form.operator} onChange={e => setForm(p=>({...p,operator:e.target.value}))} className={selectCls}>
-                <option value="">— Select operator —</option>
-                {processOperators.map(u => <option key={u.id} value={u.name}>{u.name} ({u.department})</option>)}
-                <option value="External Operator">External Operator</option>
-              </select>
-            </Field>
           </div>
 
           {/* Production parameters */}
           <div className="p-4 border border-slate-200 rounded-xl space-y-3">
             <p className="text-xs font-black text-slate-700 uppercase tracking-wider">Production Parameters</p>
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Actual Target (Nos)" req>
+              <Field label="Target Quantity (Nos)" req>
                 <input type="number" required min="1" value={form.actualTarget}
                   onChange={e => setForm(p=>({...p,actualTarget:Number(e.target.value)}))} className={cls}/>
               </Field>
+              <Field label="Required Qty (KG)" req>
+                <input type="number" required min="0.1" step="0.1" value={form.requiredQtyKg}
+                  onChange={e => setForm(p=>({...p,requiredQtyKg:Number(e.target.value)}))} className={cls}/>
+              </Field>
+              <Field label="Buffer % (CRV)" req>
+                <input type="number" required min="0" step="0.1" value={form.bufferPercent}
+                  onChange={e => setForm(p=>({...p,bufferPercent:Number(e.target.value)}))} className={cls}/>
+              </Field>
+              <Field label="Taken Qty (KG)" req>
+                <input type="number" required min="0" step="0.1" value={form.takenQtyKg}
+                  onChange={e => setForm(p=>({...p,takenQtyKg:Number(e.target.value)}))} className={cls}/>
+              </Field>
+            </div>
+            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700">
+              Assigned Qty: <strong>{assignedQtyKg} KG</strong> · Leftover: <strong>{leftoverQtyKg} KG</strong>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
               <Field label="Parts per Cycle" req>
                 <input type="number" required min="1" value={form.partPerCycle}
                   onChange={e => setForm(p=>({...p,partPerCycle:Number(e.target.value)}))} className={cls}/>
@@ -421,16 +387,46 @@ function Phase2Form({ wo, onClose, onSave }: {
                 <input type="number" required min="0.01" step="0.01" value={form.weightPerPart}
                   onChange={e => setForm(p=>({...p,weightPerPart:Number(e.target.value)}))} className={cls}/>
               </Field>
-              <Field label="Cycle Time (min)">
-                <input type="number" min="1" value={form.cycleTimeMinutes}
-                  onChange={e => setForm(p=>({...p,cycleTimeMinutes:Number(e.target.value)}))} className={cls}/>
-              </Field>
             </div>
             {form.weightPerPart > 0 && form.actualTarget > 0 && (
               <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800">
                 Auto Output: <strong>{autoOutputKg} KG</strong> ({form.actualTarget} × {form.weightPerPart} KG/part)
               </div>
             )}
+          </div>
+          {/* Machine Process Window (last step) */}
+          <div className="p-4 border border-indigo-200 bg-indigo-50/50 rounded-xl space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-black text-indigo-800 uppercase tracking-wider">Machine Selection & Details</p>
+              <button type="button" onClick={() => setShowMachineProcessWindow(p => !p)} className="text-xs font-bold text-indigo-700 hover:text-indigo-900">
+                {showMachineProcessWindow ? "Hide" : "Show"}
+              </button>
+            </div>
+            {showMachineProcessWindow && <Field label="Choose Machines" req>
+              <div className="space-y-2">
+                {processMachines.map(m => {
+                  const checked = selectedMachineNames.includes(m.name)
+                  const occupied = reservedMachines.has(m.name)
+                  return <div key={m.id} className="rounded-lg border border-slate-200 bg-white p-2">
+                    <label className={`flex items-center gap-2 text-sm ${occupied ? "text-red-600" : "text-slate-700"}`}>
+                      <input type="checkbox" checked={checked} disabled={occupied && !checked} onChange={e => setForm(p => {
+                        const set = new Set(p.machine.split(",").map(x => x.trim()).filter(Boolean))
+                        const map = { ...(p.machineProducedMap || {}) }
+                        if (e.target.checked) set.add(m.name); else { set.delete(m.name); delete map[m.name] }
+                        return { ...p, machine: Array.from(set).join(", "), machineProducedMap: map }
+                      })}/>
+                      {m.name}{occupied && !checked ? " — occupied for selected shift/date" : ""}
+                    </label>
+                    {checked && <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+                      <div><span className="text-slate-500">Operator:</span> <span className="font-semibold">{m.operatorName || "Unassigned"}</span></div>
+                      <div><span className="text-slate-500">Program:</span> <span className="font-semibold">Auto from config</span></div>
+                      <div><label className="text-slate-500 mr-2">Parts by machine</label><input type="number" min="0" className="border border-slate-300 rounded px-2 py-1 w-24" value={form.machineProducedMap?.[m.name] ?? 0} onChange={e => setForm(p => ({ ...p, machineProducedMap: { ...(p.machineProducedMap || {}), [m.name]: Number(e.target.value) } }))}/></div>
+                    </div>}
+                  </div>
+                })}
+              </div>
+              <div className="mt-2 text-xs text-slate-700">Machine parts total: <strong>{machineProducedTotal}</strong> / Target: <strong>{form.actualTarget}</strong></div>
+            </Field>}
           </div>
 
           {/* Acceptance points are now system-defined and not entered manually here. */}
@@ -489,7 +485,7 @@ function Phase2Form({ wo, onClose, onSave }: {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function WorkOrdersPage() {
-  const { currentUser, workOrders, materials, shifts, addWorkOrder, updateWorkOrder, deleteWorkOrder, deductMaterial, schedules, machines, programs, mainWorkOrdersV2, processWorkOrdersV2, woMachineAssignmentsV2, addMainWorkOrderV2, updateMainWorkOrderV2, addProcessWorkOrderV2, updateProcessWorkOrderV2, addWoMachineAssignmentV2, updateWoMachineAssignmentV2, addWoAuditLog } = useApp()
+  const { currentUser, workOrders, shifts, addWorkOrder, updateWorkOrder, deleteWorkOrder, deductMaterial, schedules, machines, programs, mainWorkOrdersV2, processWorkOrdersV2, woMachineAssignmentsV2, addMainWorkOrderV2, addProcessWorkOrderV2, addWoMachineAssignmentV2, addWoAuditLog } = useApp()
   const role = currentUser?.role as UserRole
 
   const [showPhase1, setShowPhase1] = useState(false)
@@ -502,11 +498,13 @@ export default function WorkOrdersPage() {
   const [v2ScheduleId, setV2ScheduleId] = useState("")
   const [v2ShiftDate, setV2ShiftDate] = useState("")
   const [v2Shift, setV2Shift] = useState<Shift | "">("" as Shift | "")
-  const [v2MachineId, setV2MachineId] = useState("")
+  const [v2MachineIds, setV2MachineIds] = useState<string[]>([])
   const [v2ProgramId, setV2ProgramId] = useState("")
-  const [v2Operator, setV2Operator] = useState("")
   const [v2Produced, setV2Produced] = useState("")
   const [v2Shortcoming, setV2Shortcoming] = useState("machine_breakdown")
+  const v2SelectedSchedule = schedules.find(s => s.id === v2ScheduleId)
+  const v2NextWoNo = `WO-${String(mainWorkOrdersV2.length + 1).padStart(3, "0")}`
+  const v2NextProcessNo = `PWO-${String(processWorkOrdersV2.length + 1).padStart(3, "0")}`
 
   const isPDCManager   = role === UserRole.PTC_MANAGER
   const isAdmin        = role === UserRole.ADMIN
@@ -514,6 +512,7 @@ export default function WorkOrdersPage() {
   const isPDCCoat      = role === UserRole.PTC_COATING
   const isPDCCNC       = role === UserRole.PTC_CNC_VMC
   const isProcessPDC   = isPDCDC || isPDCCoat || isPDCCNC
+  const isScopedQI     = role === UserRole.QI_DIE_CASTING || role === UserRole.QI_COATING || role === UserRole.QI_MACHINING || role === UserRole.QUALITY_INSPECTOR
 
   // What process can this PDC user see/edit?
   const myProcess: ProcessStage | null =
@@ -528,7 +527,6 @@ export default function WorkOrdersPage() {
       // - rejected (for rework loop handling)
       const matchRole = !myProcess || (
         w.process === myProcess &&
-        w.woType !== "standard" &&
         (w.status === "draft" || w.status === "rejected")
       )
       return matchStatus && matchProcess && matchRole
@@ -547,12 +545,15 @@ export default function WorkOrdersPage() {
   }, [workOrders, statusFilter, processFilter, myProcess])
 
   const visibleGrouped = useMemo(() => {
+    if (isProcessPDC) {
+      return visible.map(wo => ({ root: wo, children: [] as WorkOrder[] }))
+    }
     const roots = visible.filter(w => !w.parentWoId)
     return roots.map(root => ({
       root,
       children: visible.filter(w => w.parentWoId === root.id),
     }))
-  }, [visible])
+  }, [visible, isProcessPDC])
 
   // Build a lookup: parentWoId → child SWOs (for expanded view)
   const swoByParent = useMemo(() => {
@@ -621,8 +622,135 @@ export default function WorkOrdersPage() {
 
   const canFillPhase2 = (wo: WorkOrder) =>
     wo.status === "draft" &&
-    wo.woType !== "standard" &&
     (isAdmin || (isProcessPDC && wo.process === myProcess))
+
+  const v2Save = async () => {
+    if (!currentUser || !v2SelectedSchedule || !v2ShiftDate || !v2Shift) return
+    const requiresMachineAssignment = isProcessPDC || isAdmin
+    const selectedMachineIds = v2MachineIds
+    if (requiresMachineAssignment && selectedMachineIds.length === 0) { alert("Select at least one machine."); return }
+    if (requiresMachineAssignment && !v2ProgramId) { alert("Select a program."); return }
+    const produced = Number(v2Produced || 0)
+    const planned = Number(v2SelectedSchedule.requiredQuantity || 0)
+    if (produced < 0) { alert("Produced qty cannot be negative."); return }
+    if (produced > planned) { alert("Produced qty cannot exceed planned qty."); return }
+    let perMachineCommit = 0
+    if (requiresMachineAssignment) {
+      const hasMachineConflict = selectedMachineIds.some(machineId => woMachineAssignmentsV2.some(a => a.machineId === machineId && a.shiftDate === v2ShiftDate && a.shift === v2Shift))
+      if (hasMachineConflict) { alert("One or more selected machines are already assigned for this shift/date."); return }
+      perMachineCommit = Math.ceil(planned / selectedMachineIds.length)
+      const overCapacityMachine = selectedMachineIds.find(machineId => {
+        const processMachineLoad = woMachineAssignmentsV2.filter(a => a.machineId === machineId && a.shiftDate === v2ShiftDate).reduce((sum, a) => sum + Number(a.partsCommitted || 0), 0)
+        return processMachineLoad + perMachineCommit > 500
+      })
+      if (overCapacityMachine) { alert("Machine capacity exceeded for shift (limit 500 parts/shift)."); return }
+    }
+    const mainId = createClientId("main")
+    const processId = createClientId("proc")
+    const program = programs.find(p => p.id === v2ProgramId)
+    await addMainWorkOrderV2({
+      id: mainId, woNumber: v2NextWoNo, scheduleId: v2SelectedSchedule.id, partMasterId: v2SelectedSchedule.partMasterId || "",
+      partId: v2SelectedSchedule.partId, partName: v2SelectedSchedule.partName, scheduleStartDate: v2SelectedSchedule.date, scheduleEndDate: v2SelectedSchedule.date,
+      status: "scheduled", qty: { plannedQty: planned, reservedQty: 0, consumedQty: 0, producedQty: 0, balanceQty: planned },
+      createdById: currentUser.id, createdByName: currentUser.name, createdAt: new Date().toISOString().split("T")[0],
+    })
+    await addProcessWorkOrderV2({
+      id: processId, processWoNumber: v2NextProcessNo, parentWoId: mainId, rootWoId: mainId, processType: "die_casting", status: "scheduled",
+      shiftDate: v2ShiftDate, shift: v2Shift, targetParts: planned, requiredQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), bufferPercent: 2,
+      assignedQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), takenQtyKg: 0, leftoverQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), shortcomingCategory: v2Shortcoming as ShortcomingCategory, createdAt: new Date().toISOString().split("T")[0],
+    })
+    // Mirror a draft shell in legacy WO list so newly created V2 work orders remain visible in the Work Orders board.
+    const primaryLegacyWoId = await addWorkOrder({
+      date: new Date().toISOString().split("T")[0],
+      masterId: v2SelectedSchedule.id,
+      partId: v2SelectedSchedule.partId,
+      partName: v2SelectedSchedule.partName,
+      process: "die_casting",
+      targetPartNos: planned,
+      requiredQuantityKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0),
+      workOrderStartDate: v2ShiftDate,
+      dueDate: v2SelectedSchedule.date,
+      status: "draft",
+      partsCompleted: 0,
+      goodParts: 0,
+      reworkParts: 0,
+      rejectedParts: 0,
+      scrapWeight: 0,
+      inputWeightKg: 0,
+      productionStarted: false,
+      materialGrade: "",
+      rawMaterialId: "",
+      rawMaterialGrade: "",
+      shift: v2Shift,
+      machine: "",
+      operator: "",
+      actualTarget: planned,
+      partPerCycle: 0,
+      weightPerPart: 0,
+      actualOutputKg: 0,
+      acceptancePoints: "V2 WO created from schedule — pending process execution details.",
+      isExternal: false,
+      createdBy: currentUser.name,
+      woType: "standard",
+      workflowStep: -1,
+      workflowLabel: "Primary Work Order",
+    })
+    await addWorkOrder(buildStageSubWorkOrder({
+      source: {
+        id: primaryLegacyWoId,
+        createdAt: new Date().toISOString().split("T")[0],
+        date: new Date().toISOString().split("T")[0],
+        masterId: v2SelectedSchedule.id,
+        partId: v2SelectedSchedule.partId,
+        partName: v2SelectedSchedule.partName,
+        process: "die_casting",
+        targetPartNos: planned,
+        requiredQuantityKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0),
+        workOrderStartDate: v2ShiftDate,
+        dueDate: v2SelectedSchedule.date,
+        status: "draft",
+        partsCompleted: 0,
+        goodParts: 0,
+        reworkParts: 0,
+        rejectedParts: 0,
+        scrapWeight: 0,
+        inputWeightKg: 0,
+        productionStarted: false,
+        materialGrade: "",
+        rawMaterialId: "",
+        rawMaterialGrade: "",
+        shift: v2Shift,
+        machine: "",
+        operator: "",
+        actualTarget: planned,
+        partPerCycle: 0,
+        weightPerPart: 0,
+        actualOutputKg: 0,
+        acceptancePoints: "V2 WO created from schedule — pending process execution details.",
+        isExternal: false,
+        createdBy: currentUser.name,
+        woType: "standard",
+        workflowStep: -1,
+        workflowLabel: "Primary Work Order",
+      },
+      process: "die_casting",
+      createdBy: "System Workflow",
+      parentWoId: primaryLegacyWoId,
+    }))
+    if (requiresMachineAssignment) {
+      for (const machineId of selectedMachineIds) {
+        const machine = machines.find(m => m.id === machineId)
+        const autoOperator = machine?.operatorName || "Unassigned"
+        await addWoMachineAssignmentV2({
+          id: createClientId("ma"), processWoId: processId, machineId, machineName: machine?.name || "", operatorName: autoOperator,
+          shiftDate: v2ShiftDate, shift: v2Shift, programId: v2ProgramId, programName: (program as ProgramOption | undefined)?.programName || "",
+          partsCommitted: perMachineCommit, producedQty: Number(v2Produced || 0), rejectedQty: 0, reworkQty: 0, createdAt: new Date().toISOString().split("T")[0],
+        })
+      }
+    }
+    await addWoAuditLog({ id: createClientId("audit"), woId: mainId, processWoId: processId, action: "v2_wo_created_and_scheduled", field: "status", oldValue: "draft", newValue: "scheduled", actorId: currentUser.id, actorName: currentUser.name, createdAt: new Date().toISOString().split("T")[0] })
+    setShowV2Planner(false)
+  }
 
   return (
     <div className="space-y-8">
@@ -638,53 +766,12 @@ export default function WorkOrdersPage() {
           </p>
         </div>
         {(isPDCManager || isAdmin) && (
-          <button onClick={() => { setEditWO(null); setShowPhase1(true) }}
+          <button onClick={() => setShowV2Planner(true)}
             className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-md">
-            <Plus size={18}/> New Work Order
+            <Plus size={18}/> Work Order Execution Window
           </button>
         )}
       </header>
-
-
-      <div className="bg-white rounded-2xl border border-emerald-200 p-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h2 className="text-base font-black text-slate-900">WO V2 Planner (Phase 3 UI)</h2>
-            <p className="text-xs text-slate-600">Main WO → Process WO → Shift/Machine Assignment with planned/reserved/consumed/produced/balance tracking.</p>
-          </div>
-          <button onClick={() => setShowV2Planner(true)} className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold">Open Planner</button>
-        </div>
-      <div className="bg-white rounded-2xl border border-indigo-200 p-4">
-        <h3 className="text-sm font-black text-slate-900 mb-3">WO V2 Approval & Lifecycle Board (Phase 6)</h3>
-        <div className="space-y-2">
-          {mainWorkOrdersV2.length === 0 ? (
-            <p className="text-xs text-slate-500">No V2 Work Orders yet.</p>
-          ) : mainWorkOrdersV2.map(main => {
-            const process = processWorkOrdersV2.find(p => p.parentWoId === main.id)
-            const machineAssign = process ? woMachineAssignmentsV2.filter(a => a.processWoId === process.id) : []
-            return <div key={main.id} className="border border-slate-200 rounded-xl p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="text-sm font-bold text-slate-900">{main.woNumber} — {main.partId}</p>
-                  <p className="text-xs text-slate-600">Status: <span className="font-bold">{main.status}</span> · Planned: {main.qty.plannedQty} · Produced: {main.qty.producedQty}</p>
-                </div>
-                {process && <div className="flex flex-wrap gap-2">
-                  <button onClick={() => v2StatusAdvance(main.id, process.id, "accepted")} className="px-2 py-1 text-xs rounded bg-blue-600 text-white font-bold">Accept</button>
-                  <button onClick={() => v2StatusAdvance(main.id, process.id, "in_progress")} className="px-2 py-1 text-xs rounded bg-indigo-600 text-white font-bold">Start</button>
-                  <button onClick={() => v2StatusAdvance(main.id, process.id, "qa_pending")} className="px-2 py-1 text-xs rounded bg-violet-600 text-white font-bold">QA Pending</button>
-                  <button onClick={() => v2StatusAdvance(main.id, process.id, "qa_approved")} className="px-2 py-1 text-xs rounded bg-emerald-600 text-white font-bold">QA Approve</button>
-                  <button onClick={() => v2StatusAdvance(main.id, process.id, "completed")} className="px-2 py-1 text-xs rounded bg-slate-800 text-white font-bold">Complete</button>
-                </div>}
-              </div>
-              {machineAssign.length > 0 && <div className="mt-2 text-xs text-slate-700">
-                {machineAssign.map(a => <div key={a.id}>Machine: <span className="font-semibold">{a.machineName}</span> · Operator: <span className="font-semibold">{a.operatorName}</span> · Produced: <span className="font-semibold">{a.producedQty}</span></div>)}
-              </div>}
-            </div>
-          })}
-        </div>
-      </div>
-
-      </div>
 
       {showV2Planner && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm p-4 flex items-center justify-center">
@@ -692,6 +779,10 @@ export default function WorkOrdersPage() {
             <div className="flex items-center justify-between">
               <h3 className="text-xl font-black text-slate-900">WO V2 Execution Window</h3>
               <button onClick={() => setShowV2Planner(false)} className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 font-bold">Close</button>
+            </div>
+            {(isPDCManager || isAdmin) && <>
+            <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-xs text-indigo-800 font-semibold">
+              PDC Manager View: Create WO from monthly schedule. WO auto-number is assigned and part details are auto-filled.
             </div>
             <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
               <Field label="Monthly Schedule" req><select className={selectCls} value={v2ScheduleId} onChange={e=>setV2ScheduleId(e.target.value)}><option value="">Choose Monthly Schedule</option>{schedules.map(s=><option key={s.id} value={s.id}>{s.partId} — {s.partName}</option>)}</select></Field>
@@ -707,17 +798,54 @@ export default function WorkOrdersPage() {
               <Field label="Produced Qty"><input className={cls} placeholder="Output Count"/></Field>
               <Field label="Balance Qty"><input className={cls} placeholder="Remaining Reserved"/></Field>
             </div>
-            <div className="border border-slate-200 rounded-xl p-4">
+            </>}
+            {isProcessPDC && <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800 font-semibold">
+              Process PDC View ({PROCESS_STAGE_LABELS[myProcess!]}): Accept assigned WO, then capture shift-wise machine/program/operator allocation and production.
+            </div>}
+            {isProcessPDC && <div className="border border-slate-200 rounded-xl p-4">
               <p className="text-sm font-black text-slate-800 mb-2">Machine Assignment (Shift-wise)</p>
               <div className="text-xs text-slate-600 mb-2">Select free machines only. Occupied machines are disabled in final phase.</div>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                <Field label="Machine" req><select className={selectCls} value={v2MachineId} onChange={e=>setV2MachineId(e.target.value)}><option value="">Choose Machine</option>{machines.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></Field>
-                <Field label="Program" req><select className={selectCls} value={v2ProgramId} onChange={e=>setV2ProgramId(e.target.value)}><option value="">From Program Master</option>{programs.map((p:any)=><option key={p.id} value={p.id}>{p.programId || p.id} - {p.programName || p.name}</option>)}</select></Field>
-                <Field label="Operator" req><input className={cls} value={v2Operator} onChange={e=>setV2Operator(e.target.value)} placeholder="Operator Name"/></Field>
+                <Field label="Machines (multi-select)" req>
+                  <div className="max-h-32 overflow-auto border border-slate-200 rounded-xl p-2 space-y-1">
+                    {machines.map(m => {
+                      const occupied = !!(v2ShiftDate && v2Shift && woMachineAssignmentsV2.some(a => a.machineId === m.id && a.shiftDate === v2ShiftDate && a.shift === v2Shift))
+                      const checked = v2MachineIds.includes(m.id)
+                      return (
+                        <label key={m.id} className={`flex items-center gap-2 text-xs ${occupied ? "text-slate-400" : "text-slate-700"}`}>
+                          <input
+                            type="checkbox"
+                            disabled={occupied}
+                            checked={checked}
+                            onChange={e => setV2MachineIds(prev => e.target.checked ? [...prev, m.id] : prev.filter(id => id !== m.id))}
+                          />
+                          <span>{m.name} {occupied ? "(Occupied)" : `(Operator: ${m.operatorName || "Unassigned"})`}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </Field>
+                <Field label="Program" req><select className={selectCls} value={v2ProgramId} onChange={e=>setV2ProgramId(e.target.value)}><option value="">From Program Master</option>{(programs as ProgramOption[]).map(p=><option key={p.id} value={p.id}>{p.programId || p.id} - {p.programName || p.name}</option>)}</select></Field>
+                <Field label="Operator(s)"><input className={cls} value={v2MachineIds.map(id => machines.find(m => m.id === id)?.operatorName || "Unassigned").join(", ")} readOnly /></Field>
                 <Field label="Parts Produced" req><input className={cls} value={v2Produced} onChange={e=>setV2Produced(e.target.value)} placeholder="Machine-wise output"/></Field>
                 <Field label="Shortcoming Category"><select className={selectCls} value={v2Shortcoming} onChange={e=>setV2Shortcoming(e.target.value)}><option value="machine_breakdown">Machine Breakdown</option><option value="material_shortage">Material Shortage</option><option value="operator_absent">Operator Absent</option><option value="power_failure">Power Failure</option><option value="program_issue">Program Issue</option><option value="tool_change">Tool Change</option><option value="qa_hold">QA Hold</option></select></Field>
               </div>
-            </div>
+            </div>}
+            {isScopedQI && (
+              <div className="border border-emerald-200 bg-emerald-50 rounded-xl p-3 space-y-2">
+                <p className="text-xs font-black text-emerald-800">QI View (Machine-wise inspection context)</p>
+                <div className="text-xs text-emerald-900 grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {woMachineAssignmentsV2.slice(0, 8).map(a => (
+                    <div key={a.id} className="rounded-lg border border-emerald-200 bg-white p-2">
+                      <p><strong>Machine:</strong> {a.machineName}</p>
+                      <p><strong>Operator:</strong> {a.operatorName}</p>
+                      <p><strong>Shift:</strong> {a.shiftDate} / {a.shift}</p>
+                      <p><strong>Produced:</strong> {a.producedQty} | <strong>Rework:</strong> {a.reworkQty} | <strong>Rejected:</strong> {a.rejectedQty}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="border border-blue-200 bg-blue-50 rounded-xl p-3 text-xs text-blue-800">
               Phase 5: Added core real-time constraints (machine/operator overlap, capacity, overproduction) and categorized shortcoming capture.
             </div>
@@ -736,7 +864,7 @@ export default function WorkOrdersPage() {
       {isProcessPDC && (
         <div className="flex items-start gap-3 p-4 bg-blue-50 border border-blue-200 rounded-2xl text-sm text-blue-800">
           <AlertTriangle size={16} className="shrink-0 mt-0.5 text-blue-500"/>
-          <p><strong>Your role ({PROCESS_STAGE_LABELS[myProcess!]}):</strong> Click <strong>"Fill Details"</strong> on any <em>Draft</em> work order for your process to enter machine, operator, shift, material, and acceptance criteria.</p>
+          <p><strong>Your role ({PROCESS_STAGE_LABELS[myProcess!]}):</strong> Click <strong>&quot;Fill Details&quot;</strong> on any <em>Draft</em> work order for your process to enter machine, operator, shift, material, and acceptance criteria.</p>
         </div>
       )}
 
