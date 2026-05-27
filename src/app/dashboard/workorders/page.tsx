@@ -220,9 +220,14 @@ function Phase2Form({ wo, onClose, onSave }: {
   )
 
   // Sub-WOs already assigned to this part/process (for PDC manager snapshot)
+  // FIX 1: Only show sub-WOs whose parent legacy WO still exists (not deleted)
   const assignedProcessRows = processWorkOrdersV2.filter(p => {
     if (p.processType !== wo.process) return false
     const parent = mainWorkOrdersV2.find(m => m.id === p.parentWoId)
+    if (!parent) return false
+    // Ensure corresponding legacy WO has not been deleted
+    const legacyExists = workOrders.some(w => w.masterId === parent.scheduleId && w.partId === parent.partId)
+    if (!legacyExists) return false
     return parent?.partId === wo.partId
   })
 
@@ -261,8 +266,23 @@ function Phase2Form({ wo, onClose, onSave }: {
   const kgPerPartConfig = selectedProgram?.rawMaterialKgPerPart || weightPerPart || 0
   const configDerivedKg = Number((claimPartsQty * kgPerPartConfig).toFixed(3))
 
+  // FIX 3: Validate claimed parts against available raw material stock
+  const maxPartsFromStock = (kgPerPartConfig > 0 && availableKg > 0)
+    ? Math.floor(availableKg / kgPerPartConfig)
+    : null
+  const partsExceedStock = kgPerPartConfig > 0 && rawMaterialId
+    ? claimPartsQty * kgPerPartConfig > availableKg
+    : false
+
   const assignedQtyKg   = Number((requiredQtyKg * (1 + bufferPercent / 100)).toFixed(2))
-  const additionalQtyKg = Number((acquiredQtyKg  - assignedQtyKg).toFixed(2)) // read-only
+
+  // Additional qty cannot be negative — clamp to 0
+  const additionalQtyKgRaw    = Number((acquiredQtyKg - assignedQtyKg).toFixed(2))
+  const additionalQtyKg       = Math.max(0, additionalQtyKgRaw)
+  const acquiredBelowAssigned = acquiredQtyKg < assignedQtyKg        // block: must take at least assigned
+  // Fix: acquired cannot exceed the physically available stock in the chosen material batch
+  const acquiredExceedsStock  = !!(rawMaterialId && acquiredQtyKg > availableKg)
+
   const leftoverQtyKg   = Number((assignedQtyKg  - acquiredQtyKg).toFixed(2))
   const autoOutputKg    = Number((claimPartsQty  * (weightPerPart || 0)).toFixed(2))
 
@@ -299,11 +319,14 @@ function Phase2Form({ wo, onClose, onSave }: {
   }
 
   // ── Window 1 validation ──────────────────────────────────────────────────────
-  const w1Valid = rawMaterialId && !stockShortfall && claimPartsQty > 0 && requiredQtyKg > 0 && ptcId
+  const w1Valid = rawMaterialId && !stockShortfall && !partsExceedStock
+    && claimPartsQty > 0 && requiredQtyKg > 0 && ptcId
+    && !acquiredBelowAssigned && !acquiredExceedsStock
 
   // ── Final submit ─────────────────────────────────────────────────────────────
   const handleSubmit = () => {
     if (!w1Valid) { setWindow(1); return }
+    if (acquiredBelowAssigned) { alert("Acquired quantity cannot be less than Assigned (Required + Buffer). Please increase Acquired Qty or reduce Buffer %."); return }
     if (!isExternal && selectedMachineIds.length === 0) { alert("Select at least one machine."); return }
     if (selectedMachineIds.some(id => occupiedMachineIds.has(id))) { alert("One or more selected machines are occupied for this shift."); return }
     if (!isExternal && totalMachineCommit > claimPartsQty) { alert("Sum of per-machine parts cannot exceed total claimed qty."); return }
@@ -423,7 +446,7 @@ function Phase2Form({ wo, onClose, onSave }: {
               </div>
             </div>
 
-            {/* Sub-WO Snapshot (from process work orders) */}
+            {/* Sub-WO Snapshot (from process work orders) — FIX 1: deleted-WO sub-WOs filtered out above */}
             {assignedProcessRows.length > 0 && (
               <div className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-4 space-y-2">
                 <p className="text-[10px] font-black text-indigo-700 uppercase tracking-wider flex items-center gap-1.5">
@@ -470,6 +493,15 @@ function Phase2Form({ wo, onClose, onSave }: {
                   {stockShortfall ? " — ⚠ INSUFFICIENT STOCK" : " — ✓ Stock OK"}
                 </div>
               )}
+              {/* FIX 3: Show max parts derivable from this stock */}
+              {rawMaterialId && kgPerPartConfig > 0 && (
+                <div className={`p-2.5 rounded-lg text-xs font-medium border ${partsExceedStock ? "bg-red-50 border-red-200 text-red-700" : "bg-teal-50 border-teal-200 text-teal-700"}`}>
+                  At <strong>{kgPerPartConfig} KG/part</strong> → this stock supports up to <strong>{maxPartsFromStock} parts</strong>.
+                  {partsExceedStock
+                    ? ` ⚠ Claimed ${claimPartsQty} parts needs ${(claimPartsQty * kgPerPartConfig).toFixed(2)} KG but only ${availableKg.toFixed(2)} KG available. Reduce claimed parts or select a larger material batch.`
+                    : ` ✓ Claimed ${claimPartsQty} parts requires ${(claimPartsQty * kgPerPartConfig).toFixed(2)} KG — within stock.`}
+                </div>
+              )}
             </div>
 
             {/* Material Claim & Quantity Planning */}
@@ -478,19 +510,57 @@ function Phase2Form({ wo, onClose, onSave }: {
                 Quantity Planning & Material Claim
               </p>
 
+              {/* FIX 2: Program selection moved up so kg/part rate is known before claim qty */}
+              <Field label="Program (from Program Master)" req hint="Selecting a program auto-fills the required KG from its configured rate">
+                <select required value={programId} onChange={e => {
+                  const newProgId = e.target.value
+                  setProgramId(newProgId)
+                  const prog = (programs as ProgramOption[]).find(p => p.id === newProgId)
+                  // FIX 2: auto-derive required KG when program changes
+                  if (prog?.rawMaterialKgPerPart && claimPartsQty > 0) {
+                    setRequiredQtyKg(Number((claimPartsQty * prog.rawMaterialKgPerPart).toFixed(3)))
+                  }
+                }} className={selectCls}>
+                  <option value="">— Select program to auto-fill KG rate —</option>
+                  {processPrograms.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.programId || p.id} — {p.programName || p.name || ""}
+                      {p.rawMaterialKgPerPart ? ` (${p.rawMaterialKgPerPart} KG/part)` : ""}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
               <div className="grid grid-cols-2 gap-4">
                 <Field label="Parts I Will Produce (Claim)" req hint="How many of the total target you are committing to">
-                  <input type="number" required min="1" max={wo.targetPartNos} value={claimPartsQty}
+                  <input
+                    type="number" required min="1"
+                    max={maxPartsFromStock ?? wo.targetPartNos}
+                    value={claimPartsQty}
                     onChange={e => {
                       const v = Number(e.target.value)
                       setClaimPartsQty(v)
-                      // Auto-derive required kg from config if available
+                      // FIX 2: Auto-derive required kg from config whenever claim qty changes
                       if (kgPerPartConfig > 0) setRequiredQtyKg(Number((v * kgPerPartConfig).toFixed(3)))
-                    }} className={cls}/>
+                    }}
+                    className={`${cls} ${partsExceedStock ? "border-red-400 focus:ring-red-400" : ""}`}
+                  />
+                  {/* FIX 3: inline hint when parts exceed available stock */}
+                  {partsExceedStock && rawMaterialId && (
+                    <p className="text-[10px] text-red-600 font-bold mt-1">
+                      ⚠ Max {maxPartsFromStock} parts from current stock. Reduce claim or select a larger material batch.
+                    </p>
+                  )}
                 </Field>
-                <Field label="Required Qty (KG)" req hint="Qty needed from config (part × kg/part)">
-                  <input type="number" required min="0.1" step="0.01" value={requiredQtyKg}
-                    onChange={e => setRequiredQtyKg(Number(e.target.value))} className={cls}/>
+                <Field label="Required Qty (KG)" req hint="Auto-filled from program rate (parts × KG/part)">
+                  {/* FIX 2: read-only when program rate is known; editable as override otherwise */}
+                  {kgPerPartConfig > 0 ? (
+                    <input readOnly value={requiredQtyKg} className={readOnlyCls}/>
+                  ) : (
+                    <input type="number" required min="0.1" step="0.01" value={requiredQtyKg}
+                      onChange={e => setRequiredQtyKg(Number(e.target.value))} className={cls}
+                      placeholder="Enter manually (no program rate)"/>
+                  )}
                 </Field>
               </div>
 
@@ -511,12 +581,30 @@ function Phase2Form({ wo, onClose, onSave }: {
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                <Field label="Acquired Qty (KG)" req hint="How much you physically took from inventory">
-                  <input type="number" required min="0" step="0.01" value={acquiredQtyKg}
-                    onChange={e => setAcquiredQtyKg(Number(e.target.value))} className={cls}/>
+                <Field label="Acquired Qty (KG)" req hint="How much you physically took from inventory (must be ≥ Assigned and ≤ available stock)">
+                  <input
+                    type="number" required
+                    min={assignedQtyKg}
+                    max={rawMaterialId ? availableKg : undefined}
+                    step="0.01" value={acquiredQtyKg}
+                    onChange={e => setAcquiredQtyKg(Number(e.target.value))}
+                    className={`${cls} ${acquiredBelowAssigned || acquiredExceedsStock ? "border-red-400 focus:ring-red-400" : ""}`}
+                  />
+                  {acquiredBelowAssigned && (
+                    <p className="text-[10px] text-red-600 font-bold mt-1">
+                      ⚠ Acquired must be ≥ Assigned ({assignedQtyKg} KG). Additional qty cannot go negative.
+                    </p>
+                  )}
+                  {acquiredExceedsStock && (
+                    <p className="text-[10px] text-red-600 font-bold mt-1">
+                      ⚠ Acquired ({acquiredQtyKg} KG) exceeds available stock ({availableKg.toFixed(2)} KG). You cannot take more than what is in inventory.
+                    </p>
+                  )}
                 </Field>
-                <Field label="Additional Qty (KG)" hint="Acquired − Assigned (read-only)">
-                  <input readOnly value={additionalQtyKg} className={`${readOnlyCls} ${additionalQtyKg > 0 ? "text-amber-600" : additionalQtyKg < 0 ? "text-red-600" : ""}`}/>
+                {/* FIX 4: Additional qty clamped to ≥ 0, label clarified */}
+                <Field label="Additional Qty (KG)" hint="Acquired − Assigned (cannot be negative)">
+                  <input readOnly value={additionalQtyKg}
+                    className={`${readOnlyCls} ${additionalQtyKgRaw < 0 ? "text-red-600" : additionalQtyKg > 0 ? "text-amber-600" : ""}`}/>
                 </Field>
               </div>
 
@@ -526,7 +614,7 @@ function Phase2Form({ wo, onClose, onSave }: {
                   { label: "Required",  value: `${requiredQtyKg} KG`,  color: "bg-slate-100 text-slate-700" },
                   { label: "Buffer",    value: `${bufferPercent}%`,     color: "bg-blue-50 text-blue-700" },
                   { label: "Assigned",  value: `${assignedQtyKg} KG`,  color: "bg-indigo-50 text-indigo-700" },
-                  { label: "Acquired",  value: `${acquiredQtyKg} KG`,  color: "bg-teal-50 text-teal-700" },
+                  { label: "Acquired",  value: `${acquiredQtyKg} KG`,  color: acquiredBelowAssigned ? "bg-red-50 text-red-700" : "bg-teal-50 text-teal-700" },
                   { label: "Leftover",  value: `${leftoverQtyKg} KG`,  color: leftoverQtyKg < 0 ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700" },
                 ].map(({ label, value, color }) => (
                   <div key={label} className={`rounded-xl p-2 ${color}`}>
@@ -668,27 +756,6 @@ function Phase2Form({ wo, onClose, onSave }: {
               )}
             </div>
 
-            {/* Program */}
-            <div className="rounded-xl border border-slate-200 p-4 space-y-3">
-              <p className="text-[10px] font-black text-slate-700 uppercase tracking-wider">Program Assignment</p>
-              <div className="grid grid-cols-2 gap-4">
-                <Field label="Program (from Program Master)" req>
-                  <select required value={programId} onChange={e => setProgramId(e.target.value)} className={selectCls}>
-                    <option value="">— Select program —</option>
-                    {processPrograms.map(p => (
-                      <option key={p.id} value={p.id}>
-                        {p.programId || p.id} — {p.programName || p.name || ""}
-                        {p.rawMaterialKgPerPart ? ` (${p.rawMaterialKgPerPart} KG/part)` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Operator(s) (auto-assigned)">
-                  <input readOnly value={operatorsDisplay || "Select machine(s) above"} className={readOnlyCls}/>
-                </Field>
-              </div>
-            </div>
-
             {/* Notes */}
             <div className="rounded-xl border border-slate-200 p-4 space-y-3">
               <Field label="Notes (optional)" hint="Shift-wise observations, shortcomings, remarks">
@@ -721,7 +788,11 @@ function Phase2Form({ wo, onClose, onSave }: {
             <button type="button"
               disabled={!w1Valid}
               onClick={() => setWindow(2)}
-              title={!w1Valid ? "Complete all required fields in Window 1 first" : ""}
+              title={
+                partsExceedStock ? "Claimed parts exceed available stock" :
+                acquiredBelowAssigned ? "Acquired qty must be ≥ Assigned (Required + Buffer)" :
+                !w1Valid ? "Complete all required fields in Window 1 first" : ""
+              }
               className="flex items-center gap-1.5 px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
               Next — Machine Allocation <ChevronRight size={14}/>
             </button>
@@ -822,6 +893,9 @@ export default function WorkOrdersPage() {
   const myProcess: ProcessStage | null =
     isPDCDC ? "die_casting" : isPDCCoat ? "coating" : isPDCCNC ? "cnc_vmc" : null
 
+  // Set of all live WO ids — used to detect orphaned stage SWOs whose parent was deleted
+  const liveWoIds = useMemo(() => new Set(workOrders.map(w => w.id)), [workOrders])
+
   const visible = useMemo(() => {
     const filtered = workOrders.filter(w => {
       const matchStatus  = statusFilter  === "all" || w.status  === statusFilter
@@ -829,6 +903,10 @@ export default function WorkOrdersPage() {
       const matchRole = !myProcess || (
         w.process === myProcess && (w.status === "draft" || w.status === "rejected")
       )
+      // Fix: hide stage SWOs whose parent WO has been deleted.
+      // A stage SWO always has a parentWoId; if that parent no longer exists in workOrders
+      // (i.e. it was deleted), this child should not appear in any role's list.
+      if (w.parentWoId && !liveWoIds.has(w.parentWoId)) return false
       return matchStatus && matchProcess && matchRole
     })
     return [...filtered].sort((a, b) => {
@@ -860,14 +938,17 @@ export default function WorkOrdersPage() {
   }, [workOrders])
 
   // ── PDC Manager: sub-WO dropdown per parent WO ──────────────────────────────
-  // For each parent WO shown to the manager, collect its process sub-WOs
+  // FIX 1: When building the map, skip processWOs whose parent main-WO's legacy WO was deleted
   const subWOsByParentLegacyId = useMemo(() => {
     const map: Record<string, typeof processWorkOrdersV2> = {}
     processWorkOrdersV2.forEach(p => {
       const parent = mainWorkOrdersV2.find(m => m.id === p.parentWoId)
       if (parent) {
-        // Find the corresponding legacy WO for this mainV2
-        const legacyWO = workOrders.find(w => w.masterId === parent.scheduleId && w.partId === parent.partId)
+        // Find the corresponding legacy WO — must still exist (not deleted)
+        const legacyWO = workOrders.find(
+          w => w.masterId === parent.scheduleId && w.partId === parent.partId
+        )
+        // Only add if legacy WO is still present
         if (legacyWO) {
           map[legacyWO.id] = [...(map[legacyWO.id] || []), p]
         }
@@ -1075,7 +1156,7 @@ export default function WorkOrdersPage() {
         )}
       </header>
 
-      {/* ── V2 Planner modal (unchanged from original) ── */}
+      {/* ── V2 Planner modal ── */}
       {showV2Planner && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm p-4 flex items-center justify-center">
           <div className="w-full max-w-6xl max-h-[92vh] overflow-y-auto bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
@@ -1101,16 +1182,29 @@ export default function WorkOrdersPage() {
               <Field label="End Date" req><input type="date" min={v2ScheduleMonthRange?.start} max={v2ScheduleMonthRange?.end} className={cls} value={v2EndDate} onChange={e=>setV2EndDate(e.target.value)} /></Field>
               <Field label="No. of Days"><input className={cls} value={v2DayCount ? String(v2DayCount) : ""} readOnly /></Field>
             </div>
-            {/* Sub-WO snapshot with committed/taken/leftover */}
+            {/* FIX 1: Sub-WO snapshot — filter out entries whose parent legacy WO was deleted */}
             <div className="p-3 border border-slate-200 rounded-xl bg-slate-50">
               <p className="text-xs font-black text-slate-700 uppercase tracking-wider mb-2">Sub Work Orders Snapshot — Committed / Taken / Leftover / Raw Material</p>
-              {processWorkOrdersV2.filter(p => !v2ScheduleId || mainWorkOrdersV2.find(m => m.id === p.parentWoId)?.scheduleId === v2ScheduleId).length === 0 ? (
+              {processWorkOrdersV2.filter(p => {
+                // Must match schedule filter if set
+                const parent = mainWorkOrdersV2.find(m => m.id === p.parentWoId)
+                if (!parent) return false
+                if (v2ScheduleId && parent.scheduleId !== v2ScheduleId) return false
+                // FIX 1: Only show if corresponding legacy WO still exists (not deleted)
+                return workOrders.some(w => w.masterId === parent.scheduleId && w.partId === parent.partId)
+              }).length === 0 ? (
                 <p className="text-xs text-slate-400">No sub work orders yet for this schedule.</p>
               ) : (
                 <select className={selectCls}>
                   <option value="" disabled>Select sub-WO to inspect</option>
                   {processWorkOrdersV2
-                    .filter(p => !v2ScheduleId || mainWorkOrdersV2.find(m => m.id === p.parentWoId)?.scheduleId === v2ScheduleId)
+                    .filter(p => {
+                      const parent = mainWorkOrdersV2.find(m => m.id === p.parentWoId)
+                      if (!parent) return false
+                      if (v2ScheduleId && parent.scheduleId !== v2ScheduleId) return false
+                      // FIX 1: guard against deleted legacy WOs
+                      return workOrders.some(w => w.masterId === parent.scheduleId && w.partId === parent.partId)
+                    })
                     .map(p => {
                       const parent = mainWorkOrdersV2.find(m => m.id === p.parentWoId)
                       return (
@@ -1133,9 +1227,17 @@ export default function WorkOrdersPage() {
                 <Field label="Sub Work Order" req>
                   <select className={selectCls} value={v2ProcessWoId} onChange={e=>setV2ProcessWoId(e.target.value)}>
                     <option value="">Select assigned sub work order</option>
-                    {processWorkOrdersV2.filter(p=>p.processType===myProcess).map(p=>(
-                      <option key={p.id} value={p.id}>{p.processWoNumber} | Committed: {p.targetParts} | Taken: {p.takenQtyKg} KG | Leftover: {p.leftoverQtyKg} KG</option>
-                    ))}
+                    {/* FIX 1: filter out sub-WOs whose parent legacy WO was deleted */}
+                    {processWorkOrdersV2
+                      .filter(p => {
+                        if (p.processType !== myProcess) return false
+                        const parent = mainWorkOrdersV2.find(m => m.id === p.parentWoId)
+                        if (!parent) return false
+                        return workOrders.some(w => w.masterId === parent.scheduleId && w.partId === parent.partId)
+                      })
+                      .map(p=>(
+                        <option key={p.id} value={p.id}>{p.processWoNumber} | Committed: {p.targetParts} | Taken: {p.takenQtyKg} KG | Leftover: {p.leftoverQtyKg} KG</option>
+                      ))}
                   </select>
                 </Field>
                 <Field label="Required Qty (KG)"><input className={cls} value={v2RequiredQtyKg || ""} readOnly/></Field>
@@ -1143,7 +1245,12 @@ export default function WorkOrdersPage() {
                 <Field label="Acquired Qty (KG)"><input className={cls} value={v2TakenQtyKg} onChange={e=>setV2TakenQtyKg(e.target.value)} /></Field>
               </div>
               <div className="text-xs text-slate-700 p-2 rounded-lg bg-slate-50 border border-slate-200">
-                Assigned (Required+Buffer): <strong>{v2AssignedQtyKg} KG</strong> · Additional (Acquired−Assigned): <strong>{v2AdditionalQty} KG</strong> · Leftover: <strong>{v2LeftoverQty} KG</strong>
+                Assigned (Required+Buffer): <strong>{v2AssignedQtyKg} KG</strong> ·
+                {/* FIX 4: clamp additional to 0 in v2 planner display too */}
+                Additional (Acquired−Assigned): <strong>{Math.max(0, v2AdditionalQty)} KG</strong> · Leftover: <strong>{v2LeftoverQty} KG</strong>
+                {v2TakenQty > 0 && v2TakenQty < v2AssignedQtyKg && (
+                  <span className="ml-2 text-red-600 font-bold">⚠ Acquired is below Assigned — please take at least {v2AssignedQtyKg} KG</span>
+                )}
               </div>
             </div>
             <div className="border border-slate-200 rounded-xl p-4">
@@ -1264,11 +1371,19 @@ export default function WorkOrdersPage() {
         ) : visibleGrouped.map(({ root: wo, children: childSWOs }) => {
           const progress    = wo.targetPartNos > 0 ? Math.round((wo.partsCompleted / wo.targetPartNos) * 100) : 0
           const isDraft     = wo.status === "draft"
-          const isSWO       = wo.woType === "rework"
+
+          // FIX 5: Differentiate system-generated stage SWOs from actual rework SWOs.
+          // A true rework SWO has reworkCycleNumber ≥ 1 AND a parentWoId (it was spawned from a rejection).
+          // Stage SWOs created by buildStageSubWorkOrder have woType === "rework" but are NOT rework cycles.
+          const isActualReworkSWO = wo.woType === "rework" && !!wo.parentWoId && (wo.reworkCycleNumber ?? 0) >= 1
+          const isStageSWO        = wo.woType === "rework" && !!wo.parentWoId && !isActualReworkSWO
+          // Keep the general "isSWO" flag for structural grouping (child indent, etc.)
+          const isSWO             = wo.woType === "rework"
+
           const parentWo    = isSWO && wo.parentWoId ? workOrders.find(w => w.id === wo.parentWoId) : null
           const treeChildren = childSWOs.length > 0 ? childSWOs : (swoByParent[wo.id] ?? [])
 
-          // Sub-WOs for this WO (PDC manager view) — process work orders linked to it
+          // Sub-WOs for this WO (PDC manager view)
           const linkedSubWOs = subWOsByParentLegacyId[wo.id] || []
 
           return (
@@ -1288,11 +1403,21 @@ export default function WorkOrdersPage() {
                         <Building2 size={9}/> Vendor: {wo.vendorName}
                       </span>
                     )}
-                    {isSWO && (
+
+                    {/* FIX 5: Stage SWOs (system-created for each process) show as "Sub Work Order" */}
+                    {isStageSWO && (
+                      <span className="flex items-center gap-1 text-[10px] bg-slate-100 text-slate-700 font-black px-2 py-0.5 rounded-full border border-slate-300">
+                        <GitBranch size={9}/> SUB WORK ORDER
+                      </span>
+                    )}
+
+                    {/* FIX 5: Only actual rework cycles get the "REWORK SWO" label */}
+                    {isActualReworkSWO && (
                       <span className="flex items-center gap-1 text-[10px] bg-amber-100 text-amber-800 font-black px-2 py-0.5 rounded-full border border-amber-300">
                         <GitBranch size={9}/> REWORK SWO · Cycle #{wo.reworkCycleNumber ?? 1}
                       </span>
                     )}
+
                     {isSWO && parentWo && (
                       <span className="flex items-center gap-1 text-[10px] bg-slate-100 text-slate-600 font-bold px-2 py-0.5 rounded-full border border-slate-200">
                         <ArrowUpRight size={9}/> Parent: {parentWo.id}
@@ -1327,7 +1452,7 @@ export default function WorkOrdersPage() {
                     {wo.phase2CompletedBy && <span className="ml-2 text-slate-400">· Ops filled by: <em>{wo.phase2CompletedBy}</em></span>}
                   </p>
 
-                  {/* ── Sub-WO summary dropdown (PDC Manager view) ─────────────── */}
+                  {/* ── Sub-WO summary dropdown (PDC Manager view) — FIX 1: deleted WOs already excluded via subWOsByParentLegacyId */}
                   {(isPDCManager || isAdmin) && linkedSubWOs.length > 0 && (
                     <div className="mt-2">
                       <select
@@ -1447,8 +1572,8 @@ export default function WorkOrdersPage() {
                     </div>
                   )}
 
-                  {/* SWO Traceability */}
-                  {isSWO && parentWo && (
+                  {/* SWO Traceability — only for actual rework SWOs */}
+                  {isActualReworkSWO && parentWo && (
                     <div className="mt-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
                       <p className="text-[10px] font-black text-amber-700 uppercase tracking-wider mb-2 flex items-center gap-1">
                         <GitBranch size={11}/> Rework Traceability
@@ -1468,6 +1593,20 @@ export default function WorkOrdersPage() {
                           </div>
                         ))}
                       </div>
+                    </div>
+                  )}
+
+                  {/* Stage SWO — show simple parent link instead of full rework traceability */}
+                  {isStageSWO && parentWo && (
+                    <div className="mt-3 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                      <p className="text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1 flex items-center gap-1">
+                        <GitBranch size={11}/> Sub Work Order — Parent WO
+                      </p>
+                      <p className="text-xs text-slate-700">
+                        Parent: <span className="font-mono font-bold">{parentWo.id}</span> ·
+                        <span className="ml-1">{parentWo.partName}</span> ·
+                        Status: <span className="font-bold">{statusLabel(parentWo.status)}</span>
+                      </p>
                     </div>
                   )}
 
