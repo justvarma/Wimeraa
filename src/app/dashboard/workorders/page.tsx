@@ -649,7 +649,9 @@ export default function WorkOrdersPage() {
     (isAdmin || (isProcessPDC && wo.process === myProcess))
 
   const v2Save = async () => {
-    if (!currentUser || !v2SelectedSchedule || !v2ShiftDate || !v2Shift) return
+    const effectiveShiftDate = v2ShiftDate || v2StartDate
+    const effectiveShift = v2Shift || (shifts[0]?.id as Shift | undefined) || ""
+    if (!currentUser || !v2SelectedSchedule || !effectiveShiftDate || !effectiveShift) return
     if (!v2StartDate || !v2EndDate || !v2ScheduleMonthRange) { alert("Start and end dates are required."); return }
     if (v2StartDate > v2EndDate) { alert("Start date cannot be after end date."); return }
     if (v2StartDate < v2ScheduleMonthRange.start || v2EndDate > v2ScheduleMonthRange.end) { alert("Start/end date must be within the selected monthly schedule period."); return }
@@ -664,11 +666,11 @@ export default function WorkOrdersPage() {
     if (produced > planned) { alert("Produced qty cannot exceed planned qty."); return }
     let perMachineCommit = 0
     if (requiresMachineAssignment) {
-      const hasMachineConflict = selectedMachineIds.some(machineId => woMachineAssignmentsV2.some(a => a.machineId === machineId && a.shiftDate === v2ShiftDate && a.shift === v2Shift))
+      const hasMachineConflict = selectedMachineIds.some(machineId => woMachineAssignmentsV2.some(a => a.machineId === machineId && a.shiftDate === effectiveShiftDate && a.shift === effectiveShift))
       if (hasMachineConflict) { alert("One or more selected machines are already assigned for this shift/date."); return }
       perMachineCommit = Math.ceil(planned / selectedMachineIds.length)
       const overCapacityMachine = selectedMachineIds.find(machineId => {
-        const processMachineLoad = woMachineAssignmentsV2.filter(a => a.machineId === machineId && a.shiftDate === v2ShiftDate).reduce((sum, a) => sum + Number(a.partsCommitted || 0), 0)
+        const processMachineLoad = woMachineAssignmentsV2.filter(a => a.machineId === machineId && a.shiftDate === effectiveShiftDate).reduce((sum, a) => sum + Number(a.partsCommitted || 0), 0)
         return processMachineLoad + perMachineCommit > 500
       })
       if (overCapacityMachine) { alert("Machine capacity exceeded for shift (limit 500 parts/shift)."); return }
@@ -684,7 +686,7 @@ export default function WorkOrdersPage() {
     })
     await addProcessWorkOrderV2({
       id: processId, processWoNumber: v2NextProcessNo, parentWoId: mainId, rootWoId: mainId, processType: "die_casting", status: "scheduled",
-      shiftDate: v2ShiftDate, shift: v2Shift, targetParts: planned, requiredQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), bufferPercent: 2,
+      shiftDate: effectiveShiftDate, shift: effectiveShift, targetParts: planned, requiredQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), bufferPercent: 2,
       assignedQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), takenQtyKg: 0, leftoverQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), shortcomingCategory: v2Shortcoming as ShortcomingCategory, createdAt: new Date().toISOString().split("T")[0],
     })
     // Mirror a draft shell in legacy WO list so newly created V2 work orders remain visible in the Work Orders board.
@@ -709,7 +711,7 @@ export default function WorkOrdersPage() {
       materialGrade: "",
       rawMaterialId: "",
       rawMaterialGrade: "",
-      shift: v2Shift,
+      shift: effectiveShift,
       machine: "",
       operator: "",
       actualTarget: planned,
@@ -747,7 +749,7 @@ export default function WorkOrdersPage() {
         materialGrade: "",
         rawMaterialId: "",
         rawMaterialGrade: "",
-        shift: v2Shift,
+        shift: effectiveShift,
         machine: "",
         operator: "",
         actualTarget: planned,
@@ -771,7 +773,7 @@ export default function WorkOrdersPage() {
         const autoOperator = machine?.operatorName || "Unassigned"
         await addWoMachineAssignmentV2({
           id: createClientId("ma"), processWoId: processId, machineId, machineName: machine?.name || "", operatorName: autoOperator,
-          shiftDate: v2ShiftDate, shift: v2Shift, programId: v2ProgramId, programName: (program as ProgramOption | undefined)?.programName || "",
+          shiftDate: effectiveShiftDate, shift: effectiveShift, programId: v2ProgramId, programName: (program as ProgramOption | undefined)?.programName || "",
           partsCommitted: perMachineCommit, producedQty: Number(v2Produced || 0), rejectedQty: 0, reworkQty: 0, createdAt: new Date().toISOString().split("T")[0],
         })
       }
@@ -817,18 +819,9 @@ export default function WorkOrdersPage() {
               <Field label="WO Number" req><input className={cls} value={v2NextWoNo} readOnly /></Field>
               <Field label="Part" req><input className={cls} value={v2SelectedSchedule ? `${v2SelectedSchedule.partId} — ${v2SelectedSchedule.partName}` : ""} readOnly/></Field>
               <Field label="Parts to be made" req><input className={cls} value={v2TargetParts} readOnly /></Field>
-              <Field label="Shift Date" req><input type="date" className={cls} value={v2ShiftDate} onChange={e=>setV2ShiftDate(e.target.value)} /></Field>
-              <Field label="Shift" req><select className={selectCls} value={v2Shift} onChange={e=>setV2Shift(e.target.value as Shift)}><option value="">Choose Shift</option>{shifts.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></Field>
               <Field label="Start Date" req><input type="date" min={v2ScheduleMonthRange?.start} max={v2ScheduleMonthRange?.end} className={cls} value={v2StartDate} onChange={e=>setV2StartDate(e.target.value)} /></Field>
               <Field label="End Date" req><input type="date" min={v2ScheduleMonthRange?.start} max={v2ScheduleMonthRange?.end} className={cls} value={v2EndDate} onChange={e=>setV2EndDate(e.target.value)} /></Field>
               <Field label="No. of Days"><input className={cls} value={v2DayCount ? String(v2DayCount) : ""} readOnly /></Field>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-              <Field label="Planned Qty"><input className={cls} placeholder="From Monthly Schedule"/></Field>
-              <Field label="Reserved Qty"><input className={cls} placeholder="Allocated for WO"/></Field>
-              <Field label="Consumed Qty"><input className={cls} placeholder="Used in Production"/></Field>
-              <Field label="Produced Qty"><input className={cls} placeholder="Output Count"/></Field>
-              <Field label="Balance Qty"><input className={cls} placeholder="Remaining Reserved"/></Field>
             </div>
             </>}
             {isProcessPDC && <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800 font-semibold">
