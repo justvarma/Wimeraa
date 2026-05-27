@@ -287,6 +287,7 @@ export function ShiftProductionEntry() {
   const selectedPwo = pwos.find(p => p.id === selectedPwoId)
   const [editMap, setEditMap] = useState<Record<string, Partial<MachineAssignment>>>({})
   const [saving,  setSaving]  = useState(false)
+  const [savingDraft, setSavingDraft] = useState(false)
   const [saved,   setSaved]   = useState(false)
 
   useEffect(() => { setEditMap({}); setSaved(false) }, [selectedPwoId])
@@ -298,6 +299,39 @@ export function ShiftProductionEntry() {
   const totals = mergedAssignments.reduce((acc, a) => ({ produced: acc.produced + ((a.goodParts ?? 0) + (a.reworkParts ?? 0) + (a.rejectedParts ?? 0)), good: acc.good + (a.goodParts ?? 0), rework: acc.rework + (a.reworkParts ?? 0), rejected: acc.rejected + (a.rejectedParts ?? 0), rawUsed: acc.rawUsed + (a.rawMaterialUsedKg ?? 0), leftover: acc.leftover + Number(((perMachineKg) - (a.rawMaterialUsedKg ?? 0)).toFixed(3)), downtime: acc.downtime + (a.downtimeMinutes ?? 0) }), { produced: 0, good: 0, rework: 0, rejected: 0, rawUsed: 0, leftover: 0, downtime: 0 })
   const allLocked = mergedAssignments.length > 0 && mergedAssignments.every(a => a.actualsLocked)
   const hasUnsaved = Object.keys(editMap).length > 0
+
+  
+  const handleSaveDraft = async () => {
+    if (!selectedPwo || !clientId || mergedAssignments.length === 0) return
+    setSavingDraft(true)
+    try {
+      const now = new Date().toISOString()
+      for (const ma of mergedAssignments) {
+        if (ma.actualsLocked) continue
+        const edits = editMap[ma.id]
+        if (!edits) continue
+        await updateDoc(doc(db, "clients", clientId, "wo_machine_assignments_v2", ma.id), {
+          goodParts: Number(edits.goodParts ?? ma.goodParts ?? 0),
+          reworkParts: Number(edits.reworkParts ?? ma.reworkParts ?? 0),
+          rejectedParts: Number(edits.rejectedParts ?? ma.rejectedParts ?? 0),
+          rawMaterialUsedKg: Number(edits.rawMaterialUsedKg ?? ma.rawMaterialUsedKg ?? 0),
+          downtimeMinutes: Number(edits.downtimeMinutes ?? ma.downtimeMinutes ?? 0),
+          shortcomingCategory: edits.shortcomingCategory ?? ma.shortcomingCategory ?? "none",
+          shortcomingNotes: edits.shortcomingNotes ?? ma.shortcomingNotes ?? "",
+          operatorConfirmedBy: edits.operatorConfirmedBy ?? ma.operatorConfirmedBy ?? "",
+          draftSavedAt: now,
+          updatedAt: serverTimestamp(),
+        })
+      }
+      await addDoc(collection(db, "clients", clientId, "wo_audit_logs"), {
+        woId: selectedPwo.parentWoId, processWoId: selectedPwo.id, action: "shift_actuals_draft_saved",
+        field: "draft", oldValue: "", newValue: "saved", actorId: currentUser!.id, actorName: currentUser!.name, createdAt: now,
+      })
+      await reload()
+    } finally {
+      setSavingDraft(false)
+    }
+  }
 
   const handleSubmit = async () => {
     if (!selectedPwo || !clientId) return
@@ -328,7 +362,7 @@ export function ShiftProductionEntry() {
 
   if (!myProcess) return <div className="p-8 text-center text-slate-400"><Info size={24} className="mx-auto mb-2 opacity-40"/><p className="text-sm">No process assigned to your role.</p></div>
 
-  return <div className="space-y-6 max-w-4xl mx-auto"><div className="flex items-center justify-between flex-wrap gap-3"><div><h2 className="text-2xl font-black text-slate-900">Shift Production Entry</h2><p className="text-sm text-slate-500 mt-0.5">{PROCESS_STAGE_LABELS[myProcess]} · Fill machine-wise actuals after each shift</p></div><button type="button" onClick={reload} disabled={loading} className="flex items-center gap-2 px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50">{loading ? <Loader2 size={13} className="animate-spin"/> : <RefreshCw size={13}/>}Refresh</button></div>{error && <div className="p-4 bg-red-50 border border-red-200 rounded-2xl text-sm text-red-700 flex items-center gap-2"><AlertTriangle size={15}/>{error}</div>}<div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4"><p className="text-[10px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1.5"><Calendar size={10}/> Select Process Work Order (SWO)</p><select value={selectedPwoId} onChange={e => setSelectedPwoId(e.target.value)} className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-900 bg-white focus:ring-2 focus:ring-indigo-500 outline-none"><option value="">— Select a process work order —</option>{pwos.map(p => <option key={p.id} value={p.id}>{p.processWoNumber} · {p.shiftDate} / {String(p.shift)} · Target: {p.targetParts} parts · {p.actualsSubmittedAt ? "✓ Actuals Submitted" : "Pending actuals"}</option>)}</select></div>{selectedPwo && <div className="space-y-4">{mergedAssignments.length === 0 ? <div className="bg-white rounded-2xl border border-slate-200 p-6 text-center text-sm text-slate-500">No machine assignments found for this SWO yet. Please complete machine assignment in Work Orders (Phase 2 Window 2) first, then refresh.</div> : mergedAssignments.map(ma => <MachineRow key={ma.id} assignment={ma} assignedKg={perMachineKg} onChange={handleChange} isLocked={!!ma.actualsLocked} />)}{mergedAssignments.length > 0 && !allLocked && <div className="sticky bottom-4 flex items-center gap-3 bg-white border border-slate-200 rounded-2xl p-3 shadow-xl"><div className="flex-1">{saved && <span className="flex items-center gap-1.5 text-sm text-emerald-700 font-bold"><CheckCircle2 size={15}/> Actuals saved successfully</span>}{!saved && hasUnsaved && <span className="text-sm text-amber-700 font-semibold">Unsaved changes — submit to lock actuals in DB</span>}</div><button type="button" onClick={handleSubmit} disabled={saving || !hasUnsaved} className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-black shadow-md disabled:opacity-40 disabled:cursor-not-allowed transition-colors">{saving ? <><Loader2 size={15} className="animate-spin"/> Saving…</> : <><Save size={15}/> Submit Shift Actuals</>}</button></div>}</div>}</div>
+  return <div className="space-y-6 max-w-4xl mx-auto"><div className="flex items-center justify-between flex-wrap gap-3"><div><h2 className="text-2xl font-black text-slate-900">Shift Production Entry</h2><p className="text-sm text-slate-500 mt-0.5">{PROCESS_STAGE_LABELS[myProcess]} · Fill machine-wise actuals after each shift</p></div><button type="button" onClick={reload} disabled={loading} className="flex items-center gap-2 px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50">{loading ? <Loader2 size={13} className="animate-spin"/> : <RefreshCw size={13}/>}Refresh</button></div>{error && <div className="p-4 bg-red-50 border border-red-200 rounded-2xl text-sm text-red-700 flex items-center gap-2"><AlertTriangle size={15}/>{error}</div>}<div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4"><p className="text-[10px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1.5"><Calendar size={10}/> Select Process Work Order (SWO)</p><select value={selectedPwoId} onChange={e => setSelectedPwoId(e.target.value)} className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-900 bg-white focus:ring-2 focus:ring-indigo-500 outline-none"><option value="">— Select a process work order —</option>{pwos.map(p => <option key={p.id} value={p.id}>{p.processWoNumber} · {p.shiftDate} / {String(p.shift)} · Target: {p.targetParts} parts · {p.actualsSubmittedAt ? "✓ Actuals Submitted" : "Pending actuals"}</option>)}</select></div>{selectedPwo && <div className="space-y-4">{mergedAssignments.length === 0 ? <div className="bg-white rounded-2xl border border-slate-200 p-6 text-center text-sm text-slate-500">No machine assignments found for this SWO yet. Please complete machine assignment in Work Orders (Phase 2 Window 2) first, then refresh.</div> : mergedAssignments.map(ma => <MachineRow key={ma.id} assignment={ma} assignedKg={perMachineKg} onChange={handleChange} isLocked={!!ma.actualsLocked} />)}{mergedAssignments.length > 0 && !allLocked && <div className="sticky bottom-4 flex items-center gap-3 bg-white border border-slate-200 rounded-2xl p-3 shadow-xl"><div className="flex-1">{saved && <span className="flex items-center gap-1.5 text-sm text-emerald-700 font-bold"><CheckCircle2 size={15}/> Actuals saved successfully</span>}{!saved && hasUnsaved && <span className="text-sm text-amber-700 font-semibold">Unsaved changes — submit to lock actuals in DB</span>}</div><button type="button" onClick={handleSubmit} disabled={saving || !hasUnsaved} className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-black shadow-md disabled:opacity-40 disabled:cursor-not-allowed transition-colors">{saving ? <><Loader2 size={15} className="animate-spin"/> Saving…</> : <><Save size={15}/> Submit Shift Actuals</>}</button><button type="button" onClick={handleSaveDraft} disabled={savingDraft || !hasUnsaved} className="flex items-center gap-2 px-4 py-2.5 bg-white border border-indigo-300 text-indigo-700 rounded-xl text-sm font-black disabled:opacity-40">{savingDraft ? <><Loader2 size={15} className="animate-spin"/> Saving Draft…</> : "Save Draft"}</button></div>}</div>}</div>
 }
 
 type MachineAssignmentDropdownProps = { clientId: string; processWoId?: string; woId?: string }
