@@ -307,9 +307,7 @@ function SWONode({ swo, allWorkOrders, shifts, machines, swoIndex, clientId }: S
           {/* QI result strip */}
           {hasQIResult && <QIResultRow wo={swo}/>}
 
-          {swo.processWoId && (
-            <MachineAssignmentDropdown clientId={clientId} processWoId={swo.processWoId} />
-          )}
+          <MachineAssignmentDropdown clientId={clientId} processWoId={swo.processWoId} woId={swo.id} />
 
           {/* Rework children — each recursively rendered */}
           {directReworks.length > 0 && (

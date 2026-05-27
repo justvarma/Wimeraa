@@ -330,22 +330,38 @@ export function ShiftProductionEntry() {
   return <div className="space-y-6 max-w-4xl mx-auto"><div className="flex items-center justify-between flex-wrap gap-3"><div><h2 className="text-2xl font-black text-slate-900">Shift Production Entry</h2><p className="text-sm text-slate-500 mt-0.5">{PROCESS_STAGE_LABELS[myProcess]} · Fill machine-wise actuals after each shift</p></div><button type="button" onClick={reload} disabled={loading} className="flex items-center gap-2 px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50">{loading ? <Loader2 size={13} className="animate-spin"/> : <RefreshCw size={13}/>}Refresh</button></div>{error && <div className="p-4 bg-red-50 border border-red-200 rounded-2xl text-sm text-red-700 flex items-center gap-2"><AlertTriangle size={15}/>{error}</div>}<div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4"><p className="text-[10px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1.5"><Calendar size={10}/> Select Process Work Order (SWO)</p><select value={selectedPwoId} onChange={e => setSelectedPwoId(e.target.value)} className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-900 bg-white focus:ring-2 focus:ring-indigo-500 outline-none"><option value="">— Select a process work order —</option>{pwos.map(p => <option key={p.id} value={p.id}>{p.processWoNumber} · {p.shiftDate} / {String(p.shift)} · Target: {p.targetParts} parts · {p.actualsSubmittedAt ? "✓ Actuals Submitted" : "Pending actuals"}</option>)}</select></div>{selectedPwo && <div className="space-y-4">{mergedAssignments.map(ma => <MachineRow key={ma.id} assignment={ma} assignedKg={perMachineKg} onChange={handleChange} isLocked={!!ma.actualsLocked} />)}{!allLocked && <div className="sticky bottom-4 flex items-center gap-3 bg-white border border-slate-200 rounded-2xl p-3 shadow-xl"><div className="flex-1">{saved && <span className="flex items-center gap-1.5 text-sm text-emerald-700 font-bold"><CheckCircle2 size={15}/> Actuals saved successfully</span>}{!saved && hasUnsaved && <span className="text-sm text-amber-700 font-semibold">Unsaved changes — submit to lock actuals in DB</span>}</div><button type="button" onClick={handleSubmit} disabled={saving || !hasUnsaved} className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-black shadow-md disabled:opacity-40 disabled:cursor-not-allowed transition-colors">{saving ? <><Loader2 size={15} className="animate-spin"/> Saving…</> : <><Save size={15}/> Submit Shift Actuals</>}</button></div>}</div>}</div>
 }
 
-type MachineAssignmentDropdownProps = { clientId: string; processWoId: string }
+type MachineAssignmentDropdownProps = { clientId: string; processWoId?: string; woId?: string }
 
-export function MachineAssignmentDropdown({ clientId, processWoId }: MachineAssignmentDropdownProps) {
+export function MachineAssignmentDropdown({ clientId, processWoId, woId }: MachineAssignmentDropdownProps) {
   const [assignments, setAssignments] = useState<MachineAssignment[]>([])
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    if (!clientId || !processWoId) return
-    setLoading(true)
-    getDocs(query(collection(db, "clients", clientId, "wo_machine_assignments_v2"), where("processWoId", "==", processWoId)))
-      .then(snap => setAssignments(snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<MachineAssignment, "id">) }))))
-      .finally(() => setLoading(false))
-  }, [clientId, processWoId])
+    if (!clientId) return
+    const load = async () => {
+      setLoading(true)
+      try {
+        let resolvedProcessWoId = processWoId
+        if (!resolvedProcessWoId && woId) {
+          const p1 = await getDocs(query(collection(db, "clients", clientId, "process_work_orders_v2"), where("rootWoId", "==", woId)))
+          if (!p1.empty) resolvedProcessWoId = p1.docs[0].id
+          if (!resolvedProcessWoId) {
+            const p2 = await getDocs(query(collection(db, "clients", clientId, "process_work_orders_v2"), where("parentWoId", "==", woId)))
+            if (!p2.empty) resolvedProcessWoId = p2.docs[0].id
+          }
+        }
+        if (!resolvedProcessWoId) { setAssignments([]); return }
+        const snap = await getDocs(query(collection(db, "clients", clientId, "wo_machine_assignments_v2"), where("processWoId", "==", resolvedProcessWoId)))
+        setAssignments(snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<MachineAssignment, "id">) })))
+      } finally {
+        setLoading(false)
+      }
+    }
+    load()
+  }, [clientId, processWoId, woId])
 
   if (loading) return <div className="flex items-center gap-1.5 text-[10px] text-slate-400 py-1"><Loader2 size={10} className="animate-spin"/> Loading machine data…</div>
   if (assignments.length === 0) return <p className="text-[10px] text-slate-400 italic py-1">No machine assignments in DB for this SWO yet.</p>
 
-  return <div className="space-y-1.5"><p className="text-[10px] font-black text-indigo-700 uppercase tracking-wider flex items-center gap-1.5"><Settings2 size={9}/> Machine-wise Actuals</p><select defaultValue="" className="w-full text-xs border border-indigo-200 rounded-xl px-3 py-2 bg-indigo-50 text-indigo-900 font-semibold" onChange={() => {}}><option value="" disabled>🔧 {assignments.length} machine{assignments.length > 1 ? "s" : ""} — select to view actuals</option>{assignments.map(a => { const produced = (a.goodParts ?? 0) + (a.reworkParts ?? 0) + (a.rejectedParts ?? 0); return <option key={a.id} value={a.id}>{a.machineName}{a.actualsLocked ? ` | ✓ Produced: ${produced} (Good: ${a.goodParts ?? 0} · Rework: ${a.reworkParts ?? 0} · Rejected: ${a.rejectedParts ?? 0}) | Raw Used: ${a.rawMaterialUsedKg ?? 0} KG | Leftover: ${a.leftoverKg ?? 0} KG | Downtime: ${a.downtimeMinutes ?? 0} min | Op: ${a.operatorConfirmedBy || "—"}` : ` | ⏳ Pending actuals | Committed: ${a.partsCommitted} parts`}</option> })}</select></div>
+  return <div className="space-y-1.5"><p className="text-[10px] font-black text-indigo-700 uppercase tracking-wider flex items-center gap-1.5"><Settings2 size={9}/> Machine-wise Actuals</p><select defaultValue="" className="w-full text-xs border border-indigo-200 rounded-xl px-3 py-2 bg-indigo-50 text-indigo-900 font-semibold" onChange={() => {}}><option value="" disabled>🔧 {assignments.length} machine{assignments.length > 1 ? "s" : ""} — select to view actuals</option>{assignments.map(a => { const produced = (a.goodParts ?? 0) + (a.reworkParts ?? 0) + (a.rejectedParts ?? 0); return <option key={a.id} value={a.id}>{a.machineName}{a.actualsLocked ? ` | ✓ Produced: ${produced} (Good: ${a.goodParts ?? 0} · Rework: ${a.reworkParts ?? 0} · Rejected: ${a.rejectedParts ?? 0}) | Raw Used: ${a.rawMaterialUsedKg ?? 0} KG | Leftover: ${a.leftoverKg ?? 0} KG | Downtime: ${a.downtimeMinutes ?? 0} min | Op: ${a.operatorConfirmedBy || "—"}` : ` | ⏳ Pending actuals | Committed: ${a.partsCommitted} parts`}</option> })}</select>{assignments.some(a => a.actualsLocked) && <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-1">{assignments.filter(a => a.actualsLocked).map(a => { const produced=(a.goodParts ?? 0)+(a.reworkParts ?? 0)+(a.rejectedParts ?? 0); return <div key={a.id} className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-2"><p className="text-[10px] font-black text-emerald-800">{a.machineName}</p><p className="text-[10px] text-slate-700">Produced: {produced} (G:{a.goodParts ?? 0} / Rw:{a.reworkParts ?? 0} / Rj:{a.rejectedParts ?? 0})</p><p className="text-[10px] text-slate-700">Raw: {a.rawMaterialUsedKg ?? 0} KG · Leftover: {a.leftoverKg ?? 0} KG · Down: {a.downtimeMinutes ?? 0} min</p></div>})}</div>}</div>
 }
