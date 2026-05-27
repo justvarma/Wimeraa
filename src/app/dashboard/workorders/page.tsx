@@ -1,6 +1,7 @@
 "use client"
 import { useState, useMemo } from "react"
 import { useApp } from "@/components/providers/AppProvider"
+import { MachineAssignmentDropdown } from "@/components/ShiftProductionEntry"
 import {
   UserRole, PROCESS_STAGE_LABELS, QI_ROLE_PROCESS_MAP,
   type ProcessStage, type Shift, type WorkOrder, type WOStatus, type ShortcomingCategory,
@@ -194,9 +195,10 @@ type SWONodeProps = {
   shifts: ReturnType<typeof useApp>["shifts"]
   machines: ReturnType<typeof useApp>["machines"]
   swoIndex: number
+  clientId: string
 }
 
-function SWONode({ swo, allWorkOrders, shifts, machines, swoIndex }: SWONodeProps) {
+function SWONode({ swo, allWorkOrders, shifts, machines, swoIndex, clientId }: SWONodeProps) {
   const [open, setOpen] = useState(false)
 
   // Direct rework WOs whose parent is this SWO (cycle #1 reworks)
@@ -305,6 +307,10 @@ function SWONode({ swo, allWorkOrders, shifts, machines, swoIndex }: SWONodeProp
           {/* QI result strip */}
           {hasQIResult && <QIResultRow wo={swo}/>}
 
+          {swo.processWoId && (
+            <MachineAssignmentDropdown clientId={clientId} processWoId={swo.processWoId} />
+          )}
+
           {/* Rework children — each recursively rendered */}
           {directReworks.length > 0 && (
             <div className="space-y-2 mt-1 pl-3 border-l-2 border-amber-200">
@@ -337,9 +343,10 @@ type WOHierarchyTreeProps = {
   allWorkOrders: WorkOrder[]
   shifts: ReturnType<typeof useApp>["shifts"]
   machines: ReturnType<typeof useApp>["machines"]
+  clientId: string
 }
 
-function WOHierarchyTree({ rootWO, allWorkOrders, shifts, machines }: WOHierarchyTreeProps) {
+function WOHierarchyTree({ rootWO, allWorkOrders, shifts, machines, clientId }: WOHierarchyTreeProps) {
   // All SWOs directly under this root WO:
   // - Stage SWOs: woType === "rework", parentWoId === rootWO.id, reworkCycleNumber is 0 or undefined (system-generated per process/shift)
   // - Each time a PDC fills details for a new shift, a new SWO is created under this root
@@ -379,6 +386,7 @@ function WOHierarchyTree({ rootWO, allWorkOrders, shifts, machines }: WOHierarch
           shifts={shifts}
           machines={machines}
           swoIndex={idx + 1}
+          clientId={clientId}
         />
       ))}
     </div>
@@ -1089,6 +1097,7 @@ export default function WorkOrdersPage() {
     updateProcessWorkOrderV2, addWoMachineAssignmentV2, addWoAuditLog,
   } = useApp()
   const role = currentUser?.role as UserRole
+  const clientId = ((currentUser as unknown as { clientId?: string; client_id?: string })?.clientId || (currentUser as unknown as { client_id?: string })?.client_id || "")
 
   const [showPhase1, setShowPhase1]   = useState(false)
   const [editWO,     setEditWO]       = useState<WorkOrder | null>(null)
@@ -1225,7 +1234,7 @@ export default function WorkOrdersPage() {
       }
       const parentId = await addWorkOrder(primaryWO)
       await addWorkOrder(buildStageSubWorkOrder({
-        source: { ...primaryWO, id: parentId, createdAt: new Date().toISOString().split("T")[0] },
+        source: { ...primaryWO, id: parentId, createdAt: new Date().toISOString().split("T")[0], processWoId: "" },
         process: "die_casting",
         createdBy: "System Workflow",
         parentWoId: parentId,
@@ -1361,7 +1370,7 @@ export default function WorkOrdersPage() {
         isExternal: false, createdBy: currentUser.name, woType: "standard",
         workflowStep: -1, workflowLabel: "Primary Work Order",
       },
-      process: "die_casting", createdBy: "System Workflow", parentWoId: primaryLegacyWoId,
+      process: "die_casting", createdBy: "System Workflow", parentWoId: primaryLegacyWoId, processWoId: processId,
     }))
     if (requiresMachineAssignment) {
       for (const machineId of selectedMachineIds) {
@@ -1774,6 +1783,7 @@ export default function WorkOrdersPage() {
                       allWorkOrders={workOrders}
                       shifts={shifts}
                       machines={machines}
+                      clientId={clientId}
                     />
                   )}
 
