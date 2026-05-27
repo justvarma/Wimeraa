@@ -346,12 +346,12 @@ type WOHierarchyTreeProps = {
 
 function WOHierarchyTree({ rootWO, allWorkOrders, shifts, machines, clientId }: WOHierarchyTreeProps) {
   // All SWOs directly under this root WO:
-  // - Stage SWOs: woType === "rework", parentWoId === rootWO.id, reworkCycleNumber is 0 or undefined (system-generated per process/shift)
+  // - Stage SWOs: woType === "stage" (new) or "rework" (legacy), parentWoId === rootWO.id, reworkCycleNumber is 0 or undefined
   // - Each time a PDC fills details for a new shift, a new SWO is created under this root
   const stageSWOs = allWorkOrders
     .filter(w =>
       w.parentWoId === rootWO.id &&
-      w.woType === "rework" &&
+      (w.woType === "stage" || w.woType === "rework") &&
       (w.reworkCycleNumber === undefined || w.reworkCycleNumber === 0)
     )
     .sort((a, b) => {
