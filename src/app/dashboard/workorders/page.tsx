@@ -1179,11 +1179,11 @@ export default function WorkOrdersPage() {
       return matchStatus && matchProcess && matchRole
     })
     return [...filtered].sort((a, b) => {
-      const aRoot = a.woType === "rework" ? (a.parentWoId ?? a.id) : a.id
-      const bRoot = b.woType === "rework" ? (b.parentWoId ?? b.id) : b.id
+      const aRoot = (a.woType === "rework" || a.woType === "stage") ? (a.parentWoId ?? a.id) : a.id
+      const bRoot = (b.woType === "rework" || b.woType === "stage") ? (b.parentWoId ?? b.id) : b.id
       if (aRoot !== bRoot) return aRoot.localeCompare(bRoot)
-      const aIsSWO = a.woType === "rework" ? 1 : 0
-      const bIsSWO = b.woType === "rework" ? 1 : 0
+      const aIsSWO = (a.woType === "rework" || a.woType === "stage") ? 1 : 0
+      const bIsSWO = (b.woType === "rework" || b.woType === "stage") ? 1 : 0
       if (aIsSWO !== bIsSWO) return aIsSWO - bIsSWO
       return (a.reworkCycleNumber ?? 0) - (b.reworkCycleNumber ?? 0)
     })
@@ -1192,9 +1192,11 @@ export default function WorkOrdersPage() {
   // For PDC Manager: only show root WOs (no parentWoId), all children rendered inside WOHierarchyTree
   // For process PDC roles: flat list of their drafts as before
   const visibleRoots = useMemo(() => {
-    if (isProcessPDC) return visible.map(wo => wo)
+    if (isProcessPDC) {
+      return visible.filter(w => w.process === myProcess && (w.woType === "stage" || w.woType === "rework" || w.woType === "rejection"))
+    }
     return visible.filter(w => !w.parentWoId)
-  }, [visible, isProcessPDC])
+  }, [visible, isProcessPDC, myProcess])
 
   const subWOsByParentLegacyId = useMemo(() => {
     const map: Record<string, typeof processWorkOrdersV2> = {}
