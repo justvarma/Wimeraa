@@ -200,12 +200,18 @@ function Phase1Form({ onClose, onSave, initial }: {
 function Phase2Form({ wo, onClose, onSave }: {
   wo: WorkOrder; onClose: () => void; onSave: (data: Partial<WorkOrder>) => void
 }) {
-  const { materials, users, ptcs, shifts, workOrders, machines } = useApp()
+  const { materials, users, ptcs, shifts, workOrders, machines, processWorkOrdersV2, mainWorkOrdersV2 } = useApp()
   const shiftOptions = getSelectableShiftOptions(shifts, wo.shift)
   const approvedMats = materials.filter(m => m.status === "approved")
   const processMachines = machines.filter(m => m.process === wo.process && m.status === "active")
   const validPDCs = ptcs.filter(p => p.process === wo.process)
   const qiUsers = users.filter(u => u.role === UserRole.QUALITY_INSPECTOR || u.role === UserRole.ADMIN || QI_ROLE_PROCESS_MAP[u.role] === wo.process)
+
+  const assignedProcessRows = processWorkOrdersV2.filter(p => {
+    if (p.processType !== wo.process) return false
+    const parent = mainWorkOrdersV2.find(m => m.id === p.parentWoId)
+    return parent?.partId === wo.partId
+  })
 
   const [form, setForm] = useState({
     materialGrade:  wo.materialGrade  || "",
@@ -353,6 +359,22 @@ function Phase2Form({ wo, onClose, onSave }: {
                 <input className={`${cls} bg-slate-50`} value={form.ptcId} readOnly />
               </Field>
             </div>
+          </div>
+
+          {/* Assigned Sub Work Order Snapshot */}
+          <div className="p-4 border border-slate-200 rounded-xl space-y-3">
+            <p className="text-xs font-black text-slate-700 uppercase tracking-wider">Assigned Sub Work Order Snapshot</p>
+            <Field label="Assigned Sub Work Orders">
+              <select className={selectCls} defaultValue="" disabled>
+                <option value="">Select to view committed / taken / leftover</option>
+                {assignedProcessRows.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.processWoNumber} | Committed: {p.targetParts} | Required: {p.requiredQtyKg}KG | Taken: {p.takenQtyKg}KG | Leftover: {p.leftoverQtyKg}KG
+                  </option>
+                ))}
+              </select>
+            </Field>
+            {assignedProcessRows.length === 0 && <p className="text-xs text-slate-500">No assigned sub work orders found yet for this part/process.</p>}
           </div>
 
           {/* Window 1: Material Claim & Quantity Planning */}
