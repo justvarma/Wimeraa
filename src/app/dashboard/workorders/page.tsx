@@ -2,7 +2,7 @@
 import { useState, useMemo } from "react"
 import { useApp } from "@/components/providers/AppProvider"
 import {
-  UserRole, PROCESS_STAGE_LABELS, PROCESS_PTC_ROLE_MAP, QI_ROLE_PROCESS_MAP, 
+  UserRole, PROCESS_STAGE_LABELS, QI_ROLE_PROCESS_MAP, 
   type ProcessStage, type Shift, type WorkOrder, type WOStatus, type ShortcomingCategory,
 } from "@/lib/store"
 import { getSelectableShiftOptions, getShiftLabel } from "@/lib/shiftUtils"
@@ -200,12 +200,9 @@ function Phase1Form({ onClose, onSave, initial }: {
 function Phase2Form({ wo, onClose, onSave }: {
   wo: WorkOrder; onClose: () => void; onSave: (data: Partial<WorkOrder>) => void
 }) {
-  const { materials, users, ptcs, shifts, workOrders, machines, programs } = useApp()
+  const { materials, users, ptcs, shifts, workOrders, machines } = useApp()
   const shiftOptions = getSelectableShiftOptions(shifts, wo.shift)
   const approvedMats = materials.filter(m => m.status === "approved")
-  const processOperators = users.filter(u =>
-    u.role === QI_ROLE_PROCESS_MAP[wo.process] || u.role === PROCESS_PTC_ROLE_MAP[wo.process] || u.role === UserRole.ADMIN
-  )
   const processMachines = machines.filter(m => m.process === wo.process && m.status === "active")
   const validPDCs = ptcs.filter(p => p.process === wo.process)
   const qiUsers = users.filter(u => u.role === UserRole.QUALITY_INSPECTOR || u.role === UserRole.ADMIN || QI_ROLE_PROCESS_MAP[u.role] === wo.process)
@@ -259,12 +256,14 @@ function Phase2Form({ wo, onClose, onSave }: {
   const autoOutputKg = ((form.actualTarget || 0) * (form.weightPerPart || 0)).toFixed(2)
   const assignedQtyKg = Number((Number(form.requiredQtyKg || 0) * (1 + Number(form.bufferPercent || 0) / 100)).toFixed(2))
   const leftoverQtyKg = Number((assignedQtyKg - Number(form.takenQtyKg || 0)).toFixed(2))
+  const machineProducedTotal = Object.values(form.machineProducedMap || {}).reduce((s, v) => s + (Number(v) || 0), 0)
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (shortfall) { alert(`Insufficient stock! Available: ${availableKg.toFixed(1)} KG, Required: ${wo.requiredQuantityKg} KG`); return }
     if (!form.isExternal && selectedMachineNames.length===0) { alert("At least one machine is required."); return }
     if (!form.isExternal && selectedMachineNames.some(machine => reservedMachines.has(machine))) { alert("One or more machines are already occupied for this shift"); return }
+    if (!form.isExternal && machineProducedTotal > Number(form.actualTarget || 0)) { alert("Sum of machine parts cannot exceed total committed target."); return }
     if (!vendorReady) { alert("Vendor production requires vendor name, date, machine, and assigned QI user."); return }
     onSave({
       ...form,
@@ -277,7 +276,8 @@ function Phase2Form({ wo, onClose, onSave }: {
       rawMaterialGrade: selectedMat?.rawMaterialGrade || form.materialGrade,
       actualOutputKg: Number(autoOutputKg),
       inputWeightKg: wo.requiredQuantityKg,
-      acceptancePoints: `${form.acceptancePoints || "As per configured QI checkpoints"} | Program: ${form.programId || "NA"} | Req:${form.requiredQtyKg}kg Buffer:${form.bufferPercent}% Taken:${form.takenQtyKg}kg Leftover:${leftoverQtyKg}kg ${form.shortcomingNotes ? `| Notes:${form.shortcomingNotes}` : ""}`,
+      operator: form.isExternal ? form.operator : selectedMachineNames.map(name => machines.find(mm => mm.name === name)?.operatorName || "Unassigned").join(", "),
+      acceptancePoints: `${form.acceptancePoints || "As per configured QI checkpoints"} | Req:${form.requiredQtyKg}kg Buffer:${form.bufferPercent}% Taken:${form.takenQtyKg}kg Leftover:${leftoverQtyKg}kg | MachineParts:${JSON.stringify(form.machineProducedMap || {})} ${form.shortcomingNotes ? `| Notes:${form.shortcomingNotes}` : ""}`,
       status: "not_started",
     })
     onClose()
@@ -341,84 +341,26 @@ function Phase2Form({ wo, onClose, onSave }: {
             )}
           </div>
 
-          {/* Scheduling */}
+          {/* Assignment Context (set by PDC Manager) */}
           <div className="p-4 border border-slate-200 rounded-xl space-y-3">
-            <p className="text-xs font-black text-slate-700 uppercase tracking-wider">Scheduling</p>
+            <p className="text-xs font-black text-slate-700 uppercase tracking-wider">Assignment Context</p>
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Shift" req>
-                <select required value={form.shift} onChange={e => setForm(p=>({...p,shift:e.target.value as Shift}))} className={selectCls}>
-                  <option value="">— Select shift —</option>
-                  {shiftOptions.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-                </select>
+              <Field label="Shift (from manager)">
+                <input className={`${cls} bg-slate-50`} value={getShiftLabel(shifts, form.shift)} readOnly />
               </Field>
-              <Field label="PDC Code" req>
-                <select required value={form.ptcId} onChange={e => setForm(p=>({...p,ptcId:e.target.value}))} className={selectCls}>
-                  <option value="">— Select PDC —</option>
-                  {validPDCs.map(p => <option key={p.id} value={p.id}>{p.id} · {getShiftLabel(shifts, p.shift)} · {p.date}</option>)}
-                </select>
+              <Field label="PDC Code">
+                <input className={`${cls} bg-slate-50`} value={form.ptcId} readOnly />
               </Field>
             </div>
-          </div>
-
-          {/* Machine Process Window */}
-          <div className="p-4 border border-indigo-200 bg-indigo-50/50 rounded-xl space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-black text-indigo-800 uppercase tracking-wider">Machine Process Window</p>
-              <button
-                type="button"
-                onClick={() => setShowMachineProcessWindow(p => !p)}
-                className="text-xs font-bold text-indigo-700 hover:text-indigo-900"
-              >
-                {showMachineProcessWindow ? "Hide" : "Show"}
-              </button>
-            </div>
-            {showMachineProcessWindow && (
-              <>
-                <Field label="Choose Machines" req>
-                  <div className="space-y-2">
-                    {processMachines.map(m => {
-                      const checked = selectedMachineNames.includes(m.name)
-                      const occupied = reservedMachines.has(m.name)
-                      return (
-                        <label key={m.id} className={`flex items-center gap-2 text-sm ${occupied ? "text-red-600" : "text-slate-700"}`}>
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            disabled={occupied && !checked}
-                            onChange={e => {
-                              setForm(p => {
-                                const set = new Set(p.machine.split(",").map(x => x.trim()).filter(Boolean))
-                                if (e.target.checked) set.add(m.name); else set.delete(m.name)
-                                return { ...p, machine: Array.from(set).join(", ") }
-                              })
-                            }}
-                          />
-                          {m.name}{occupied && !checked ? " — occupied for selected shift/date" : ""}
-                        </label>
-                      )
-                    })}
-                  </div>
-                </Field>
-                <Field label="Operator" req>
-                  <select required value={form.operator} onChange={e => setForm(p=>({...p,operator:e.target.value}))} className={selectCls}>
-                    <option value="">— Select operator —</option>
-                    {processOperators.map(u => <option key={u.id} value={u.name}>{u.name} ({u.department})</option>)}
-                    <option value="External Operator">External Operator</option>
-                  </select>
-                </Field>
-              </>
-            )}
           </div>
 
           {/* Production parameters */}
           <div className="p-4 border border-slate-200 rounded-xl space-y-3">
             <p className="text-xs font-black text-slate-700 uppercase tracking-wider">Production Parameters</p>
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Program (Master List)" req>
-                <select required value={form.programId} onChange={e => setForm(p=>({...p,programId:e.target.value}))} className={selectCls}>
-                  <option value="">— Select program —</option>
-                  {(programs as ProgramOption[]).map(p => <option key={p.id} value={p.programId || p.id}>{p.programId || p.id} - {p.programName || p.name}</option>)}
-                </select>
+              <Field label="Target Quantity (Nos)" req>
+                <input type="number" required min="1" value={form.actualTarget}
+                  onChange={e => setForm(p=>({...p,actualTarget:Number(e.target.value)}))} className={cls}/>
               </Field>
               <Field label="Required Qty (KG)" req>
                 <input type="number" required min="0.1" step="0.1" value={form.requiredQtyKg}
@@ -437,10 +379,6 @@ function Phase2Form({ wo, onClose, onSave }: {
               Assigned Qty: <strong>{assignedQtyKg} KG</strong> · Leftover: <strong>{leftoverQtyKg} KG</strong>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Actual Target (Nos)" req>
-                <input type="number" required min="1" value={form.actualTarget}
-                  onChange={e => setForm(p=>({...p,actualTarget:Number(e.target.value)}))} className={cls}/>
-              </Field>
               <Field label="Parts per Cycle" req>
                 <input type="number" required min="1" value={form.partPerCycle}
                   onChange={e => setForm(p=>({...p,partPerCycle:Number(e.target.value)}))} className={cls}/>
@@ -449,16 +387,46 @@ function Phase2Form({ wo, onClose, onSave }: {
                 <input type="number" required min="0.01" step="0.01" value={form.weightPerPart}
                   onChange={e => setForm(p=>({...p,weightPerPart:Number(e.target.value)}))} className={cls}/>
               </Field>
-              <Field label="Cycle Time (min)">
-                <input type="number" min="1" value={form.cycleTimeMinutes}
-                  onChange={e => setForm(p=>({...p,cycleTimeMinutes:Number(e.target.value)}))} className={cls}/>
-              </Field>
             </div>
             {form.weightPerPart > 0 && form.actualTarget > 0 && (
               <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800">
                 Auto Output: <strong>{autoOutputKg} KG</strong> ({form.actualTarget} × {form.weightPerPart} KG/part)
               </div>
             )}
+          </div>
+          {/* Machine Process Window (last step) */}
+          <div className="p-4 border border-indigo-200 bg-indigo-50/50 rounded-xl space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-black text-indigo-800 uppercase tracking-wider">Machine Selection & Details</p>
+              <button type="button" onClick={() => setShowMachineProcessWindow(p => !p)} className="text-xs font-bold text-indigo-700 hover:text-indigo-900">
+                {showMachineProcessWindow ? "Hide" : "Show"}
+              </button>
+            </div>
+            {showMachineProcessWindow && <Field label="Choose Machines" req>
+              <div className="space-y-2">
+                {processMachines.map(m => {
+                  const checked = selectedMachineNames.includes(m.name)
+                  const occupied = reservedMachines.has(m.name)
+                  return <div key={m.id} className="rounded-lg border border-slate-200 bg-white p-2">
+                    <label className={`flex items-center gap-2 text-sm ${occupied ? "text-red-600" : "text-slate-700"}`}>
+                      <input type="checkbox" checked={checked} disabled={occupied && !checked} onChange={e => setForm(p => {
+                        const set = new Set(p.machine.split(",").map(x => x.trim()).filter(Boolean))
+                        const map = { ...(p.machineProducedMap || {}) }
+                        if (e.target.checked) set.add(m.name); else { set.delete(m.name); delete map[m.name] }
+                        return { ...p, machine: Array.from(set).join(", "), machineProducedMap: map }
+                      })}/>
+                      {m.name}{occupied && !checked ? " — occupied for selected shift/date" : ""}
+                    </label>
+                    {checked && <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+                      <div><span className="text-slate-500">Operator:</span> <span className="font-semibold">{m.operatorName || "Unassigned"}</span></div>
+                      <div><span className="text-slate-500">Program:</span> <span className="font-semibold">Auto from config</span></div>
+                      <div><label className="text-slate-500 mr-2">Parts by machine</label><input type="number" min="0" className="border border-slate-300 rounded px-2 py-1 w-24" value={form.machineProducedMap?.[m.name] ?? 0} onChange={e => setForm(p => ({ ...p, machineProducedMap: { ...(p.machineProducedMap || {}), [m.name]: Number(e.target.value) } }))}/></div>
+                    </div>}
+                  </div>
+                })}
+              </div>
+              <div className="mt-2 text-xs text-slate-700">Machine parts total: <strong>{machineProducedTotal}</strong> / Target: <strong>{form.actualTarget}</strong></div>
+            </Field>}
           </div>
 
           {/* Acceptance points are now system-defined and not entered manually here. */}
