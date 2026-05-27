@@ -256,6 +256,7 @@ function Phase2Form({ wo, onClose, onSave }: {
   const autoOutputKg = ((form.actualTarget || 0) * (form.weightPerPart || 0)).toFixed(2)
   const assignedQtyKg = Number((Number(form.requiredQtyKg || 0) * (1 + Number(form.bufferPercent || 0) / 100)).toFixed(2))
   const leftoverQtyKg = Number((assignedQtyKg - Number(form.takenQtyKg || 0)).toFixed(2))
+  const additionalQtyKg = Number((Number(form.takenQtyKg || 0) - assignedQtyKg).toFixed(2))
   const machineProducedTotal = Object.values(form.machineProducedMap || {}).reduce((s, v) => s + (Number(v) || 0), 0)
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -354,9 +355,9 @@ function Phase2Form({ wo, onClose, onSave }: {
             </div>
           </div>
 
-          {/* Production parameters */}
+          {/* Window 1: Material Claim & Quantity Planning */}
           <div className="p-4 border border-slate-200 rounded-xl space-y-3">
-            <p className="text-xs font-black text-slate-700 uppercase tracking-wider">Production Parameters</p>
+            <p className="text-xs font-black text-slate-700 uppercase tracking-wider">Window 1 — Material Claim & Quantity Planning</p>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Target Quantity (Nos)" req>
                 <input type="number" required min="1" value={form.actualTarget}
@@ -376,7 +377,7 @@ function Phase2Form({ wo, onClose, onSave }: {
               </Field>
             </div>
             <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700">
-              Assigned Qty: <strong>{assignedQtyKg} KG</strong> · Leftover: <strong>{leftoverQtyKg} KG</strong>
+              Required Qty: <strong>{form.requiredQtyKg} KG</strong> · Buffer+Required (Assigned): <strong>{assignedQtyKg} KG</strong> · Acquired (Taken): <strong>{form.takenQtyKg} KG</strong> · Additional (Taken-Assigned): <strong>{additionalQtyKg} KG</strong> · Leftover: <strong>{leftoverQtyKg} KG</strong>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Parts per Cycle" req>
@@ -394,10 +395,10 @@ function Phase2Form({ wo, onClose, onSave }: {
               </div>
             )}
           </div>
-          {/* Machine Process Window (last step) */}
+          {/* Window 2: Day-wise Shift + Machine Allocation */}
           <div className="p-4 border border-indigo-200 bg-indigo-50/50 rounded-xl space-y-3">
             <div className="flex items-center justify-between">
-              <p className="text-xs font-black text-indigo-800 uppercase tracking-wider">Machine Selection & Details</p>
+              <p className="text-xs font-black text-indigo-800 uppercase tracking-wider">Window 2 — Day/Shift Machine Allocation</p>
               <button type="button" onClick={() => setShowMachineProcessWindow(p => !p)} className="text-xs font-bold text-indigo-700 hover:text-indigo-900">
                 {showMachineProcessWindow ? "Hide" : "Show"}
               </button>
@@ -497,12 +498,36 @@ export default function WorkOrdersPage() {
   const [showV2Planner, setShowV2Planner] = useState(false)
   const [v2ScheduleId, setV2ScheduleId] = useState("")
   const [v2ShiftDate, setV2ShiftDate] = useState("")
+  const [v2StartDate, setV2StartDate] = useState("")
+  const [v2EndDate, setV2EndDate] = useState("")
+  const [v2TargetParts, setV2TargetParts] = useState("")
   const [v2Shift, setV2Shift] = useState<Shift | "">("" as Shift | "")
   const [v2MachineIds, setV2MachineIds] = useState<string[]>([])
   const [v2ProgramId, setV2ProgramId] = useState("")
   const [v2Produced, setV2Produced] = useState("")
   const [v2Shortcoming, setV2Shortcoming] = useState("machine_breakdown")
   const v2SelectedSchedule = schedules.find(s => s.id === v2ScheduleId)
+  const v2ScheduleMonthRange = useMemo(() => {
+    if (!v2SelectedSchedule?.date) return null
+    const base = new Date(v2SelectedSchedule.date)
+    const year = base.getUTCFullYear()
+    const month = base.getUTCMonth()
+    const start = new Date(Date.UTC(year, month, 1)).toISOString().split("T")[0]
+    const end = new Date(Date.UTC(year, month + 1, 0)).toISOString().split("T")[0]
+    return { start, end }
+  }, [v2SelectedSchedule])
+  const v2EligibleSchedules = useMemo(() => schedules.map(s => {
+    const committed = workOrders.filter(w => w.masterId === s.id).reduce((sum, w) => sum + Number(w.targetPartNos || 0), 0)
+    const remaining = Math.max(Number(s.requiredQuantity || 0) - committed, 0)
+    return { ...s, remaining }
+  }).filter(s => s.remaining > 0), [schedules, workOrders])
+  const v2DayCount = useMemo(() => {
+    if (!v2StartDate || !v2EndDate) return 0
+    const s = new Date(v2StartDate).getTime()
+    const e = new Date(v2EndDate).getTime()
+    if (Number.isNaN(s) || Number.isNaN(e) || e < s) return 0
+    return Math.floor((e - s) / 86400000) + 1
+  }, [v2StartDate, v2EndDate])
   const v2NextWoNo = `WO-${String(mainWorkOrdersV2.length + 1).padStart(3, "0")}`
   const v2NextProcessNo = `PWO-${String(processWorkOrdersV2.length + 1).padStart(3, "0")}`
 
@@ -625,22 +650,28 @@ export default function WorkOrdersPage() {
     (isAdmin || (isProcessPDC && wo.process === myProcess))
 
   const v2Save = async () => {
-    if (!currentUser || !v2SelectedSchedule || !v2ShiftDate || !v2Shift) return
+    const effectiveShiftDate = v2ShiftDate || v2StartDate
+    const effectiveShift = v2Shift || (shifts[0]?.id as Shift | undefined) || ""
+    if (!currentUser || !v2SelectedSchedule || !effectiveShiftDate || !effectiveShift) return
+    if (!v2StartDate || !v2EndDate || !v2ScheduleMonthRange) { alert("Start and end dates are required."); return }
+    if (v2StartDate > v2EndDate) { alert("Start date cannot be after end date."); return }
+    if (v2StartDate < v2ScheduleMonthRange.start || v2EndDate > v2ScheduleMonthRange.end) { alert("Start/end date must be within the selected monthly schedule period."); return }
     const requiresMachineAssignment = isProcessPDC || isAdmin
     const selectedMachineIds = v2MachineIds
     if (requiresMachineAssignment && selectedMachineIds.length === 0) { alert("Select at least one machine."); return }
     if (requiresMachineAssignment && !v2ProgramId) { alert("Select a program."); return }
     const produced = Number(v2Produced || 0)
-    const planned = Number(v2SelectedSchedule.requiredQuantity || 0)
+    const planned = Number(v2TargetParts || 0)
+    if (planned <= 0) { alert("Parts to be made must be greater than zero."); return }
     if (produced < 0) { alert("Produced qty cannot be negative."); return }
     if (produced > planned) { alert("Produced qty cannot exceed planned qty."); return }
     let perMachineCommit = 0
     if (requiresMachineAssignment) {
-      const hasMachineConflict = selectedMachineIds.some(machineId => woMachineAssignmentsV2.some(a => a.machineId === machineId && a.shiftDate === v2ShiftDate && a.shift === v2Shift))
+      const hasMachineConflict = selectedMachineIds.some(machineId => woMachineAssignmentsV2.some(a => a.machineId === machineId && a.shiftDate === effectiveShiftDate && a.shift === effectiveShift))
       if (hasMachineConflict) { alert("One or more selected machines are already assigned for this shift/date."); return }
       perMachineCommit = Math.ceil(planned / selectedMachineIds.length)
       const overCapacityMachine = selectedMachineIds.find(machineId => {
-        const processMachineLoad = woMachineAssignmentsV2.filter(a => a.machineId === machineId && a.shiftDate === v2ShiftDate).reduce((sum, a) => sum + Number(a.partsCommitted || 0), 0)
+        const processMachineLoad = woMachineAssignmentsV2.filter(a => a.machineId === machineId && a.shiftDate === effectiveShiftDate).reduce((sum, a) => sum + Number(a.partsCommitted || 0), 0)
         return processMachineLoad + perMachineCommit > 500
       })
       if (overCapacityMachine) { alert("Machine capacity exceeded for shift (limit 500 parts/shift)."); return }
@@ -650,13 +681,13 @@ export default function WorkOrdersPage() {
     const program = programs.find(p => p.id === v2ProgramId)
     await addMainWorkOrderV2({
       id: mainId, woNumber: v2NextWoNo, scheduleId: v2SelectedSchedule.id, partMasterId: v2SelectedSchedule.partMasterId || "",
-      partId: v2SelectedSchedule.partId, partName: v2SelectedSchedule.partName, scheduleStartDate: v2SelectedSchedule.date, scheduleEndDate: v2SelectedSchedule.date,
+      partId: v2SelectedSchedule.partId, partName: v2SelectedSchedule.partName, scheduleStartDate: v2StartDate, scheduleEndDate: v2EndDate,
       status: "scheduled", qty: { plannedQty: planned, reservedQty: 0, consumedQty: 0, producedQty: 0, balanceQty: planned },
       createdById: currentUser.id, createdByName: currentUser.name, createdAt: new Date().toISOString().split("T")[0],
     })
     await addProcessWorkOrderV2({
       id: processId, processWoNumber: v2NextProcessNo, parentWoId: mainId, rootWoId: mainId, processType: "die_casting", status: "scheduled",
-      shiftDate: v2ShiftDate, shift: v2Shift, targetParts: planned, requiredQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), bufferPercent: 2,
+      shiftDate: effectiveShiftDate, shift: effectiveShift, targetParts: planned, requiredQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), bufferPercent: 2,
       assignedQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), takenQtyKg: 0, leftoverQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), shortcomingCategory: v2Shortcoming as ShortcomingCategory, createdAt: new Date().toISOString().split("T")[0],
     })
     // Mirror a draft shell in legacy WO list so newly created V2 work orders remain visible in the Work Orders board.
@@ -668,8 +699,8 @@ export default function WorkOrdersPage() {
       process: "die_casting",
       targetPartNos: planned,
       requiredQuantityKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0),
-      workOrderStartDate: v2ShiftDate,
-      dueDate: v2SelectedSchedule.date,
+      workOrderStartDate: v2StartDate,
+      dueDate: v2EndDate,
       status: "draft",
       partsCompleted: 0,
       goodParts: 0,
@@ -681,7 +712,7 @@ export default function WorkOrdersPage() {
       materialGrade: "",
       rawMaterialId: "",
       rawMaterialGrade: "",
-      shift: v2Shift,
+      shift: effectiveShift,
       machine: "",
       operator: "",
       actualTarget: planned,
@@ -706,8 +737,8 @@ export default function WorkOrdersPage() {
         process: "die_casting",
         targetPartNos: planned,
         requiredQuantityKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0),
-        workOrderStartDate: v2ShiftDate,
-        dueDate: v2SelectedSchedule.date,
+        workOrderStartDate: v2StartDate,
+        dueDate: v2EndDate,
         status: "draft",
         partsCompleted: 0,
         goodParts: 0,
@@ -719,7 +750,7 @@ export default function WorkOrdersPage() {
         materialGrade: "",
         rawMaterialId: "",
         rawMaterialGrade: "",
-        shift: v2Shift,
+        shift: effectiveShift,
         machine: "",
         operator: "",
         actualTarget: planned,
@@ -743,7 +774,7 @@ export default function WorkOrdersPage() {
         const autoOperator = machine?.operatorName || "Unassigned"
         await addWoMachineAssignmentV2({
           id: createClientId("ma"), processWoId: processId, machineId, machineName: machine?.name || "", operatorName: autoOperator,
-          shiftDate: v2ShiftDate, shift: v2Shift, programId: v2ProgramId, programName: (program as ProgramOption | undefined)?.programName || "",
+          shiftDate: effectiveShiftDate, shift: effectiveShift, programId: v2ProgramId, programName: (program as ProgramOption | undefined)?.programName || "",
           partsCommitted: perMachineCommit, producedQty: Number(v2Produced || 0), rejectedQty: 0, reworkQty: 0, createdAt: new Date().toISOString().split("T")[0],
         })
       }
@@ -785,18 +816,27 @@ export default function WorkOrdersPage() {
               PDC Manager View: Create WO from monthly schedule. WO auto-number is assigned and part details are auto-filled.
             </div>
             <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-              <Field label="Monthly Schedule" req><select className={selectCls} value={v2ScheduleId} onChange={e=>setV2ScheduleId(e.target.value)}><option value="">Choose Monthly Schedule</option>{schedules.map(s=><option key={s.id} value={s.id}>{s.partId} — {s.partName}</option>)}</select></Field>
+              <Field label="Monthly Schedule (Pending)" req><select className={selectCls} value={v2ScheduleId} onChange={e=>{ const id = e.target.value; setV2ScheduleId(id); const selected = v2EligibleSchedules.find(s => s.id === id); setV2TargetParts(String(selected?.remaining || "")) }}><option value="">Choose Monthly Schedule</option>{v2EligibleSchedules.map(s=><option key={s.id} value={s.id}>{s.partId} — {s.partName} (Remaining: {s.remaining})</option>)}</select></Field>
               <Field label="WO Number" req><input className={cls} value={v2NextWoNo} readOnly /></Field>
               <Field label="Part" req><input className={cls} value={v2SelectedSchedule ? `${v2SelectedSchedule.partId} — ${v2SelectedSchedule.partName}` : ""} readOnly/></Field>
-              <Field label="Shift Date" req><input type="date" className={cls} value={v2ShiftDate} onChange={e=>setV2ShiftDate(e.target.value)} /></Field>
-              <Field label="Shift" req><select className={selectCls} value={v2Shift} onChange={e=>setV2Shift(e.target.value as Shift)}><option value="">Choose Shift</option>{shifts.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></Field>
+              <Field label="Parts to be made" req><input className={cls} value={v2TargetParts} readOnly /></Field>
+              <Field label="Start Date" req><input type="date" min={v2ScheduleMonthRange?.start} max={v2ScheduleMonthRange?.end} className={cls} value={v2StartDate} onChange={e=>setV2StartDate(e.target.value)} /></Field>
+              <Field label="End Date" req><input type="date" min={v2ScheduleMonthRange?.start} max={v2ScheduleMonthRange?.end} className={cls} value={v2EndDate} onChange={e=>setV2EndDate(e.target.value)} /></Field>
+              <Field label="No. of Days"><input className={cls} value={v2DayCount ? String(v2DayCount) : ""} readOnly /></Field>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-              <Field label="Planned Qty"><input className={cls} placeholder="From Monthly Schedule"/></Field>
-              <Field label="Reserved Qty"><input className={cls} placeholder="Allocated for WO"/></Field>
-              <Field label="Consumed Qty"><input className={cls} placeholder="Used in Production"/></Field>
-              <Field label="Produced Qty"><input className={cls} placeholder="Output Count"/></Field>
-              <Field label="Balance Qty"><input className={cls} placeholder="Remaining Reserved"/></Field>
+            <div className="p-3 border border-slate-200 rounded-xl bg-slate-50">
+              <p className="text-xs font-black text-slate-700 uppercase tracking-wider mb-2">Sub Work Orders (Process) Snapshot</p>
+              <select className={selectCls} value={v2ScheduleId} onChange={e=>setV2ScheduleId(e.target.value)}>
+                <option value="">Select schedule to view committed/taken/leftover</option>
+                {processWorkOrdersV2
+                  .filter(p => !v2ScheduleId || mainWorkOrdersV2.find(m => m.id === p.parentWoId)?.scheduleId === v2ScheduleId)
+                  .map(p => {
+                    const parent = mainWorkOrdersV2.find(m => m.id === p.parentWoId)
+                    return <option key={p.id} value={parent?.scheduleId || ""}>
+                      {parent?.woNumber || p.parentWoId} | Committed: {p.targetParts} | Taken: {p.takenQtyKg}KG | Leftover: {p.leftoverQtyKg}KG
+                    </option>
+                  })}
+              </select>
             </div>
             </>}
             {isProcessPDC && <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800 font-semibold">
