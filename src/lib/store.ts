@@ -254,7 +254,7 @@ export interface PartMaster {
 
 export interface MonthlySchedule {
   id: string; serialNumber: number; partMasterId?: string; partId: string; partName: string
-  requiredQuantity: number; date: string; submittedById: string; createdAt: string
+  requiredQuantity: number; requiredQuantityInKgs?: number; date: string; submittedById: string; createdAt: string
 }
 
 // PDC = Process Dispatch Code — created by Admin/PTC Manager, one per process+shift+date
@@ -455,6 +455,21 @@ export interface WorkOrder {
   originQiId?: string          // ID of the QIInspection record that triggered the next/rework SWO
   reworkPartCount?: number     // how many parts are in this rework batch
   rejectionPartCount?: number  // how many parts are in this rejection/NCR batch
+  // V2/extended operational metadata used by dashboard flows
+  shiftDate?: string
+  processWoId?: string
+  programId?: string
+  programName?: string
+  notes?: string
+  requiredQtyKg?: number
+  bufferPercent?: number
+  assignedQtyKg?: number
+  takenQtyKg?: number
+  leftoverQtyKg?: number
+  additionalQtyKg?: number
+  shortcomingCategory?: ShortcomingCategory
+  machineProducedMap?: Record<string, number>
+  machineProgramAssignment?: Record<string, { programId: string; programName: string }>
 }
 
 // ─── PROCESS RECORDS ─────────────────────────────────────────────────────────
