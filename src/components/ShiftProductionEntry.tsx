@@ -471,17 +471,19 @@ export function ShiftProductionEntry() {
 
   // ── Edit helpers ──────────────────────────────────────────────────────────
 
-  const getEdit = (id: string): MachineRowEdit => ({
-    partsProduced:      0,
-    rawMaterialUsedKg:  0,
-    downtimeMinutes:    0,
-    shortcomingCategory: "none",
-    shortcomingNotes:   "",
-    operatorConfirmedBy: "",
-    programId:          "",
-    programName:        "",
-    ...(editMap[id] ?? {}),
-  })
+  const getEdit = (id: string): MachineRowEdit => {
+    const defaults: MachineRowEdit = {
+      partsProduced: 0,
+      rawMaterialUsedKg: 0,
+      downtimeMinutes: 0,
+      shortcomingCategory: "none",
+      shortcomingNotes: "",
+      operatorConfirmedBy: "",
+      programId: "",
+      programName: "",
+    }
+    return { ...defaults, ...(editMap[id] ?? {}) }
+  }
 
   const handleChange = (id: string, data: Partial<MachineRowEdit>) =>
     setEditMap(prev => ({ ...prev, [id]: { ...getEdit(id), ...data } }))
