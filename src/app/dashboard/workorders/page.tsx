@@ -1803,7 +1803,11 @@ export default function WorkOrdersPage() {
             : 0
 
           const linkedSubWOs = subWOsByParentLegacyId[wo.id] || []
-          const canOpenV2FromEdit = linkedSubWOs.some(p => ["scheduled", "in_progress"].includes(String(p.status || "")))
+          const hasLinkedSWO = linkedSubWOs.length > 0
+          const hasMachineAssignmentsForLinkedSWO = linkedSubWOs.some(p =>
+            woMachineAssignmentsV2.some(a => a.processWoId === p.id)
+          )
+          const canOpenV2FromEdit = hasLinkedSWO && !hasMachineAssignmentsForLinkedSWO
 
           return (
             <div key={wo.id} className={`bg-white rounded-2xl border shadow-sm overflow-hidden
@@ -1895,7 +1899,7 @@ export default function WorkOrdersPage() {
                       onClick={() => {
                         if (isPDCManager || isAdmin) {
                           if (!canOpenV2FromEdit) {
-                            alert("Editing is allowed only when an SWO is assigned or started.")
+                            alert("Editing is allowed only until machine assignments are created for this SWO.")
                             return
                           }
                           setShowV2Planner(true)
