@@ -176,7 +176,6 @@ function MachineRow({
   onChange,
   isLocked,
   isFuture,
-  programs,
 }: {
   assignment: MachineAssignment
   perMachineAssignedKg: number
@@ -184,7 +183,6 @@ function MachineRow({
   onChange: (data: Partial<MachineRowEdit>) => void
   isLocked: boolean
   isFuture: boolean
-  programs: Array<{ id: string; programId?: string; programName?: string; name?: string }>
 }) {
   const [open, setOpen] = useState(!isLocked)
 
@@ -226,28 +224,15 @@ function MachineRow({
       {open && !isFuture && (
         <div className="px-4 pb-4 space-y-4 border-t border-slate-100">
 
-          {/* Program selection — per machine */}
+          {/* Program view — read-only */}
           <div className="mt-3 p-3 bg-blue-50 rounded-xl border border-blue-200">
             <p className="text-[10px] font-black text-blue-700 uppercase tracking-wider mb-2">Program (for this machine)</p>
-            <Field label="Select Program" req>
-              <select
-                value={edit.programId}
-                onChange={e => {
-                  const prog = programs.find(p => p.id === e.target.value)
-                  onChange({
-                    programId: e.target.value,
-                    programName: prog?.programName || prog?.name || "",
-                  })
-                }}
-                className={cls}
-              >
-                <option value="">— Select program —</option>
-                {programs.map(p => (
-                  <option key={p.id} value={p.id}>
-                    {p.programId || p.id} — {p.programName || p.name || ""}
-                  </option>
-                ))}
-              </select>
+            <Field label="Program" hint="Read-only in shift entry">
+              <input
+                readOnly
+                value={edit.programName || assignment.programName || "Not set"}
+                className={readOnlyCls}
+              />
             </Field>
           </div>
 
@@ -400,7 +385,7 @@ function MachineRow({
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export function ShiftProductionEntry() {
-  const { currentUser, workOrders, updateWorkOrder, programs } = useApp()
+  const { currentUser, workOrders, updateWorkOrder } = useApp()
   const role = currentUser?.role as UserRole
 
   const myProcess: ProcessStage | null =
@@ -520,7 +505,6 @@ export function ShiftProductionEntry() {
       if (ma.actualsLocked) continue
       if (isFutureShift(ma.shiftDate)) continue
       const e = getEdit(ma.id)
-      if (!e.programId) return `Select a program for machine: ${ma.machineName}`
       if (!e.operatorConfirmedBy.trim()) return `Enter operator confirmation for machine: ${ma.machineName}`
       if (e.partsProduced < ma.partsCommitted && (e.shortcomingCategory === "none" || !e.shortcomingNotes.trim())) {
         return `Provide shortage reason + details for machine: ${ma.machineName} (produced ${e.partsProduced} of ${ma.partsCommitted})`
@@ -540,8 +524,6 @@ export function ShiftProductionEntry() {
         if (ma.actualsLocked || isFutureShift(ma.shiftDate)) continue
         const e = getEdit(ma.id)
         if (!Object.keys(editMap).includes(ma.id)) continue
-        const prog = (programs as Array<{ id: string; programId?: string; programName?: string; name?: string }>)
-          .find(p => p.id === e.programId)
         const payload = {
           partsProduced:       e.partsProduced,
           producedQty:         e.partsProduced,
@@ -552,7 +534,7 @@ export function ShiftProductionEntry() {
           shortcomingNotes:    e.shortcomingNotes,
           operatorConfirmedBy: e.operatorConfirmedBy,
           programId:           e.programId,
-          programName:         prog?.programName || prog?.name || "",
+          programName:         e.programName || ma.programName || "",
           draftSavedAt:        now,
           updatedAt:           serverTimestamp(),
         }
@@ -586,8 +568,6 @@ export function ShiftProductionEntry() {
       for (const ma of mergedAssignments) {
         if (ma.actualsLocked || isFutureShift(ma.shiftDate)) continue
         const e = getEdit(ma.id)
-        const prog = (programs as Array<{ id: string; programId?: string; programName?: string; name?: string }>)
-          .find(p => p.id === e.programId)
         const leftoverKg = Number((perMachineKg - e.rawMaterialUsedKg).toFixed(3))
         const payload = {
           partsProduced:       e.partsProduced,
@@ -600,7 +580,7 @@ export function ShiftProductionEntry() {
           operatorConfirmedBy: e.operatorConfirmedBy,
           operatorConfirmedAt: now,
           programId:           e.programId,
-          programName:         prog?.programName || prog?.name || "",
+          programName:         e.programName || ma.programName || "",
           actualsLocked:       true,
           updatedAt:           serverTimestamp(),
         }
@@ -660,7 +640,6 @@ export function ShiftProductionEntry() {
     )
   }
 
-  const typedPrograms = programs as Array<{ id: string; programId?: string; programName?: string; name?: string }>
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
@@ -761,7 +740,6 @@ export function ShiftProductionEntry() {
               onChange={data => handleChange(ma.id, data)}
               isLocked={!!ma.actualsLocked}
               isFuture={isFutureShift(ma.shiftDate)}
-              programs={typedPrograms}
             />
           ))}
 
