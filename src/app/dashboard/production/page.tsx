@@ -820,14 +820,10 @@ export default function ProductionPage() {
             ? processWorkOrdersV2.filter(p => p.parentWoId === linkedMain.id).map(p => p.id)
             : []
           const machineActuals = woMachineAssignmentsV2.filter(a => linkedProcessWoIds.includes(a.processWoId))
+          const producedFromMachineActuals = machineActuals.reduce((sum, a) =>
+            sum + Number(a.partsProduced ?? a.producedQty ?? 0), 0)
           const producedFromRecords = records.reduce((sum, r) => sum + Number(r.outputQuantity || 0), 0)
-          const goodFromRecords = records.reduce((sum, r) => sum + Number(r.goodParts || 0), 0)
-          const reworkFromRecords = records.reduce((sum, r) => sum + Number(r.reworkParts || 0), 0)
-          const rejectedFromRecords = records.reduce((sum, r) => sum + Number(r.rejectedParts || 0), 0)
-          const partsCompletedView = Math.max(Number(wo.partsCompleted || 0), producedFromRecords)
-          const goodPartsView = Math.max(Number(wo.goodParts || 0), goodFromRecords)
-          const reworkPartsView = Math.max(Number(wo.reworkParts || 0), reworkFromRecords)
-          const rejectedPartsView = Math.max(Number(wo.rejectedParts || 0), rejectedFromRecords)
+          const partsCompletedView = Math.max(Number(wo.partsCompleted || 0), producedFromRecords, producedFromMachineActuals)
           const progress = wo.targetPartNos > 0 ? Math.round((partsCompletedView/wo.targetPartNos)*100) : 0
 
           return (
@@ -873,10 +869,7 @@ export default function ProductionPage() {
               <div className="px-5 pb-4">
                 <div className="flex justify-between text-xs text-slate-500 mb-1">
                   <span>
-                    {partsCompletedView}/{wo.targetPartNos} ·
-                    <span className="text-emerald-700 font-bold"> ✓{goodPartsView}</span>
-                    <span className="text-amber-700 font-bold"> ↻{reworkPartsView}</span>
-                    <span className="text-red-700 font-bold"> ✕{rejectedPartsView}</span>
+                    {partsCompletedView}/{wo.targetPartNos}
                     {PROCESS_RULES[wo.process].scrap && wo.scrapWeight > 0 &&
                       <span className="text-orange-700 font-bold"> Scrap:{wo.scrapWeight.toFixed(1)}kg</span>}
                   </span>
