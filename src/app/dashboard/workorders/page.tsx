@@ -563,7 +563,7 @@ function Phase2Form({ wo, onClose, onSave }: {
   const [isExternal,     setIsExternal]     = useState(wo.isExternal || false)
   const [vendorId,       setVendorId]       = useState(wo.vendorId || "")
   const [vendorName,     setVendorName]     = useState(wo.vendorName || "")
-  const [programId,      setProgramId]      = useState(wo.programId || processPrograms[0]?.id || "")
+  const [selectedProgramId, setSelectedProgramId] = useState(wo.programId || processPrograms[0]?.id || "")
 
   const [shiftDate,      setShiftDate]      = useState(wo.date || new Date().toISOString().split("T")[0])
   const [selectedShift,  setSelectedShift]  = useState<Shift>(wo.shift || (shiftOptions[0]?.id as Shift) || "" as Shift)
@@ -582,7 +582,7 @@ const [machineProgramMap, setMachineProgramMap] = useState<Record<string, { prog
   const availableKg     = selectedMat ? selectedMat.receivedQuantity - (selectedMat.usedQuantity || 0) : 0
   const stockShortfall  = availableKg < wo.requiredQuantityKg
 
-  const selectedProgram = processPrograms.find(p => p.id === programId)
+  const selectedProgram = processPrograms.find(p => p.id === selectedProgramId)
   const kgPerPartConfig = selectedProgram?.rawMaterialKgPerPart || weightPerPart || 0
   const configDerivedKg = Number((claimPartsQty * kgPerPartConfig).toFixed(3))
 
@@ -676,7 +676,7 @@ const [machineProgramMap, setMachineProgramMap] = useState<Record<string, { prog
       leftoverQtyKg,
       additionalQtyKg,
       shiftDate,
-      programId,
+      programId: selectedProgramId,
       programName:     selectedProgram?.programName || selectedProgram?.name || "",
       notes,
       status: "not_started",
@@ -806,9 +806,9 @@ const [machineProgramMap, setMachineProgramMap] = useState<Record<string, { prog
               </p>
 
               <Field label="Program (from Program Master)" req hint="Selecting a program auto-fills the required KG from its configured rate">
-                <select required value={programId} onChange={e => {
+                <select required value={selectedProgramId} onChange={e => {
                   const newProgId = e.target.value
-                  setProgramId(newProgId)
+                  setSelectedProgramId(newProgId)
                   const prog = (programs as ProgramOption[]).find(p => p.id === newProgId)
                   if (prog?.rawMaterialKgPerPart && claimPartsQty > 0) {
                     setRequiredQtyKg(Number((claimPartsQty * prog.rawMaterialKgPerPart).toFixed(3)))
