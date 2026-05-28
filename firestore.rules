@@ -91,6 +91,12 @@ service cloud.firestore {
       );
     }
 
+    // ─── Helper: can caller manage WO lifecycle (create/delete shells)? ────────
+    // Admin OR PTC Manager can delete WOs they own.
+    function canManageWO(clientId) {
+      return isAdminOrAbove(clientId) || isPTCManager(clientId);
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // SYSTEM-LEVEL COLLECTIONS
     // ═══════════════════════════════════════════════════════════════════════════
@@ -124,7 +130,6 @@ service cloud.firestore {
 
       // ── Users ────────────────────────────────────────────────────────────
       match /users/{uid} {
-        // Any member can read users within their own client
         allow read, list: if isSignedIn() &&
           get(/databases/$(database)/documents/user_index/$(request.auth.uid)).data.clientId == clientId;
 
@@ -241,8 +246,9 @@ service cloud.firestore {
         allow read: if belongsToClient(clientId);
         allow create: if isPTCManager(clientId) || isAnyQI(clientId) || isAdminOrAbove(clientId);
         allow update: if isAdminOrAbove(clientId) || isAnyPTC(clientId) || isAnyQI(clientId);
-        allow delete: if isAdminOrAbove(clientId) ||
-          (isPTCManager(clientId) && resource.data.status in ["draft", "not_started"]);
+        // FIX: PTC Manager can delete any WO (they own the WO lifecycle).
+        // Admin can always delete. This covers the deep-delete cascade from the UI.
+        allow delete: if isAdminOrAbove(clientId) || isPTCManager(clientId);
       }
 
       // ── Daily Production Entries ──────────────────────────────────────────
@@ -289,17 +295,12 @@ service cloud.firestore {
       }
 
       // ── Roles Config ──────────────────────────────────────────────────────
-      // Stored at clients/{clientId}/roles/{id}
-      // All client members can read/write role config.
-      // NOTE: This is intentionally permissive to avoid permission errors in the
-      // current admin UI flow. Tighten later if you want write access only for admin.
       match /roles/{roleId} {
         allow read:   if isSignedIn();
         allow create: if isSignedIn();
         allow update: if isSignedIn();
         allow delete: if isSignedIn();
       }
-
 
       // ── Machines Config ───────────────────────────────────────────────────
       match /machines/{machineId} {
@@ -310,9 +311,6 @@ service cloud.firestore {
       }
 
       // ── Shifts Config ─────────────────────────────────────────────────────
-      // Stored at clients/{clientId}/shifts/{id}
-      // Exactly 2 docs: shift_1, shift_2.
-      // All client members can read/write (temporarily permissive for current UI flow).
       match /shifts/{shiftId} {
         allow read:   if isSignedIn();
         allow create: if isSignedIn();
@@ -321,32 +319,42 @@ service cloud.firestore {
       }
 
       // ── WO V2 Collections ────────────────────────────────────────────────
+      //
+      // All V2 WO collections allow delete by Admin OR PTC Manager because:
+      //   - handleDeleteWODeep() cascades deletes across all four collections
+      //     in a single user action triggered by the WO card's delete button.
+      //   - The WO card's delete button is shown to isPDCManager || isAdmin.
+      //   - Without matching delete rules on the V2 collections the cascade
+      //     fails with permission-denied even though work_orders delete succeeds.
+
       match /main_work_orders_v2/{woId} {
         allow read:   if belongsToClient(clientId);
         allow create: if isPTCManager(clientId) || isAdminOrAbove(clientId);
         allow update: if isAnyPTC(clientId) || isAnyQI(clientId) || isAdminOrAbove(clientId);
-        allow delete: if isAdminOrAbove(clientId);
+        allow delete: if isAdminOrAbove(clientId) || isPTCManager(clientId);
       }
 
       match /process_work_orders_v2/{processWoId} {
         allow read:   if belongsToClient(clientId);
         allow create: if isAnyPTC(clientId) || isAdminOrAbove(clientId);
         allow update: if isAnyPTC(clientId) || isAnyQI(clientId) || isAdminOrAbove(clientId);
-        allow delete: if isAdminOrAbove(clientId);
+        allow delete: if isAdminOrAbove(clientId) || isPTCManager(clientId);
       }
 
       match /wo_machine_assignments_v2/{assignmentId} {
         allow read:   if belongsToClient(clientId);
         allow create: if isAnyPTC(clientId) || isAdminOrAbove(clientId);
         allow update: if isAnyPTC(clientId) || isAnyQI(clientId) || isAdminOrAbove(clientId);
-        allow delete: if isAdminOrAbove(clientId);
+        // FIX: PTC Manager needs delete access for cascade cleanup in handleDeleteWODeep.
+        allow delete: if isAdminOrAbove(clientId) || isPTCManager(clientId);
       }
 
       match /wo_audit_logs/{auditId} {
         allow read:   if belongsToClient(clientId);
         allow create: if isAnyPTC(clientId) || isAnyQI(clientId) || isAdminOrAbove(clientId);
         allow update: if false;
-        allow delete: if isAdminOrAbove(clientId);
+        // FIX: PTC Manager and Admin need delete access for cascade cleanup.
+        allow delete: if isAdminOrAbove(clientId) || isPTCManager(clientId);
       }
 
       match /rework_traces/{traceId} {

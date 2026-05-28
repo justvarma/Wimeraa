@@ -1091,7 +1091,7 @@ function Phase2Form({ wo, onClose, onSave }: {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function WorkOrdersPage() {
   const {
-    currentUser, workOrders, shifts, addWorkOrder, updateWorkOrder, deleteWorkOrder,
+    currentUser, workOrders, shifts, partMasters, addWorkOrder, updateWorkOrder, deleteWorkOrder,
     deductMaterial, schedules, machines, programs, mainWorkOrdersV2, processWorkOrdersV2,
     woMachineAssignmentsV2, addMainWorkOrderV2, addProcessWorkOrderV2,
     updateProcessWorkOrderV2, addWoMachineAssignmentV2, addWoAuditLog,
@@ -1717,7 +1717,26 @@ export default function WorkOrdersPage() {
             <p className="text-slate-400 font-medium">No work orders found</p>
           </div>
         ) : visibleRoots.map(wo => {
-          const progress = wo.targetPartNos > 0 ? Math.round((wo.partsCompleted / wo.targetPartNos) * 100) : 0
+          // Derive correct target/required from parent WO + part master for SWOs
+          // that were built with targetPartNos=0 (goodParts fallback bug).
+          const parentWO = wo.parentWoId ? workOrders.find(w => w.id === wo.parentWoId) : null
+          const effectiveTarget = wo.targetPartNos > 0
+            ? wo.targetPartNos
+            : (parentWO?.targetPartNos ?? 0)
+
+          // Look up part master: prefer grade match, fall back to partId only
+          const partMaster = partMasters.find(
+            pm => pm.partId === wo.partId &&
+              pm.grade === (wo.rawMaterialGrade || wo.materialGrade || "A")
+          ) ?? partMasters.find(pm => pm.partId === wo.partId)
+
+          // requiredKg = stored value if present, else partMaster.quantityPerPart * target
+          const effectiveRequiredKg = wo.requiredQuantityKg > 0
+            ? wo.requiredQuantityKg
+            : (parentWO?.requiredQuantityKg ??
+               (partMaster ? +(partMaster.quantityPerPart * effectiveTarget).toFixed(2) : 0))
+
+          const progress = effectiveTarget > 0 ? Math.round((wo.partsCompleted / effectiveTarget) * 100) : 0
           const isDraft  = wo.status === "draft"
 
           // For PDC Manager: root WOs are always "standard" type
