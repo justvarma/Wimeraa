@@ -563,6 +563,7 @@ function Phase2Form({ wo, onClose, onSave }: {
   const [isExternal,     setIsExternal]     = useState(wo.isExternal || false)
   const [vendorId,       setVendorId]       = useState(wo.vendorId || "")
   const [vendorName,     setVendorName]     = useState(wo.vendorName || "")
+  const [programId,      setProgramId]      = useState(wo.programId || processPrograms[0]?.id || "")
 
   const [shiftDate,      setShiftDate]      = useState(wo.date || new Date().toISOString().split("T")[0])
   const [selectedShift,  setSelectedShift]  = useState<Shift>(wo.shift || (shiftOptions[0]?.id as Shift) || "" as Shift)
