@@ -1163,8 +1163,6 @@ export default function WorkOrdersPage() {
   const v2NextWoNo      = `WO-${String(mainWorkOrdersV2.length + 1).padStart(3, "0")}`
   const v2NextProcessNo = `PWO-${String(processWorkOrdersV2.length + 1).padStart(3, "0")}`
   const v2ChosenProcessWO = processWorkOrdersV2.find(p => p.id === v2ProcessWoId)
-  const v2MachineProcess = v2ChosenProcessWO?.processType || myProcess || "die_casting"
-  const v2ProcessMachines = machines.filter(m => m.process === v2MachineProcess && m.status === "active")
   const v2RequiredQtyKg = Number(v2ChosenProcessWO?.requiredQtyKg || v2SelectedSchedule?.requiredQuantityInKgs || 0)
   const v2AssignedQtyKg = Number((v2RequiredQtyKg * (1 + Number(v2BufferPercent || 0) / 100)).toFixed(2))
   const v2TakenQty      = Number(v2TakenQtyKg || 0)
@@ -1181,6 +1179,9 @@ export default function WorkOrdersPage() {
 
   const myProcess: ProcessStage | null =
     isPDCDC ? "die_casting" : isPDCCoat ? "coating" : isPDCCNC ? "cnc_vmc" : null
+
+  const v2MachineProcess = v2ChosenProcessWO?.processType || myProcess || "die_casting"
+  const v2ProcessMachines = machines.filter(m => m.process === v2MachineProcess && m.status === "active")
 
   const liveWoIds = useMemo(() => new Set(workOrders.map(w => w.id)), [workOrders])
 
