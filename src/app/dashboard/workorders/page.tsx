@@ -1316,6 +1316,11 @@ export default function WorkOrdersPage() {
   const handleDeleteWODeep = async (wo: WorkOrder) => {
     if (!confirm("Delete this Work Order and all linked SWOs/assignments from DB?")) return
 
+    if (!clientId) {
+    alert("Unable to delete: client context not available. Please re-login.")
+    return
+  }
+
     const subtreeIds = new Set<string>()
     const stack = [wo.id]
     while (stack.length) {

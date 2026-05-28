@@ -36,11 +36,21 @@ export function buildStageSubWorkOrder(params: {
   reworkCycleNumber?: number
   originQiId?: string
   defectType?: "rework" | "rejection"
+  processWoId?: string
 }): Omit<WorkOrder, "id" | "createdAt"> {
   const { source, process, createdBy } = params
   const step = getWorkflowStep(process)
-  const targetPartNos = params.targetPartNos ?? source.goodParts ?? source.targetPartNos
-  const requiredQuantityKg = params.requiredQuantityKg ?? source.requiredQuantityKg
+
+  // FIX: Use explicit params first, then fall back to source.targetPartNos.
+  // Do NOT use source.goodParts as a fallback — it is 0 on newly created WOs
+  // and would silently zero-out the target on the first stage SWO.
+  const targetPartNos = params.targetPartNos != null
+    ? params.targetPartNos
+    : source.targetPartNos
+
+  const requiredQuantityKg = params.requiredQuantityKg != null
+    ? params.requiredQuantityKg
+    : source.requiredQuantityKg
 
   return {
     date: new Date().toISOString().split("T")[0],
@@ -82,5 +92,6 @@ export function buildStageSubWorkOrder(params: {
     originQiId: params.originQiId,
     reworkPartCount: params.defectType === "rework" || (params.reworkCycleNumber && params.defectType !== "rejection") ? targetPartNos : undefined,
     rejectionPartCount: params.defectType === "rejection" ? targetPartNos : undefined,
+    ...(params.processWoId ? { processWoId: params.processWoId } : {}),
   }
 }
