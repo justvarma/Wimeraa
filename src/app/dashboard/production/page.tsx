@@ -715,9 +715,8 @@ function RecordCard({ record, wo, shifts }: { record: ProcessRecord; wo: WorkOrd
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function ProductionPage() {
   const {
-    currentUser, workOrders, processRecords, addProcessRecord, updateWorkOrder,
-    releaseMaterial, dailyEntries, addDailyEntry, deleteDailyEntry,
-    downtimeEvents, addDowntimeEvent, shifts,
+    currentUser, workOrders, processRecords,
+    downtimeEvents, addDowntimeEvent, shifts, mainWorkOrdersV2, processWorkOrdersV2, woMachineAssignmentsV2,
   } = useApp()
   const role = currentUser?.role as UserRole
 
@@ -744,8 +743,6 @@ export default function ProductionPage() {
 
   const [processFilter, setProcessFilter] = useState<ProcessStage|"all">("all")
   const [expandedWO, setExpandedWO]       = useState<string|null>(null)
-  const [activeForm, setActiveForm]       = useState<WorkOrder|null>(null)
-  const [showDailyForm, setShowDailyForm] = useState<WorkOrder|null>(null)
   const [showDowntimeForm, setShowDowntimeForm] = useState<WorkOrder|null>(null)
 
   const filteredWOs = useMemo(() => workOrders.filter(wo =>
@@ -753,30 +750,6 @@ export default function ProductionPage() {
     (processFilter === "all" || wo.process === processFilter) &&
     (!myProcess || wo.process === myProcess)
   ), [workOrders, processFilter, myProcess])
-
-  // FIX §6.5: handleSave writes scrap+waste back to raw material usedQuantity
-  const handleSave = (wo: WorkOrder, data: Omit<ProcessRecord,"id"|"createdAt">) => {
-    addProcessRecord({ ...data, createdBy: currentUser!.name })
-    updateWorkOrder(wo.id, {
-      productionStarted: true,
-      status: (wo.partsCompleted + data.outputQuantity) >= wo.targetPartNos ? "awaiting_qi" : "in_progress",
-      partsCompleted: wo.partsCompleted  + data.outputQuantity,
-      goodParts:      wo.goodParts       + data.goodParts,
-      reworkParts:    wo.reworkParts     + data.reworkParts,
-      rejectedParts:  wo.rejectedParts   + data.rejectedParts,
-      scrapWeight:    wo.scrapWeight     + data.scrapWeightKg,
-      ptcApproval:    data.ptcApprovedBy || wo.ptcApproval,
-      qiApproval:     data.qiInspectedBy || wo.qiApproval,
-    })
-    // Real-time reconciliation: Phase-2 reserves required KG upfront.
-    // At shift end, return leftover unused raw material back to inventory.
-    const consumedKg = data.outputWeightKg + data.scrapWeightKg + data.materialWasteKg
-    const leftoverKg = Math.max(0, wo.requiredQuantityKg - consumedKg)
-    if (wo.rawMaterialId && leftoverKg > 0) {
-      releaseMaterial(wo.rawMaterialId, leftoverKg)
-    }
-    setActiveForm(null)
-  }
 
   const totalGood     = processRecords.reduce((s,r)=>s+r.goodParts,0)
   const totalRework   = processRecords.reduce((s,r)=>s+r.reworkParts,0)
@@ -842,7 +815,16 @@ export default function ProductionPage() {
         ) : filteredWOs.map(wo => {
           const records  = processRecords.filter(r => r.workOrderId === wo.id)
           const isExp    = expandedWO === wo.id
-          const progress = wo.targetPartNos > 0 ? Math.round((wo.partsCompleted/wo.targetPartNos)*100) : 0
+          const linkedMain = mainWorkOrdersV2.find(m => m.scheduleId === wo.masterId && m.partId === wo.partId)
+          const linkedProcessWoIds = linkedMain
+            ? processWorkOrdersV2.filter(p => p.parentWoId === linkedMain.id).map(p => p.id)
+            : []
+          const machineActuals = woMachineAssignmentsV2.filter(a => linkedProcessWoIds.includes(a.processWoId))
+          const producedFromMachineActuals = machineActuals.reduce((sum, a) =>
+            sum + Number(a.partsProduced ?? a.producedQty ?? 0), 0)
+          const producedFromRecords = records.reduce((sum, r) => sum + Number(r.outputQuantity || 0), 0)
+          const partsCompletedView = Math.max(Number(wo.partsCompleted || 0), producedFromRecords, producedFromMachineActuals)
+          const progress = wo.targetPartNos > 0 ? Math.round((partsCompletedView/wo.targetPartNos)*100) : 0
 
           return (
             <div key={wo.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -876,12 +858,6 @@ export default function ProductionPage() {
                   </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  {canRecord && wo.status !== "completed" && wo.status !== "awaiting_qi" && wo.status !== "rejected" && wo.status !== "finished_goods" && (
-                    <button onClick={() => setActiveForm(wo)}
-                      className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-xl text-xs font-bold shadow-sm">
-                      <Plus size={14}/> Add Record
-                    </button>
-                  )}
                   <button onClick={() => setExpandedWO(isExp?null:wo.id)}
                     className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg">
                     {isExp ? <ChevronDown size={18}/> : <ChevronRight size={18}/>}
@@ -893,10 +869,7 @@ export default function ProductionPage() {
               <div className="px-5 pb-4">
                 <div className="flex justify-between text-xs text-slate-500 mb-1">
                   <span>
-                    {wo.partsCompleted}/{wo.targetPartNos} ·
-                    <span className="text-emerald-700 font-bold"> ✓{wo.goodParts}</span>
-                    <span className="text-amber-700 font-bold"> ↻{wo.reworkParts}</span>
-                    <span className="text-red-700 font-bold"> ✕{wo.rejectedParts}</span>
+                    {partsCompletedView}/{wo.targetPartNos}
                     {PROCESS_RULES[wo.process].scrap && wo.scrapWeight > 0 &&
                       <span className="text-orange-700 font-bold"> Scrap:{wo.scrapWeight.toFixed(1)}kg</span>}
                   </span>
@@ -911,60 +884,23 @@ export default function ProductionPage() {
               {isExp && (
                 <div className="border-t border-slate-100 bg-slate-50 p-5 space-y-6">
 
-                  {/* ── Daily Production Mapping (§5.3) ── */}
+                  {/* ── Shift-end Machine Actual Entries ── */}
                   <div>
-                    <div className="flex items-center justify-between mb-3">
-                      <h4 className="font-black text-slate-700 text-sm">
-                        Daily Production Mapping ({dailyEntries.filter(e=>e.workOrderId===wo.id).length})
-                      </h4>
-                      {canRecord && (
-                        <button onClick={() => setShowDailyForm(wo)}
-                          className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors">
-                          <Plus size={12}/> Add Day
-                        </button>
-                      )}
-                    </div>
-                    {dailyEntries.filter(e=>e.workOrderId===wo.id).length === 0 ? (
-                      <p className="text-xs text-slate-400 italic py-2">No daily entries yet. Add a daily plan to track shift-wise production targets.</p>
+                    <h4 className="font-black text-slate-700 text-sm mb-3">
+                      Shift-end Machine Actual Entries ({machineActuals.length})
+                    </h4>
+                    {machineActuals.length === 0 ? (
+                      <p className="text-xs text-slate-400 italic py-2">No machine actual entries yet.</p>
                     ) : (
                       <div className="space-y-2">
-                        {dailyEntries.filter(e=>e.workOrderId===wo.id).map(entry => (
-                          <div key={entry.id} className="bg-white rounded-xl border border-slate-200 p-3 text-xs">
-                            <div className="flex items-center justify-between mb-1.5">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="font-bold text-slate-800">{entry.date}</span>
-                                <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full font-bold">{getShiftLabel(shifts, entry.shift)}</span>
-                                {entry.isExternal && <span className="px-2 py-0.5 bg-violet-100 text-violet-700 rounded-full font-bold border border-violet-200">Vendor</span>}
-                              </div>
-                              <button onClick={() => deleteDailyEntry(entry.id)}
-                                className="text-slate-300 hover:text-red-500 p-1 rounded transition-colors">
-                                <Trash2 size={12}/>
-                              </button>
-                            </div>
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
-                              <div><span className="text-slate-500">Machine: </span><span className="font-bold text-slate-700">{entry.machine}</span></div>
-                              <div><span className="text-slate-500">Operator: </span><span className="font-bold text-slate-700">{entry.operator}</span></div>
-                              <div><span className="text-slate-500">Input: </span><span className="font-bold">{entry.requiredInputKg} KG</span></div>
-                              <div><span className="text-slate-500">Output: </span><span className="font-bold">{entry.requiredOutputNos} nos</span></div>
-                              {entry.vendorName && <div className="col-span-2"><span className="text-slate-500">Vendor: </span><span className="font-bold text-violet-700">{entry.vendorName}</span></div>}
-                            </div>
-                            {entry.acceptancePoints && (
-                              <p className="mt-1.5 text-slate-400 italic text-[10px] truncate">Points: {entry.acceptancePoints}</p>
-                            )}
+                        {machineActuals.map(a => (
+                          <div key={a.id} className="bg-white rounded-xl border border-slate-200 p-3 text-xs">
+                            <p className="font-bold text-slate-800">{a.machineName} · {a.shiftDate} / {getShiftLabel(shifts, a.shift as Shift)}</p>
+                            <p className="text-slate-600 mt-1">Committed: {a.partsCommitted} · Produced: {a.partsProduced ?? a.producedQty ?? 0}</p>
                           </div>
                         ))}
                       </div>
                     )}
-                  </div>
-
-                  {/* ── Production Records ── */}
-                  <div>
-                    <h4 className="font-black text-slate-700 text-sm mb-3">
-                      Production Records ({records.length})
-                    </h4>
-                    {records.length === 0
-                      ? <p className="text-sm text-slate-400 italic text-center py-4">No records yet.{canRecord?" Click \"Add Record\" to begin.":""}</p>
-                      : <div className="space-y-3">{records.map(r=><RecordCard key={r.id} record={r} wo={wo} shifts={shifts}/>)}</div>}
                   </div>
 
                   {/* ── Downtime Events (§10) ── */}
@@ -973,12 +909,6 @@ export default function ProductionPage() {
                       <h4 className="font-black text-slate-700 text-sm">
                         Downtime Events ({downtimeEvents.filter(e=>e.workOrderId===wo.id).length})
                       </h4>
-                      {canRecord && (
-                        <button onClick={() => setShowDowntimeForm(wo)}
-                          className="flex items-center gap-1 bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors">
-                          <Clock size={12}/> Log Downtime
-                        </button>
-                      )}
                     </div>
                     {downtimeEvents.filter(e=>e.workOrderId===wo.id).length === 0 ? (
                       <p className="text-xs text-slate-400 italic py-2">No downtime events recorded.</p>
@@ -1005,26 +935,6 @@ export default function ProductionPage() {
           )
         })}
       </div>
-
-      {/* Production Record Modal */}
-      {activeForm && (
-        <ProcessRecordForm
-          wo={activeForm}
-          onClose={() => setActiveForm(null)}
-          onSave={data => handleSave(activeForm, data)}
-          currentUser={{ name: currentUser!.name, role }}
-        />
-      )}
-
-      {/* Daily Entry Modal */}
-      {showDailyForm && (
-        <DailyEntryForm
-          wo={showDailyForm}
-          onClose={() => setShowDailyForm(null)}
-          onSave={(data) => { addDailyEntry(data); setShowDailyForm(null) }}
-          currentUserName={currentUser!.name}
-        />
-      )}
 
       {/* Downtime Modal */}
       {showDowntimeForm && (
