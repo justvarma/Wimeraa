@@ -1308,7 +1308,10 @@ export default function WorkOrdersPage() {
 
   const canDeleteWO   = (wo: WorkOrder) => (isPDCManager || isAdmin) && (wo.status === "draft" || wo.status === "not_started")
   const canEditPhase1 = (wo: WorkOrder) => (isPDCManager || isAdmin) && (wo.status === "draft" || wo.status === "not_started")
-  const canFillPhase2 = (wo: WorkOrder) => wo.status === "draft" && (isAdmin || (isProcessPDC && wo.process === myProcess))
+  const canFillPhase2 = (wo: WorkOrder) => {
+    const isProcessStageWO = wo.woType === "stage" || wo.woType === "rework" || wo.woType === "rejection"
+    return wo.status === "draft" && isProcessStageWO && (isAdmin || (isProcessPDC && wo.process === myProcess))
+  }
 
   const handleDeleteWODeep = async (wo: WorkOrder) => {
     if (!confirm("Delete this Work Order and all linked SWOs/assignments from DB?")) return
