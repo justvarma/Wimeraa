@@ -1803,6 +1803,7 @@ export default function WorkOrdersPage() {
             : 0
 
           const linkedSubWOs = subWOsByParentLegacyId[wo.id] || []
+          const canOpenV2FromEdit = linkedSubWOs.some(p => ["scheduled", "in_progress"].includes(String(p.status || "")))
 
           return (
             <div key={wo.id} className={`bg-white rounded-2xl border shadow-sm overflow-hidden
@@ -1893,6 +1894,10 @@ export default function WorkOrdersPage() {
                     <button
                       onClick={() => {
                         if (isPDCManager || isAdmin) {
+                          if (!canOpenV2FromEdit) {
+                            alert("Editing is allowed only when an SWO is assigned or started.")
+                            return
+                          }
                           setShowV2Planner(true)
                           return
                         }
