@@ -744,7 +744,6 @@ export default function ProductionPage() {
 
   const [processFilter, setProcessFilter] = useState<ProcessStage|"all">("all")
   const [expandedWO, setExpandedWO]       = useState<string|null>(null)
-  const [activeForm, setActiveForm]       = useState<WorkOrder|null>(null)
   const [showDailyForm, setShowDailyForm] = useState<WorkOrder|null>(null)
   const [showDowntimeForm, setShowDowntimeForm] = useState<WorkOrder|null>(null)
 
@@ -884,12 +883,6 @@ export default function ProductionPage() {
                   </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  {canRecord && wo.status !== "completed" && wo.status !== "awaiting_qi" && wo.status !== "rejected" && wo.status !== "finished_goods" && (
-                    <button onClick={() => setActiveForm(wo)}
-                      className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-xl text-xs font-bold shadow-sm">
-                      <Plus size={14}/> Add Record
-                    </button>
-                  )}
                   <button onClick={() => setExpandedWO(isExp?null:wo.id)}
                     className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg">
                     {isExp ? <ChevronDown size={18}/> : <ChevronRight size={18}/>}
@@ -971,7 +964,7 @@ export default function ProductionPage() {
                       Production Records ({records.length})
                     </h4>
                     {records.length === 0
-                      ? <p className="text-sm text-slate-400 italic text-center py-4">No records yet.{canRecord?" Click \"Add Record\" to begin.":""}</p>
+                      ? <p className="text-sm text-slate-400 italic text-center py-4">No records yet. Use Shift-end Machine Actuals below to enter machine-wise output.</p>
                       : <div className="space-y-3">{records.map(r=><RecordCard key={r.id} record={r} wo={wo} shifts={shifts}/>)}</div>}
                   </div>
 
@@ -1013,16 +1006,6 @@ export default function ProductionPage() {
           )
         })}
       </div>
-
-      {/* Production Record Modal */}
-      {activeForm && (
-        <ProcessRecordForm
-          wo={activeForm}
-          onClose={() => setActiveForm(null)}
-          onSave={data => handleSave(activeForm, data)}
-          currentUser={{ name: currentUser!.name, role }}
-        />
-      )}
 
       {/* Daily Entry Modal */}
       {showDailyForm && (
