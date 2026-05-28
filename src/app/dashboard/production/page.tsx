@@ -842,7 +842,15 @@ export default function ProductionPage() {
         ) : filteredWOs.map(wo => {
           const records  = processRecords.filter(r => r.workOrderId === wo.id)
           const isExp    = expandedWO === wo.id
-          const progress = wo.targetPartNos > 0 ? Math.round((wo.partsCompleted/wo.targetPartNos)*100) : 0
+          const producedFromRecords = records.reduce((sum, r) => sum + Number(r.outputQuantity || 0), 0)
+          const goodFromRecords = records.reduce((sum, r) => sum + Number(r.goodParts || 0), 0)
+          const reworkFromRecords = records.reduce((sum, r) => sum + Number(r.reworkParts || 0), 0)
+          const rejectedFromRecords = records.reduce((sum, r) => sum + Number(r.rejectedParts || 0), 0)
+          const partsCompletedView = Math.max(Number(wo.partsCompleted || 0), producedFromRecords)
+          const goodPartsView = Math.max(Number(wo.goodParts || 0), goodFromRecords)
+          const reworkPartsView = Math.max(Number(wo.reworkParts || 0), reworkFromRecords)
+          const rejectedPartsView = Math.max(Number(wo.rejectedParts || 0), rejectedFromRecords)
+          const progress = wo.targetPartNos > 0 ? Math.round((partsCompletedView/wo.targetPartNos)*100) : 0
 
           return (
             <div key={wo.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -893,10 +901,10 @@ export default function ProductionPage() {
               <div className="px-5 pb-4">
                 <div className="flex justify-between text-xs text-slate-500 mb-1">
                   <span>
-                    {wo.partsCompleted}/{wo.targetPartNos} ·
-                    <span className="text-emerald-700 font-bold"> ✓{wo.goodParts}</span>
-                    <span className="text-amber-700 font-bold"> ↻{wo.reworkParts}</span>
-                    <span className="text-red-700 font-bold"> ✕{wo.rejectedParts}</span>
+                    {partsCompletedView}/{wo.targetPartNos} ·
+                    <span className="text-emerald-700 font-bold"> ✓{goodPartsView}</span>
+                    <span className="text-amber-700 font-bold"> ↻{reworkPartsView}</span>
+                    <span className="text-red-700 font-bold"> ✕{rejectedPartsView}</span>
                     {PROCESS_RULES[wo.process].scrap && wo.scrapWeight > 0 &&
                       <span className="text-orange-700 font-bold"> Scrap:{wo.scrapWeight.toFixed(1)}kg</span>}
                   </span>
