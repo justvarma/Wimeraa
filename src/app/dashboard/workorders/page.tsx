@@ -563,6 +563,7 @@ function Phase2Form({ wo, onClose, onSave }: {
   const [isExternal,     setIsExternal]     = useState(wo.isExternal || false)
   const [vendorId,       setVendorId]       = useState(wo.vendorId || "")
   const [vendorName,     setVendorName]     = useState(wo.vendorName || "")
+  const [selectedProgramId] = useState(wo.programId || processPrograms[0]?.id || "")
 
   const [shiftDate,      setShiftDate]      = useState(wo.date || new Date().toISOString().split("T")[0])
   const [selectedShift,  setSelectedShift]  = useState<Shift>(wo.shift || (shiftOptions[0]?.id as Shift) || "" as Shift)
@@ -581,7 +582,7 @@ const [machineProgramMap, setMachineProgramMap] = useState<Record<string, { prog
   const availableKg     = selectedMat ? selectedMat.receivedQuantity - (selectedMat.usedQuantity || 0) : 0
   const stockShortfall  = availableKg < wo.requiredQuantityKg
 
-  const selectedProgram = processPrograms.find(p => p.id === programId)
+  const selectedProgram = processPrograms.find(p => p.id === selectedProgramId)
   const kgPerPartConfig = selectedProgram?.rawMaterialKgPerPart || weightPerPart || 0
   const configDerivedKg = Number((claimPartsQty * kgPerPartConfig).toFixed(3))
 
@@ -675,7 +676,7 @@ const [machineProgramMap, setMachineProgramMap] = useState<Record<string, { prog
       leftoverQtyKg,
       additionalQtyKg,
       shiftDate,
-      programId,
+      programId: selectedProgramId,
       programName:     selectedProgram?.programName || selectedProgram?.name || "",
       notes,
       status: "not_started",
@@ -804,25 +805,6 @@ const [machineProgramMap, setMachineProgramMap] = useState<Record<string, { prog
                 Quantity Planning & Material Claim
               </p>
 
-              <Field label="Program (from Program Master)" req hint="Selecting a program auto-fills the required KG from its configured rate">
-                <select required value={programId} onChange={e => {
-                  const newProgId = e.target.value
-                  setProgramId(newProgId)
-                  const prog = (programs as ProgramOption[]).find(p => p.id === newProgId)
-                  if (prog?.rawMaterialKgPerPart && claimPartsQty > 0) {
-                    setRequiredQtyKg(Number((claimPartsQty * prog.rawMaterialKgPerPart).toFixed(3)))
-                  }
-                }} className={selectCls}>
-                  <option value="">— Select program to auto-fill KG rate —</option>
-                  {processPrograms.map(p => (
-                    <option key={p.id} value={p.id}>
-                      {p.programId || p.id} — {p.programName || p.name || ""}
-                      {p.rawMaterialKgPerPart ? ` (${p.rawMaterialKgPerPart} KG/part)` : ""}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-
               <div className="grid grid-cols-2 gap-4">
                 <Field label="Parts I Will Produce (Claim)" req hint="How many of the total target you are committing to">
                   <input
@@ -842,7 +824,7 @@ const [machineProgramMap, setMachineProgramMap] = useState<Record<string, { prog
                     </p>
                   )}
                 </Field>
-                <Field label="Required Qty (KG)" req hint="Auto-filled from program rate (parts × KG/part)">
+                <Field label="Required Qty (KG)" req hint="Auto-filled from configured KG/part when available">
                   {kgPerPartConfig > 0 ? (
                     <input readOnly value={requiredQtyKg} className={readOnlyCls}/>
                   ) : (
@@ -1124,7 +1106,7 @@ const [machineProgramMap, setMachineProgramMap] = useState<Record<string, { prog
 export default function WorkOrdersPage() {
   const {
     currentUser, workOrders, shifts, partMasters, addWorkOrder, updateWorkOrder, deleteWorkOrder,
-    deductMaterial, schedules, machines, programs, mainWorkOrdersV2, processWorkOrdersV2,
+    deductMaterial, schedules, machines, mainWorkOrdersV2, processWorkOrdersV2,
     woMachineAssignmentsV2, addMainWorkOrderV2, addProcessWorkOrderV2,
     updateProcessWorkOrderV2, addWoMachineAssignmentV2, addWoAuditLog,
   } = useApp()
@@ -1145,7 +1127,6 @@ export default function WorkOrdersPage() {
   const [v2TargetParts, setV2TargetParts] = useState("")
   const [v2Shift,       setV2Shift]       = useState<Shift | "">("" as Shift | "")
   const [v2MachineIds,  setV2MachineIds]  = useState<string[]>([])
-  const [v2ProgramId,   setV2ProgramId]   = useState("")
   const [v2Produced,    setV2Produced]    = useState("")
   const [v2TakenQtyKg,  setV2TakenQtyKg]  = useState("")
   const [v2BufferPercent, setV2BufferPercent] = useState("2")
@@ -1197,6 +1178,9 @@ export default function WorkOrdersPage() {
 
   const myProcess: ProcessStage | null =
     isPDCDC ? "die_casting" : isPDCCoat ? "coating" : isPDCCNC ? "cnc_vmc" : null
+
+  const v2MachineProcess = v2ChosenProcessWO?.processType || myProcess || "die_casting"
+  const v2ProcessMachines = machines.filter(m => m.process === v2MachineProcess && m.status === "active")
 
   const liveWoIds = useMemo(() => new Set(workOrders.map(w => w.id)), [workOrders])
 
@@ -1405,7 +1389,6 @@ export default function WorkOrdersPage() {
     const requiresMachineAssignment = isProcessPDC || isAdmin
     const selectedMachineIds = v2MachineIds
     if (requiresMachineAssignment && selectedMachineIds.length === 0) { alert("Select at least one machine."); return }
-    if (requiresMachineAssignment && !v2ProgramId) { alert("Select a program."); return }
     const produced = Number(v2Produced || 0)
     const planned  = Number(v2TargetParts || 0)
     if (planned <= 0) { alert("Parts to be made must be greater than zero."); return }
@@ -1424,7 +1407,6 @@ export default function WorkOrdersPage() {
       })
       if (overCapacityMachine) { alert("Machine capacity exceeded for shift (limit 500 parts/shift)."); return }
     }
-    const program = (programs as ProgramOption[]).find(p => p.id === v2ProgramId)
     if (isProcessPDC && v2ChosenProcessWO) {
       await updateProcessWorkOrderV2(v2ChosenProcessWO.id, {
         shiftDate: effectiveShiftDate, shift: effectiveShift, targetParts: planned,
@@ -1440,8 +1422,8 @@ export default function WorkOrdersPage() {
         await addWoMachineAssignmentV2({
           id: createClientId("ma"), processWoId: v2ChosenProcessWO.id, machineId,
           machineName: machine?.name || "", operatorName: machine?.operatorName || "Unassigned",
-          shiftDate: effectiveShiftDate, shift: effectiveShift, programId: v2ProgramId,
-          programName: program?.programName || "",
+          shiftDate: effectiveShiftDate, shift: effectiveShift, programId: "",
+          programName: "",
           partsCommitted: machineParts, producedQty: Number(v2Produced || 0),
           rejectedQty: 0, reworkQty: 0, createdAt: new Date().toISOString().split("T")[0],
         })
@@ -1508,8 +1490,8 @@ export default function WorkOrdersPage() {
         await addWoMachineAssignmentV2({
           id: createClientId("ma"), processWoId: processId, machineId,
           machineName: machine?.name || "", operatorName: machine?.operatorName || "Unassigned",
-          shiftDate: effectiveShiftDate, shift: effectiveShift, programId: v2ProgramId,
-          programName: program?.programName || "",
+          shiftDate: effectiveShiftDate, shift: effectiveShift, programId: "",
+          programName: "",
           partsCommitted: perMachineCommit, producedQty: Number(v2Produced || 0),
           rejectedQty: 0, reworkQty: 0, createdAt: new Date().toISOString().split("T")[0],
         })
@@ -1634,9 +1616,9 @@ export default function WorkOrdersPage() {
             <div className="border border-slate-200 rounded-xl p-4">
               <p className="text-sm font-black text-slate-800 mb-2">Machine Assignment (Shift-wise)</p>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                <Field label="Machines (multi-select)" req>
+                <Field label="Machines (multi-select)" req hint={`Showing active ${PROCESS_STAGE_LABELS[v2MachineProcess as ProcessStage] || v2MachineProcess} machines from config`}>
                   <div className="max-h-32 overflow-auto border border-slate-200 rounded-xl p-2 space-y-1">
-                    {machines.map(m => {
+                    {v2ProcessMachines.map(m => {
                       const occupied = !!(v2ShiftDate && v2Shift && woMachineAssignmentsV2.some(a => a.machineId === m.id && a.shiftDate === v2ShiftDate && a.shift === v2Shift))
                       const checked = v2MachineIds.includes(m.id)
                       return (
@@ -1649,13 +1631,7 @@ export default function WorkOrdersPage() {
                     })}
                   </div>
                 </Field>
-                <Field label="Program" req>
-                  <select className={selectCls} value={v2ProgramId} onChange={e=>setV2ProgramId(e.target.value)}>
-                    <option value="">From Program Master</option>
-                    {(programs as ProgramOption[]).map(p=><option key={p.id} value={p.id}>{p.programId || p.id} - {p.programName || p.name}</option>)}
-                  </select>
-                </Field>
-                <Field label="Operator(s)"><input className={cls} value={v2MachineIds.map(id => machines.find(m => m.id === id)?.operatorName || "Unassigned").join(", ")} readOnly /></Field>
+                <Field label="Operator(s)"><input className={cls} value={v2MachineIds.map(id => v2ProcessMachines.find(m => m.id === id)?.operatorName || machines.find(m => m.id === id)?.operatorName || "Unassigned").join(", ")} readOnly /></Field>
                 <Field label="Parts Produced" req><input className={cls} value={v2Produced} onChange={e=>setV2Produced(e.target.value)} placeholder="Machine-wise output"/></Field>
                 <Field label="Shortcoming Category">
                   <select className={selectCls} value={v2Shortcoming} onChange={e=>setV2Shortcoming(e.target.value)}>
@@ -1802,6 +1778,10 @@ export default function WorkOrdersPage() {
             : 0
 
           const linkedSubWOs = subWOsByParentLegacyId[wo.id] || []
+          const hasMachineAssignmentsForLinkedSWO = linkedSubWOs.some(p =>
+            woMachineAssignmentsV2.some(a => a.processWoId === p.id)
+          )
+          const canOpenV2FromEdit = !hasMachineAssignmentsForLinkedSWO
 
           return (
             <div key={wo.id} className={`bg-white rounded-2xl border shadow-sm overflow-hidden
@@ -1889,8 +1869,22 @@ export default function WorkOrdersPage() {
                     </button>
                   )}
                   {canEditPhase1(wo) && (
-                    <button onClick={() => { setEditWO(wo); setShowPhase1(true) }}
-                      className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg">
+                    <button
+                      onClick={() => {
+                        if (isPDCManager || isAdmin) {
+                          if (!canOpenV2FromEdit) {
+                            alert("Editing is allowed only until machine assignments are created for this SWO.")
+                            return
+                          }
+                          setShowV2Planner(true)
+                          return
+                        }
+                        setEditWO(wo)
+                        setShowPhase1(true)
+                      }}
+                      className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg"
+                      title={isPDCManager || isAdmin ? "Open WO V2 Execution Window" : "Edit Work Order"}
+                    >
                       <Edit2 size={15}/>
                     </button>
                   )}

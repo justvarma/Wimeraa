@@ -39,6 +39,7 @@ import type {
   WorkOrder, DailyProductionEntry, ProcessRecord,
   DowntimeEvent, QIInspection, FQIInspection,
   ShiftConfig, RoleConfig, MachineDef, DeviceConfig, OperationConfig, ProgramMaster,
+  MainWorkOrderV2, ProcessWorkOrderV2, WoMachineAssignmentV2, WoAuditLog, ReworkTrace,
 } from "./store"
 
 // ─── Path helpers ─────────────────────────────────────────────────────────────

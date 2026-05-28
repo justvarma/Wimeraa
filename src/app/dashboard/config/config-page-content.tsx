@@ -348,7 +348,7 @@ function DevicesTab() {
   </select>
 </div>
 
-{form.partCountType === "other" && (
+{String(form.partCountType) === "other" && (
   <div>
     <p className="text-xs font-bold text-slate-600 mb-1">
       Other type
