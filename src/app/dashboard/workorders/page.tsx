@@ -572,6 +572,10 @@ function Phase2Form({ wo, onClose, onSave }: {
   )
     const [machinePartsMap, setMachinePartsMap] = useState<Record<string, number>>(wo.machineProducedMap || {})
 
+// Per-machine program selection: machineId → { programId, programName }
+const [machineProgramMap, setMachineProgramMap] = useState<Record<string, { programId: string; programName: string }>>(
+  wo.machineProgramAssignment || {}
+)
   const [notes,          setNotes]          = useState("")
 
   const selectedMat     = approvedMats.find(m => m.id === rawMaterialId)
@@ -658,13 +662,7 @@ function Phase2Form({ wo, onClose, onSave }: {
       actualOutputKg:  autoOutputKg,
       inputWeightKg:   wo.requiredQuantityKg,
       machineProducedMap: machinePartsMap,
-      machineProgramAssignment: selectedMachineIds.reduce((acc, machineId) => ({
-        ...acc,
-        [machineId]: {
-          programId: selectedProgramId || "",
-          programName: selectedProgram?.programName || selectedProgram?.name || "",
-        },
-      }), {} as Record<string, { programId: string; programName: string }>),
+      machineProgramAssignment: machineProgramMap,
       acceptancePoints: [
         "As per configured QI checkpoints",
         `Req:${requiredQtyKg}kg Buffer:${bufferPercent}% Assigned:${assignedQtyKg}kg Acquired:${acquiredQtyKg}kg Additional:${additionalQtyKg}kg Leftover:${leftoverQtyKg}kg`,
@@ -1005,14 +1003,30 @@ function Phase2Form({ wo, onClose, onSave }: {
                                 />
                               </div>
                             </div>
-                            {/* Program — read-only, inherited from fill details */}
+                            {/* Program — selected per machine */}
                             <div>
-                              <p className={lbl}>Program for this machine</p>
-                              <input
-                                readOnly
-                                value={selectedProgram?.programName || selectedProgram?.name || selectedProgram?.programId || "Not set"}
-                                className={readOnlyCls}
-                              />
+                              <p className={lbl}>Program for this machine <span className="text-red-500">*</span></p>
+                              <select
+                                value={machineProgramMap[m.id]?.programId ?? ""}
+                                onChange={e => {
+                                  const prog = (programs as ProgramOption[]).find(p => p.id === e.target.value)
+                                  setMachineProgramMap(prev => ({
+                                    ...prev,
+                                    [m.id]: {
+                                      programId:   e.target.value,
+                                      programName: prog?.programName || prog?.name || "",
+                                    },
+                                  }))
+                                }}
+                                className={`${selectCls} border-indigo-200 bg-indigo-50/40`}
+                              >
+                                <option value="">— Select program for this machine —</option>
+                                {processPrograms.map(p => (
+                                  <option key={p.id} value={p.id}>
+                                    {p.programId || p.id} — {p.programName || p.name || ""}
+                                  </option>
+                                ))}
+                              </select>
                             </div>
                           </div>
                         )}
