@@ -563,7 +563,7 @@ function Phase2Form({ wo, onClose, onSave }: {
   const [isExternal,     setIsExternal]     = useState(wo.isExternal || false)
   const [vendorId,       setVendorId]       = useState(wo.vendorId || "")
   const [vendorName,     setVendorName]     = useState(wo.vendorName || "")
-  const [selectedProgramId, setSelectedProgramId] = useState(wo.programId || processPrograms[0]?.id || "")
+  const [selectedProgramId] = useState(wo.programId || processPrograms[0]?.id || "")
 
   const [shiftDate,      setShiftDate]      = useState(wo.date || new Date().toISOString().split("T")[0])
   const [selectedShift,  setSelectedShift]  = useState<Shift>(wo.shift || (shiftOptions[0]?.id as Shift) || "" as Shift)
@@ -805,25 +805,6 @@ const [machineProgramMap, setMachineProgramMap] = useState<Record<string, { prog
                 Quantity Planning & Material Claim
               </p>
 
-              <Field label="Program (from Program Master)" req hint="Selecting a program auto-fills the required KG from its configured rate">
-                <select required value={selectedProgramId} onChange={e => {
-                  const newProgId = e.target.value
-                  setSelectedProgramId(newProgId)
-                  const prog = (programs as ProgramOption[]).find(p => p.id === newProgId)
-                  if (prog?.rawMaterialKgPerPart && claimPartsQty > 0) {
-                    setRequiredQtyKg(Number((claimPartsQty * prog.rawMaterialKgPerPart).toFixed(3)))
-                  }
-                }} className={selectCls}>
-                  <option value="">— Select program to auto-fill KG rate —</option>
-                  {processPrograms.map(p => (
-                    <option key={p.id} value={p.id}>
-                      {p.programId || p.id} — {p.programName || p.name || ""}
-                      {p.rawMaterialKgPerPart ? ` (${p.rawMaterialKgPerPart} KG/part)` : ""}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-
               <div className="grid grid-cols-2 gap-4">
                 <Field label="Parts I Will Produce (Claim)" req hint="How many of the total target you are committing to">
                   <input
@@ -843,7 +824,7 @@ const [machineProgramMap, setMachineProgramMap] = useState<Record<string, { prog
                     </p>
                   )}
                 </Field>
-                <Field label="Required Qty (KG)" req hint="Auto-filled from program rate (parts × KG/part)">
+                <Field label="Required Qty (KG)" req hint="Auto-filled from configured KG/part when available">
                   {kgPerPartConfig > 0 ? (
                     <input readOnly value={requiredQtyKg} className={readOnlyCls}/>
                   ) : (
@@ -1182,6 +1163,8 @@ export default function WorkOrdersPage() {
   const v2NextWoNo      = `WO-${String(mainWorkOrdersV2.length + 1).padStart(3, "0")}`
   const v2NextProcessNo = `PWO-${String(processWorkOrdersV2.length + 1).padStart(3, "0")}`
   const v2ChosenProcessWO = processWorkOrdersV2.find(p => p.id === v2ProcessWoId)
+  const v2MachineProcess = v2ChosenProcessWO?.processType || myProcess || "die_casting"
+  const v2ProcessMachines = machines.filter(m => m.process === v2MachineProcess && m.status === "active")
   const v2RequiredQtyKg = Number(v2ChosenProcessWO?.requiredQtyKg || v2SelectedSchedule?.requiredQuantityInKgs || 0)
   const v2AssignedQtyKg = Number((v2RequiredQtyKg * (1 + Number(v2BufferPercent || 0) / 100)).toFixed(2))
   const v2TakenQty      = Number(v2TakenQtyKg || 0)
@@ -1635,9 +1618,9 @@ export default function WorkOrdersPage() {
             <div className="border border-slate-200 rounded-xl p-4">
               <p className="text-sm font-black text-slate-800 mb-2">Machine Assignment (Shift-wise)</p>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                <Field label="Machines (multi-select)" req>
+                <Field label="Machines (multi-select)" req hint={`Showing active ${PROCESS_STAGE_LABELS[v2MachineProcess as ProcessStage] || v2MachineProcess} machines from config`}>
                   <div className="max-h-32 overflow-auto border border-slate-200 rounded-xl p-2 space-y-1">
-                    {machines.map(m => {
+                    {v2ProcessMachines.map(m => {
                       const occupied = !!(v2ShiftDate && v2Shift && woMachineAssignmentsV2.some(a => a.machineId === m.id && a.shiftDate === v2ShiftDate && a.shift === v2Shift))
                       const checked = v2MachineIds.includes(m.id)
                       return (
@@ -1656,7 +1639,7 @@ export default function WorkOrdersPage() {
                     {(programs as ProgramOption[]).map(p=><option key={p.id} value={p.id}>{p.programId || p.id} - {p.programName || p.name}</option>)}
                   </select>
                 </Field>
-                <Field label="Operator(s)"><input className={cls} value={v2MachineIds.map(id => machines.find(m => m.id === id)?.operatorName || "Unassigned").join(", ")} readOnly /></Field>
+                <Field label="Operator(s)"><input className={cls} value={v2MachineIds.map(id => v2ProcessMachines.find(m => m.id === id)?.operatorName || machines.find(m => m.id === id)?.operatorName || "Unassigned").join(", ")} readOnly /></Field>
                 <Field label="Parts Produced" req><input className={cls} value={v2Produced} onChange={e=>setV2Produced(e.target.value)} placeholder="Machine-wise output"/></Field>
                 <Field label="Shortcoming Category">
                   <select className={selectCls} value={v2Shortcoming} onChange={e=>setV2Shortcoming(e.target.value)}>
