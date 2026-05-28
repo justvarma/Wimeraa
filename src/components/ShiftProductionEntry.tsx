@@ -149,7 +149,9 @@ function useShiftData(clientId: string, processType: ProcessStage | null) {
     }
   }, [clientId, processType])
 
-  useEffect(() => { reload() }, [reload])
+  useEffect(() => {
+    queueMicrotask(() => { void reload() })
+  }, [reload])
   return { pwos, assignments, loading, error, reload }
 }
 
@@ -412,7 +414,12 @@ export function ShiftProductionEntry() {
   const [saved,       setSaved]       = useState(false)
 
   // Reset edits when PWO changes
-  useEffect(() => { setEditMap({}); setSaved(false) }, [selectedPwoId])
+  useEffect(() => {
+    queueMicrotask(() => {
+      setEditMap({})
+      setSaved(false)
+    })
+  }, [selectedPwoId])
 
   // ── Build merged assignment list ──────────────────────────────────────────
 
