@@ -1106,7 +1106,7 @@ const [machineProgramMap, setMachineProgramMap] = useState<Record<string, { prog
 export default function WorkOrdersPage() {
   const {
     currentUser, workOrders, shifts, partMasters, addWorkOrder, updateWorkOrder, deleteWorkOrder,
-    deductMaterial, schedules, machines, programs, mainWorkOrdersV2, processWorkOrdersV2,
+    deductMaterial, schedules, machines, mainWorkOrdersV2, processWorkOrdersV2,
     woMachineAssignmentsV2, addMainWorkOrderV2, addProcessWorkOrderV2,
     updateProcessWorkOrderV2, addWoMachineAssignmentV2, addWoAuditLog,
   } = useApp()
@@ -1127,7 +1127,6 @@ export default function WorkOrdersPage() {
   const [v2TargetParts, setV2TargetParts] = useState("")
   const [v2Shift,       setV2Shift]       = useState<Shift | "">("" as Shift | "")
   const [v2MachineIds,  setV2MachineIds]  = useState<string[]>([])
-  const [v2ProgramId,   setV2ProgramId]   = useState("")
   const [v2Produced,    setV2Produced]    = useState("")
   const [v2TakenQtyKg,  setV2TakenQtyKg]  = useState("")
   const [v2BufferPercent, setV2BufferPercent] = useState("2")
@@ -1390,7 +1389,6 @@ export default function WorkOrdersPage() {
     const requiresMachineAssignment = isProcessPDC || isAdmin
     const selectedMachineIds = v2MachineIds
     if (requiresMachineAssignment && selectedMachineIds.length === 0) { alert("Select at least one machine."); return }
-    if (requiresMachineAssignment && !v2ProgramId) { alert("Select a program."); return }
     const produced = Number(v2Produced || 0)
     const planned  = Number(v2TargetParts || 0)
     if (planned <= 0) { alert("Parts to be made must be greater than zero."); return }
@@ -1409,7 +1407,6 @@ export default function WorkOrdersPage() {
       })
       if (overCapacityMachine) { alert("Machine capacity exceeded for shift (limit 500 parts/shift)."); return }
     }
-    const program = (programs as ProgramOption[]).find(p => p.id === v2ProgramId)
     if (isProcessPDC && v2ChosenProcessWO) {
       await updateProcessWorkOrderV2(v2ChosenProcessWO.id, {
         shiftDate: effectiveShiftDate, shift: effectiveShift, targetParts: planned,
@@ -1425,8 +1422,8 @@ export default function WorkOrdersPage() {
         await addWoMachineAssignmentV2({
           id: createClientId("ma"), processWoId: v2ChosenProcessWO.id, machineId,
           machineName: machine?.name || "", operatorName: machine?.operatorName || "Unassigned",
-          shiftDate: effectiveShiftDate, shift: effectiveShift, programId: v2ProgramId,
-          programName: program?.programName || "",
+          shiftDate: effectiveShiftDate, shift: effectiveShift, programId: "",
+          programName: "",
           partsCommitted: machineParts, producedQty: Number(v2Produced || 0),
           rejectedQty: 0, reworkQty: 0, createdAt: new Date().toISOString().split("T")[0],
         })
@@ -1493,8 +1490,8 @@ export default function WorkOrdersPage() {
         await addWoMachineAssignmentV2({
           id: createClientId("ma"), processWoId: processId, machineId,
           machineName: machine?.name || "", operatorName: machine?.operatorName || "Unassigned",
-          shiftDate: effectiveShiftDate, shift: effectiveShift, programId: v2ProgramId,
-          programName: program?.programName || "",
+          shiftDate: effectiveShiftDate, shift: effectiveShift, programId: "",
+          programName: "",
           partsCommitted: perMachineCommit, producedQty: Number(v2Produced || 0),
           rejectedQty: 0, reworkQty: 0, createdAt: new Date().toISOString().split("T")[0],
         })
@@ -1633,12 +1630,6 @@ export default function WorkOrdersPage() {
                       )
                     })}
                   </div>
-                </Field>
-                <Field label="Program" req>
-                  <select className={selectCls} value={v2ProgramId} onChange={e=>setV2ProgramId(e.target.value)}>
-                    <option value="">From Program Master</option>
-                    {(programs as ProgramOption[]).map(p=><option key={p.id} value={p.id}>{p.programId || p.id} - {p.programName || p.name}</option>)}
-                  </select>
                 </Field>
                 <Field label="Operator(s)"><input className={cls} value={v2MachineIds.map(id => v2ProcessMachines.find(m => m.id === id)?.operatorName || machines.find(m => m.id === id)?.operatorName || "Unassigned").join(", ")} readOnly /></Field>
                 <Field label="Parts Produced" req><input className={cls} value={v2Produced} onChange={e=>setV2Produced(e.target.value)} placeholder="Machine-wise output"/></Field>
