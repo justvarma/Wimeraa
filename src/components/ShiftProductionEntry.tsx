@@ -231,7 +231,7 @@ function MachineRow({
               <input
                 readOnly
                 value={edit.programName || assignment.programName || "Not set"}
-                className={readOnlyCls}
+                className={roCls}
               />
             </Field>
           </div>
