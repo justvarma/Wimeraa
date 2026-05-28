@@ -715,9 +715,8 @@ function RecordCard({ record, wo, shifts }: { record: ProcessRecord; wo: WorkOrd
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function ProductionPage() {
   const {
-    currentUser, workOrders, processRecords, addProcessRecord, updateWorkOrder,
-    releaseMaterial, dailyEntries, addDailyEntry, deleteDailyEntry,
-    downtimeEvents, addDowntimeEvent, shifts,
+    currentUser, workOrders, processRecords, dailyEntries, addDailyEntry, deleteDailyEntry,
+    downtimeEvents, addDowntimeEvent, shifts, mainWorkOrdersV2, processWorkOrdersV2, woMachineAssignmentsV2,
   } = useApp()
   const role = currentUser?.role as UserRole
 
@@ -752,30 +751,6 @@ export default function ProductionPage() {
     (processFilter === "all" || wo.process === processFilter) &&
     (!myProcess || wo.process === myProcess)
   ), [workOrders, processFilter, myProcess])
-
-  // FIX §6.5: handleSave writes scrap+waste back to raw material usedQuantity
-  const handleSave = (wo: WorkOrder, data: Omit<ProcessRecord,"id"|"createdAt">) => {
-    addProcessRecord({ ...data, createdBy: currentUser!.name })
-    updateWorkOrder(wo.id, {
-      productionStarted: true,
-      status: (wo.partsCompleted + data.outputQuantity) >= wo.targetPartNos ? "awaiting_qi" : "in_progress",
-      partsCompleted: wo.partsCompleted  + data.outputQuantity,
-      goodParts:      wo.goodParts       + data.goodParts,
-      reworkParts:    wo.reworkParts     + data.reworkParts,
-      rejectedParts:  wo.rejectedParts   + data.rejectedParts,
-      scrapWeight:    wo.scrapWeight     + data.scrapWeightKg,
-      ptcApproval:    data.ptcApprovedBy || wo.ptcApproval,
-      qiApproval:     data.qiInspectedBy || wo.qiApproval,
-    })
-    // Real-time reconciliation: Phase-2 reserves required KG upfront.
-    // At shift end, return leftover unused raw material back to inventory.
-    const consumedKg = data.outputWeightKg + data.scrapWeightKg + data.materialWasteKg
-    const leftoverKg = Math.max(0, wo.requiredQuantityKg - consumedKg)
-    if (wo.rawMaterialId && leftoverKg > 0) {
-      releaseMaterial(wo.rawMaterialId, leftoverKg)
-    }
-    setActiveForm(null)
-  }
 
   const totalGood     = processRecords.reduce((s,r)=>s+r.goodParts,0)
   const totalRework   = processRecords.reduce((s,r)=>s+r.reworkParts,0)
@@ -841,6 +816,11 @@ export default function ProductionPage() {
         ) : filteredWOs.map(wo => {
           const records  = processRecords.filter(r => r.workOrderId === wo.id)
           const isExp    = expandedWO === wo.id
+          const linkedMain = mainWorkOrdersV2.find(m => m.scheduleId === wo.masterId && m.partId === wo.partId)
+          const linkedProcessWoIds = linkedMain
+            ? processWorkOrdersV2.filter(p => p.parentWoId === linkedMain.id).map(p => p.id)
+            : []
+          const machineActuals = woMachineAssignmentsV2.filter(a => linkedProcessWoIds.includes(a.processWoId))
           const producedFromRecords = records.reduce((sum, r) => sum + Number(r.outputQuantity || 0), 0)
           const goodFromRecords = records.reduce((sum, r) => sum + Number(r.goodParts || 0), 0)
           const reworkFromRecords = records.reduce((sum, r) => sum + Number(r.reworkParts || 0), 0)
@@ -966,6 +946,25 @@ export default function ProductionPage() {
                     {records.length === 0
                       ? <p className="text-sm text-slate-400 italic text-center py-4">No records yet. Use Shift-end Machine Actuals below to enter machine-wise output.</p>
                       : <div className="space-y-3">{records.map(r=><RecordCard key={r.id} record={r} wo={wo} shifts={shifts}/>)}</div>}
+                  </div>
+
+                  {/* ── Shift-end Machine Actual Entries ── */}
+                  <div>
+                    <h4 className="font-black text-slate-700 text-sm mb-3">
+                      Shift-end Machine Actual Entries ({machineActuals.length})
+                    </h4>
+                    {machineActuals.length === 0 ? (
+                      <p className="text-xs text-slate-400 italic py-2">No machine actual entries yet.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {machineActuals.map(a => (
+                          <div key={a.id} className="bg-white rounded-xl border border-slate-200 p-3 text-xs">
+                            <p className="font-bold text-slate-800">{a.machineName} · {a.shiftDate} / {getShiftLabel(shifts, a.shift as Shift)}</p>
+                            <p className="text-slate-600 mt-1">Committed: {a.partsCommitted} · Produced: {a.partsProduced ?? a.producedQty ?? 0} · Rejected: {a.rejectedQty ?? 0} · Rework: {a.reworkQty ?? 0}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   {/* ── Downtime Events (§10) ── */}
