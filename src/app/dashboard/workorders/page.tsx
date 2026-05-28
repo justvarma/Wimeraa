@@ -1890,8 +1890,18 @@ export default function WorkOrdersPage() {
                     </button>
                   )}
                   {canEditPhase1(wo) && (
-                    <button onClick={() => { setEditWO(wo); setShowPhase1(true) }}
-                      className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg">
+                    <button
+                      onClick={() => {
+                        if (isPDCManager || isAdmin) {
+                          setPhase2WO(wo)
+                          return
+                        }
+                        setEditWO(wo)
+                        setShowPhase1(true)
+                      }}
+                      className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg"
+                      title={isPDCManager || isAdmin ? "Open Fill Details" : "Edit Work Order"}
+                    >
                       <Edit2 size={15}/>
                     </button>
                   )}
