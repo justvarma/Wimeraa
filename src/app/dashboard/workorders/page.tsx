@@ -1803,11 +1803,10 @@ export default function WorkOrdersPage() {
             : 0
 
           const linkedSubWOs = subWOsByParentLegacyId[wo.id] || []
-          const hasLinkedSWO = linkedSubWOs.length > 0
           const hasMachineAssignmentsForLinkedSWO = linkedSubWOs.some(p =>
             woMachineAssignmentsV2.some(a => a.processWoId === p.id)
           )
-          const canOpenV2FromEdit = hasLinkedSWO && !hasMachineAssignmentsForLinkedSWO
+          const canOpenV2FromEdit = !hasMachineAssignmentsForLinkedSWO
 
           return (
             <div key={wo.id} className={`bg-white rounded-2xl border shadow-sm overflow-hidden
