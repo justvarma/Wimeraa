@@ -1,12 +1,15 @@
 "use client"
 import { useState, useMemo } from "react"
 import { useApp } from "@/components/providers/AppProvider"
+import { MachineAssignmentDropdown } from "@/components/ShiftProductionEntry"
 import {
   UserRole, PROCESS_STAGE_LABELS, QI_ROLE_PROCESS_MAP,
   type ProcessStage, type Shift, type WorkOrder, type WOStatus, type ShortcomingCategory,
 } from "@/lib/store"
 import { getSelectableShiftOptions, getShiftLabel } from "@/lib/shiftUtils"
 import { buildStageSubWorkOrder } from "@/lib/workflow"
+import { db } from "@/lib/firebase"
+import { collection, query, where, getDocs, deleteDoc, doc } from "firebase/firestore"
 import {
   ClipboardList, Plus, X, Edit2, Trash2, Lock, AlertTriangle,
   ChevronDown, ChevronRight, CheckCircle2, Building2, Pencil,
@@ -194,9 +197,10 @@ type SWONodeProps = {
   shifts: ReturnType<typeof useApp>["shifts"]
   machines: ReturnType<typeof useApp>["machines"]
   swoIndex: number
+  clientId: string
 }
 
-function SWONode({ swo, allWorkOrders, shifts, machines, swoIndex }: SWONodeProps) {
+function SWONode({ swo, allWorkOrders, shifts, machines, swoIndex, clientId }: SWONodeProps) {
   const [open, setOpen] = useState(false)
 
   // Direct rework WOs whose parent is this SWO (cycle #1 reworks)
@@ -305,6 +309,8 @@ function SWONode({ swo, allWorkOrders, shifts, machines, swoIndex }: SWONodeProp
           {/* QI result strip */}
           {hasQIResult && <QIResultRow wo={swo}/>}
 
+          <MachineAssignmentDropdown clientId={clientId} processWoId={swo.processWoId} woId={swo.id} processType={swo.process} shiftDate={swo.shiftDate || swo.date} shift={swo.shift} fallbackMachineMap={swo.machineProducedMap || {}} />
+
           {/* Rework children — each recursively rendered */}
           {directReworks.length > 0 && (
             <div className="space-y-2 mt-1 pl-3 border-l-2 border-amber-200">
@@ -337,16 +343,17 @@ type WOHierarchyTreeProps = {
   allWorkOrders: WorkOrder[]
   shifts: ReturnType<typeof useApp>["shifts"]
   machines: ReturnType<typeof useApp>["machines"]
+  clientId: string
 }
 
-function WOHierarchyTree({ rootWO, allWorkOrders, shifts, machines }: WOHierarchyTreeProps) {
+function WOHierarchyTree({ rootWO, allWorkOrders, shifts, machines, clientId }: WOHierarchyTreeProps) {
   // All SWOs directly under this root WO:
-  // - Stage SWOs: woType === "rework", parentWoId === rootWO.id, reworkCycleNumber is 0 or undefined (system-generated per process/shift)
+  // - Stage SWOs: woType === "stage" (new) or "rework" (legacy), parentWoId === rootWO.id, reworkCycleNumber is 0 or undefined
   // - Each time a PDC fills details for a new shift, a new SWO is created under this root
   const stageSWOs = allWorkOrders
     .filter(w =>
       w.parentWoId === rootWO.id &&
-      w.woType === "rework" &&
+      (w.woType === "stage" || w.woType === "rework") &&
       (w.reworkCycleNumber === undefined || w.reworkCycleNumber === 0)
     )
     .sort((a, b) => {
@@ -379,6 +386,7 @@ function WOHierarchyTree({ rootWO, allWorkOrders, shifts, machines }: WOHierarch
           shifts={shifts}
           machines={machines}
           swoIndex={idx + 1}
+          clientId={clientId}
         />
       ))}
     </div>
@@ -1089,6 +1097,7 @@ export default function WorkOrdersPage() {
     updateProcessWorkOrderV2, addWoMachineAssignmentV2, addWoAuditLog,
   } = useApp()
   const role = currentUser?.role as UserRole
+  const clientId = ((currentUser as unknown as { clientId?: string; client_id?: string })?.clientId || (currentUser as unknown as { client_id?: string })?.client_id || "")
 
   const [showPhase1, setShowPhase1]   = useState(false)
   const [editWO,     setEditWO]       = useState<WorkOrder | null>(null)
@@ -1170,11 +1179,11 @@ export default function WorkOrdersPage() {
       return matchStatus && matchProcess && matchRole
     })
     return [...filtered].sort((a, b) => {
-      const aRoot = a.woType === "rework" ? (a.parentWoId ?? a.id) : a.id
-      const bRoot = b.woType === "rework" ? (b.parentWoId ?? b.id) : b.id
+      const aRoot = (a.woType === "rework" || a.woType === "stage") ? (a.parentWoId ?? a.id) : a.id
+      const bRoot = (b.woType === "rework" || b.woType === "stage") ? (b.parentWoId ?? b.id) : b.id
       if (aRoot !== bRoot) return aRoot.localeCompare(bRoot)
-      const aIsSWO = a.woType === "rework" ? 1 : 0
-      const bIsSWO = b.woType === "rework" ? 1 : 0
+      const aIsSWO = (a.woType === "rework" || a.woType === "stage") ? 1 : 0
+      const bIsSWO = (b.woType === "rework" || b.woType === "stage") ? 1 : 0
       if (aIsSWO !== bIsSWO) return aIsSWO - bIsSWO
       return (a.reworkCycleNumber ?? 0) - (b.reworkCycleNumber ?? 0)
     })
@@ -1183,9 +1192,11 @@ export default function WorkOrdersPage() {
   // For PDC Manager: only show root WOs (no parentWoId), all children rendered inside WOHierarchyTree
   // For process PDC roles: flat list of their drafts as before
   const visibleRoots = useMemo(() => {
-    if (isProcessPDC) return visible.map(wo => wo)
+    if (isProcessPDC) {
+      return visible.filter(w => w.process === myProcess && (w.woType === "stage" || w.woType === "rework" || w.woType === "rejection"))
+    }
     return visible.filter(w => !w.parentWoId)
-  }, [visible, isProcessPDC])
+  }, [visible, isProcessPDC, myProcess])
 
   const subWOsByParentLegacyId = useMemo(() => {
     const map: Record<string, typeof processWorkOrdersV2> = {}
@@ -1225,7 +1236,7 @@ export default function WorkOrdersPage() {
       }
       const parentId = await addWorkOrder(primaryWO)
       await addWorkOrder(buildStageSubWorkOrder({
-        source: { ...primaryWO, id: parentId, createdAt: new Date().toISOString().split("T")[0] },
+        source: { ...primaryWO, id: parentId, createdAt: new Date().toISOString().split("T")[0], processWoId: "" },
         process: "die_casting",
         createdBy: "System Workflow",
         parentWoId: parentId,
@@ -1243,18 +1254,109 @@ export default function WorkOrdersPage() {
         return
       }
     }
-    updateWorkOrder(phase2WO.id, {
+    await updateWorkOrder(phase2WO.id, {
       ...data,
       status: "not_started",
       phase2CompletedBy: currentUser!.name,
       phase2CompletedAt: new Date().toISOString().split("T")[0],
     })
+
+    const machineMap = data.machineProducedMap || {}
+    const machineIds = Object.keys(machineMap)
+    const linkedProcessWoId = (phase2WO as unknown as { processWoId?: string }).processWoId || ""
+    const resolvedProcessWO = linkedProcessWoId
+      ? processWorkOrdersV2.find(p => p.id === linkedProcessWoId)
+      : processWorkOrdersV2.find(p =>
+          p.processType === phase2WO.process &&
+          p.shiftDate === (data.shiftDate || data.date || phase2WO.date) &&
+          p.shift === (data.shift || phase2WO.shift)
+        )
+
+    if (resolvedProcessWO) {
+      await updateProcessWorkOrderV2(resolvedProcessWO.id, {
+        shiftDate: String(data.shiftDate || data.date || phase2WO.date || ""),
+        shift: (data.shift || phase2WO.shift || "") as Shift,
+        targetParts: Number(data.actualTarget || phase2WO.targetPartNos || 0),
+        requiredQtyKg: Number(data.requiredQtyKg || data.requiredQuantityKg || phase2WO.requiredQuantityKg || 0),
+        assignedQtyKg: Number(data.assignedQtyKg || 0),
+        takenQtyKg: Number(data.takenQtyKg || 0),
+        leftoverQtyKg: Number(data.leftoverQtyKg || 0),
+        shortcomingCategory: (data.shortcomingCategory as ShortcomingCategory) || "machine_breakdown",
+        shortcomingNotes: String(data.notes || ""),
+        updatedAt: new Date().toISOString().split("T")[0],
+      })
+
+      for (const machineId of machineIds) {
+        const already = woMachineAssignmentsV2.find(a => a.processWoId === resolvedProcessWO.id && a.machineId === machineId)
+        if (already) continue
+        const machine = machines.find(m => m.id === machineId)
+        await addWoMachineAssignmentV2({
+          id: createClientId("ma"), processWoId: resolvedProcessWO.id, machineId,
+          machineName: machine?.name || machineId, operatorName: machine?.operatorName || "Unassigned",
+          shiftDate: String(data.shiftDate || data.date || phase2WO.date || ""),
+          shift: (data.shift || phase2WO.shift || "") as Shift,
+          programId: String(data.programId || ""),
+          programName: String(data.programName || ""),
+          partsCommitted: Number(machineMap[machineId] || 0), producedQty: 0,
+          rejectedQty: 0, reworkQty: 0, createdAt: new Date().toISOString().split("T")[0],
+        })
+      }
+    }
+
     setPhase2WO(null)
   }
 
   const canDeleteWO   = (wo: WorkOrder) => (isPDCManager || isAdmin) && (wo.status === "draft" || wo.status === "not_started")
   const canEditPhase1 = (wo: WorkOrder) => (isPDCManager || isAdmin) && (wo.status === "draft" || wo.status === "not_started")
-  const canFillPhase2 = (wo: WorkOrder) => wo.status === "draft" && (isAdmin || (isProcessPDC && wo.process === myProcess))
+  const canFillPhase2 = (wo: WorkOrder) => {
+    const isProcessStageWO = wo.woType === "stage" || wo.woType === "rework" || wo.woType === "rejection"
+    return wo.status === "draft" && isProcessStageWO && (isAdmin || (isProcessPDC && wo.process === myProcess))
+  }
+
+  const handleDeleteWODeep = async (wo: WorkOrder) => {
+    if (!confirm("Delete this Work Order and all linked SWOs/assignments from DB?")) return
+
+    const subtreeIds = new Set<string>()
+    const stack = [wo.id]
+    while (stack.length) {
+      const id = stack.pop()!
+      if (subtreeIds.has(id)) continue
+      subtreeIds.add(id)
+      workOrders.filter(w => w.parentWoId === id).forEach(ch => stack.push(ch.id))
+    }
+
+    // delete legacy work_orders subtree
+    for (const id of Array.from(subtreeIds)) await deleteWorkOrder(id)
+
+    if (!clientId) return
+
+    // delete linked process WOs + machine assignments + audit logs
+    const pSnap = await getDocs(collection(db, "clients", clientId, "process_work_orders_v2"))
+    const linkedProcessIds = pSnap.docs
+      .filter(d => {
+        const v = d.data() as { rootWoId?: string; parentWoId?: string }
+        return subtreeIds.has(d.id) || (v.rootWoId && subtreeIds.has(v.rootWoId)) || (v.parentWoId && subtreeIds.has(v.parentWoId))
+      })
+      .map(d => d.id)
+
+    for (const pid of linkedProcessIds) {
+      const aSnap = await getDocs(query(collection(db, "clients", clientId, "wo_machine_assignments_v2"), where("processWoId", "==", pid)))
+      for (const a of aSnap.docs) await deleteDoc(doc(db, "clients", clientId, "wo_machine_assignments_v2", a.id))
+
+      const lSnap = await getDocs(query(collection(db, "clients", clientId, "wo_audit_logs"), where("processWoId", "==", pid)))
+      for (const l of lSnap.docs) await deleteDoc(doc(db, "clients", clientId, "wo_audit_logs", l.id))
+
+      await deleteDoc(doc(db, "clients", clientId, "process_work_orders_v2", pid))
+    }
+
+    const mSnap = await getDocs(collection(db, "clients", clientId, "main_work_orders_v2"))
+    for (const m of mSnap.docs) {
+      const mv = m.data() as { partId?: string; scheduleId?: string }
+      if (mv.partId === wo.partId && mv.scheduleId === wo.masterId) {
+        await deleteDoc(doc(db, "clients", clientId, "main_work_orders_v2", m.id))
+      }
+    }
+  }
 
   const v2Save = async () => {
     const effectiveShiftDate = v2ShiftDate || v2StartDate
@@ -1361,7 +1463,7 @@ export default function WorkOrdersPage() {
         isExternal: false, createdBy: currentUser.name, woType: "standard",
         workflowStep: -1, workflowLabel: "Primary Work Order",
       },
-      process: "die_casting", createdBy: "System Workflow", parentWoId: primaryLegacyWoId,
+      process: "die_casting", createdBy: "System Workflow", parentWoId: primaryLegacyWoId, processWoId: processId,
     }))
     if (requiresMachineAssignment) {
       for (const machineId of selectedMachineIds) {
@@ -1737,7 +1839,7 @@ export default function WorkOrdersPage() {
                     </button>
                   )}
                   {canDeleteWO(wo) && (
-                    <button onClick={() => deleteWorkOrder(wo.id)}
+                    <button onClick={() => handleDeleteWODeep(wo)}
                       className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
                       <Trash2 size={15}/>
                     </button>
@@ -1774,6 +1876,7 @@ export default function WorkOrdersPage() {
                       allWorkOrders={workOrders}
                       shifts={shifts}
                       machines={machines}
+                      clientId={clientId}
                     />
                   )}
 
