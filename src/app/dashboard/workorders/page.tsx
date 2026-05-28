@@ -569,8 +569,12 @@ function Phase2Form({ wo, onClose, onSave }: {
   const [selectedMachineIds, setSelectedMachineIds] = useState<string[]>(
     wo.machine ? wo.machine.split(",").map(s => s.trim()).filter(Boolean).map(name => machines.find(m => m.name === name)?.id || "").filter(Boolean) : []
   )
-  const [programId,      setProgramId]      = useState(wo.programId || (processPrograms[0]?.id || ""))
-  const [machinePartsMap, setMachinePartsMap] = useState<Record<string, number>>(wo.machineProducedMap || {})
+    const [machinePartsMap, setMachinePartsMap] = useState<Record<string, number>>(wo.machineProducedMap || {})
+
+// Per-machine program selection: machineId → { programId, programName }
+const [machineProgramMap, setMachineProgramMap] = useState<Record<string, { programId: string; programName: string }>>(
+  wo.machineProgramAssignment || {}
+)
   const [notes,          setNotes]          = useState("")
 
   const selectedMat     = approvedMats.find(m => m.id === rawMaterialId)
@@ -657,6 +661,7 @@ function Phase2Form({ wo, onClose, onSave }: {
       actualOutputKg:  autoOutputKg,
       inputWeightKg:   wo.requiredQuantityKg,
       machineProducedMap: machinePartsMap,
+      machineProgramAssignment: machineProgramMap,
       acceptancePoints: [
         "As per configured QI checkpoints",
         `Req:${requiredQtyKg}kg Buffer:${bufferPercent}% Assigned:${assignedQtyKg}kg Acquired:${acquiredQtyKg}kg Additional:${additionalQtyKg}kg Leftover:${leftoverQtyKg}kg`,
@@ -999,20 +1004,47 @@ function Phase2Form({ wo, onClose, onSave }: {
                         </label>
 
                         {checked && (
-                          <div className="mt-3 pt-3 border-t border-slate-100 grid grid-cols-2 gap-3">
-                            <div>
-                              <p className={lbl}>Operator (auto)</p>
-                              <input readOnly value={m.operatorName || "Unassigned"} className={readOnlyCls}/>
+                          <div className="mt-3 pt-3 border-t border-slate-100 space-y-3">
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <p className={lbl}>Operator (auto)</p>
+                                <input readOnly value={m.operatorName || "Unassigned"} className={readOnlyCls}/>
+                              </div>
+                              <div>
+                                <p className={lbl}>Parts this machine will make <span className="text-red-500">*</span></p>
+                                <input
+                                  type="number" min="0" max={claimPartsQty}
+                                  value={machinePartsMap[m.id] ?? 0}
+                                  onChange={e => setMachinePartsMap(prev => ({ ...prev, [m.id]: Number(e.target.value) }))}
+                                  className={cls}
+                                  placeholder="0"
+                                />
+                              </div>
                             </div>
+                            {/* Program — selected per machine */}
                             <div>
-                              <p className={lbl}>Parts this machine will make <span className="text-red-500">*</span></p>
-                              <input
-                                type="number" min="0" max={claimPartsQty}
-                                value={machinePartsMap[m.id] ?? 0}
-                                onChange={e => setMachinePartsMap(prev => ({ ...prev, [m.id]: Number(e.target.value) }))}
-                                className={cls}
-                                placeholder="0"
-                              />
+                              <p className={lbl}>Program for this machine <span className="text-red-500">*</span></p>
+                              <select
+                                value={machineProgramMap[m.id]?.programId ?? ""}
+                                onChange={e => {
+                                  const prog = (programs as ProgramOption[]).find(p => p.id === e.target.value)
+                                  setMachineProgramMap(prev => ({
+                                    ...prev,
+                                    [m.id]: {
+                                      programId:   e.target.value,
+                                      programName: prog?.programName || prog?.name || "",
+                                    },
+                                  }))
+                                }}
+                                className={`${selectCls} border-indigo-200 bg-indigo-50/40`}
+                              >
+                                <option value="">— Select program for this machine —</option>
+                                {processPrograms.map(p => (
+                                  <option key={p.id} value={p.id}>
+                                    {p.programId || p.id} — {p.programName || p.name || ""}
+                                  </option>
+                                ))}
+                              </select>
                             </div>
                           </div>
                         )}
