@@ -710,7 +710,9 @@ function PartsTab() {
   const [partName, setPartName] = useState("")
   const [materialRequired, setMaterialRequired] = useState("")
   const [grade, setGrade] = useState("")
-  const [quantityPerPart, setQuantityPerPart] = useState("")
+  const [bufferPercent, setBufferPercent] = useState("2")
+  const [weightAfterDieCastingKg, setWeightAfterDieCastingKg] = useState("")
+  const [weightAfterMachiningKg, setWeightAfterMachiningKg] = useState("")
   const materialOptions = [...materialMasters].sort((a, b) => (
     a.material.localeCompare(b.material) || a.grade.localeCompare(b.grade)
   ))
@@ -719,7 +721,15 @@ function PartsTab() {
     : []
 
   const createPartMaster = async () => {
-    if (!partId.trim() || !partName.trim() || !materialRequired.trim() || !grade.trim() || Number(quantityPerPart) <= 0) return
+    if (
+      !partId.trim() ||
+      !partName.trim() ||
+      !materialRequired.trim() ||
+      !grade.trim() ||
+      Number(bufferPercent) < 0 ||
+      Number(weightAfterDieCastingKg) <= 0 ||
+      Number(weightAfterMachiningKg) <= 0
+    ) return
     const id = `${partId.trim().toLowerCase().replace(/\s+/g, "_")}__${grade.trim().toUpperCase()}`
     await addPartMaster({
       id,
@@ -727,13 +737,17 @@ function PartsTab() {
       partName: partName.trim(),
       materialRequired: materialRequired.trim(),
       grade: grade.trim().toUpperCase(),
-      quantityPerPart: Number(quantityPerPart),
+      bufferPercent: Number(bufferPercent || 0),
+      weightAfterDieCastingKg: Number(weightAfterDieCastingKg),
+      weightAfterMachiningKg: Number(weightAfterMachiningKg),
     })
     setPartId("")
     setPartName("")
     setMaterialRequired("")
     setGrade("")
-    setQuantityPerPart("")
+    setBufferPercent("2")
+    setWeightAfterDieCastingKg("")
+    setWeightAfterMachiningKg("")
   }
 
   const sorted = [...partMasters].sort((a, b) => a.partName.localeCompare(b.partName))
@@ -767,10 +781,15 @@ function PartsTab() {
         <option value="">Grade *</option>
         {gradeOptions.map(g => <option key={g} value={g}>{g}</option>)}
       </select>
-      <input type="number" min="0.001" step="0.001" value={quantityPerPart} onChange={e => setQuantityPerPart(e.target.value)} placeholder="Quantity Per Part (KG) *" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
+      <input type="number" min="0" step="0.1" value={bufferPercent} onChange={e => setBufferPercent(e.target.value)} placeholder="Buffer % *" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
+      <div className="md:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-lg border border-orange-200 bg-orange-50 p-3">
+        <p className="sm:col-span-2 text-[10px] font-black text-orange-700 uppercase tracking-wider">Weight Per Part</p>
+        <input type="number" min="0.001" step="0.001" value={weightAfterDieCastingKg} onChange={e => setWeightAfterDieCastingKg(e.target.value)} placeholder="Die Casting (KG) *" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
+        <input type="number" min="0.001" step="0.001" value={weightAfterMachiningKg} onChange={e => setWeightAfterMachiningKg(e.target.value)} placeholder="Machining (KG) *" className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 bg-white" />
+      </div>
       <button onClick={createPartMaster} className={CFG_BTN_PRIMARY}>Add Part Master</button>
     </div>
-    <p className="text-xs text-slate-500 mb-3">Material and grade are now selected from Config → Materials master rows ({materialMasters.length} configured).</p>
+    <p className="text-xs text-slate-500 mb-3">Material and grade are selected from Config → Materials; buffer and process weight values are stored with each part master.</p>
     {sorted.length === 0 && (
       <div className="mb-3 p-3 border border-amber-200 bg-amber-50 rounded-lg flex items-center justify-between gap-3">
         <p className="text-xs text-amber-800 font-medium">No part master records in DB yet. You can seed the default RE parts.</p>
@@ -780,7 +799,7 @@ function PartsTab() {
     <table className="w-full text-sm border border-slate-200 rounded-lg overflow-hidden">
       <thead>
       <tr className="bg-slate-50">
-        {["Part ID", "Part Name", "Material Required", "Grade", "Qty/Part (KG)", "Actions"].map(h => <th key={h} className="text-left px-3 py-2 text-slate-700 font-semibold">{h}</th>)}
+        {["Part ID", "Part Name", "Material Required", "Grade", "Buffer %", "After Die Casting (KG)", "Under Machining (KG)", "Actions"].map(h => <th key={h} className="text-left px-3 py-2 text-slate-700 font-semibold">{h}</th>)}
       </tr>
       </thead>
       <tbody>
@@ -790,7 +809,9 @@ function PartsTab() {
           <td className="px-3 py-2 text-slate-900">{p.partName}</td>
           <td className="px-3 py-2 text-slate-900">{p.materialRequired}</td>
           <td className="px-3 py-2 text-slate-900">{p.grade}</td>
-          <td className="px-3 py-2 text-slate-900">{p.quantityPerPart}</td>
+          <td className="px-3 py-2 text-slate-900">{p.bufferPercent}</td>
+          <td className="px-3 py-2 text-slate-900">{p.weightAfterDieCastingKg}</td>
+          <td className="px-3 py-2 text-slate-900">{p.weightAfterMachiningKg}</td>
           <td className="px-3 py-2">
             {sorted.length > 0
               ? <button

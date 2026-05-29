@@ -249,7 +249,9 @@ export interface PartMaster {
   partName: string
   materialRequired: string
   grade: string
-  quantityPerPart: number
+  bufferPercent: number
+  weightAfterDieCastingKg: number
+  weightAfterMachiningKg: number
 }
 
 export interface MonthlySchedule {
@@ -344,6 +346,17 @@ export interface ProcessWorkOrderV2 {
   assignedQtyKg: number
   takenQtyKg: number
   leftoverQtyKg: number
+  totalProduced?: number
+  totalGood?: number
+  totalRework?: number
+  totalRejected?: number
+  totalRawUsedKg?: number
+  totalLeftoverKg?: number
+  qiCompletedAt?: string
+  qiCompletedBy?: string
+  pdcApprovedAt?: string
+  pdcApprovedBy?: string
+  nextProcessWoId?: string
   shortcomingCategory?: ShortcomingCategory
   shortcomingNotes?: string
   createdAt: string
@@ -368,6 +381,22 @@ export interface WoMachineAssignmentV2 {
   leftoverKg?: number
   rejectedQty: number
   reworkQty: number
+  goodParts?: number
+  reworkParts?: number
+  rejectedParts?: number
+  reworkEntries?: ReworkEntry[]
+  rejectionEntries?: RejectionEntry[]
+  qiInspectedBy?: string
+  qiInspectedById?: string
+  qiInspectedAt?: string
+  pdcApprovalStatus?: "pending" | "approved" | "rejected"
+  pdcApprovedBy?: string
+  pdcApprovedById?: string
+  pdcApprovedAt?: string
+  pdcRejectedBy?: string
+  pdcRejectedById?: string
+  pdcRejectedAt?: string
+  pdcRejectedReason?: string
   runtimeMinutes?: number
   downtimeMinutes?: number
   shortcomingCategory?: ShortcomingCategory
@@ -616,10 +645,10 @@ export const INITIAL_SCHEDULES: MonthlySchedule[] = [
 ]
 
 export const INITIAL_PART_MASTERS: PartMaster[] = [
-  { id: "re-pt-0062__default", partId: "RE-PT-0062", partName: "Engine Mount Bracket", materialRequired: "Aluminium", grade: "A", quantityPerPart: 1 },
-  { id: "re-pt-0047__default", partId: "RE-PT-0047", partName: "Gear Box Housing", materialRequired: "Aluminium", grade: "A", quantityPerPart: 1 },
-  { id: "re-pt-0035__default", partId: "RE-PT-0035", partName: "Crankcase Left", materialRequired: "Aluminium", grade: "A", quantityPerPart: 1 },
-  { id: "re-pt-0021__default", partId: "RE-PT-0021", partName: "Cylinder Head Cover", materialRequired: "Aluminium", grade: "A", quantityPerPart: 1 },
+  { id: "re-pt-0062__default", partId: "RE-PT-0062", partName: "Engine Mount Bracket", materialRequired: "Aluminium", grade: "A", bufferPercent: 2, weightAfterDieCastingKg: 1, weightAfterMachiningKg: 0.92 },
+  { id: "re-pt-0047__default", partId: "RE-PT-0047", partName: "Gear Box Housing", materialRequired: "Aluminium", grade: "A", bufferPercent: 2, weightAfterDieCastingKg: 1, weightAfterMachiningKg: 0.9 },
+  { id: "re-pt-0035__default", partId: "RE-PT-0035", partName: "Crankcase Left", materialRequired: "Aluminium", grade: "A", bufferPercent: 2, weightAfterDieCastingKg: 1, weightAfterMachiningKg: 0.9 },
+  { id: "re-pt-0021__default", partId: "RE-PT-0021", partName: "Cylinder Head Cover", materialRequired: "Aluminium", grade: "A", bufferPercent: 2, weightAfterDieCastingKg: 1, weightAfterMachiningKg: 0.9 },
 ]
 
 export const INITIAL_PTCS: PTC[] = [
@@ -748,6 +777,9 @@ export interface QIInspection {
   vendorMachine?: string
   vendorShift?: Shift | ""
   assignedQiId?: string
+  processWoId?: string
+  machineAssignmentId?: string
+  machineId?: string
   createdAt: string
 }
 
