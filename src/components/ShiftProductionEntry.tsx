@@ -12,7 +12,7 @@
  *    programName, operatorConfirmedBy) are written to DB on save.
  */
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import {
   CheckCircle2, ChevronDown, ChevronRight,
   RefreshCw, Settings2, Package, Zap, User, Calendar,
@@ -407,23 +407,43 @@ export function ShiftProductionEntry() {
   const [selectedPwoId, setSelectedPwoId] = useState<string>("")
   const selectedPwo = pwos.find(p => p.id === selectedPwoId)
 
+  const assignmentsByPwoId = useMemo(() => {
+    const map = new Map<string, MachineAssignment[]>()
+    for (const assignment of assignments) {
+      const existing = map.get(assignment.processWoId) ?? []
+      existing.push(assignment)
+      map.set(assignment.processWoId, existing)
+    }
+    return map
+  }, [assignments])
+
+  const getPwoEntryState = useCallback((pwo: ProcessWOV2) => {
+    if (pwo.shiftDate > new Date().toISOString().split("T")[0]) return "future" as const
+    const pwoAssignments = assignmentsByPwoId.get(pwo.id) ?? []
+    if (pwoAssignments.length === 0) return "pending" as const
+    return pwoAssignments.some(assignment => !assignment.actualsLocked) ? "pending" as const : "submitted" as const
+  }, [assignmentsByPwoId])
+
   // editMap: machineAssignment.id → partial overrides
   const [editMap, setEditMap] = useState<Record<string, MachineRowEdit>>({})
   const [saving,      setSaving]      = useState(false)
   const [savingDraft, setSavingDraft] = useState(false)
   const [saved,       setSaved]       = useState(false)
 
-  // Reset edits when PWO changes
+  // Reset edits when PWO changes, and clear a submitted/future SWO that is no longer enterable after DB refresh.
   useEffect(() => {
     queueMicrotask(() => {
+      if (selectedPwo && getPwoEntryState(selectedPwo) !== "pending") {
+        setSelectedPwoId("")
+      }
       setEditMap({})
       setSaved(false)
     })
-  }, [selectedPwoId])
+  }, [getPwoEntryState, selectedPwo, selectedPwoId])
 
   // ── Build merged assignment list ──────────────────────────────────────────
 
-  const baseAssignments = assignments.filter(a => a.processWoId === selectedPwoId)
+  const baseAssignments = assignmentsByPwoId.get(selectedPwoId) ?? []
 
   let mergedAssignments: MachineAssignment[] = baseAssignments.map(a => ({ ...a }))
 
@@ -472,24 +492,29 @@ export function ShiftProductionEntry() {
   // ── Edit helpers ──────────────────────────────────────────────────────────
 
   const getEdit = (id: string): MachineRowEdit => {
+    const assignment = mergedAssignments.find(ma => ma.id === id)
     const defaults: MachineRowEdit = {
-      partsProduced: 0,
-      rawMaterialUsedKg: 0,
-      downtimeMinutes: 0,
-      shortcomingCategory: "none",
-      shortcomingNotes: "",
-      operatorConfirmedBy: "",
-      programId: "",
-      programName: "",
+      partsProduced: Number(assignment?.partsProduced ?? assignment?.producedQty ?? 0),
+      rawMaterialUsedKg: Number(assignment?.rawMaterialUsedKg ?? 0),
+      downtimeMinutes: Number(assignment?.downtimeMinutes ?? 0),
+      shortcomingCategory: assignment?.shortcomingCategory || "none",
+      shortcomingNotes: assignment?.shortcomingNotes || "",
+      operatorConfirmedBy: assignment?.operatorConfirmedBy || "",
+      programId: assignment?.programId || "",
+      programName: assignment?.programName || "",
     }
     return { ...defaults, ...(editMap[id] ?? {}) }
   }
 
-  const handleChange = (id: string, data: Partial<MachineRowEdit>) =>
+  const handleChange = (id: string, data: Partial<MachineRowEdit>) => {
+    const assignment = mergedAssignments.find(ma => ma.id === id)
+    if (assignment?.actualsLocked || (assignment && isFutureShift(assignment.shiftDate))) return
     setEditMap(prev => ({ ...prev, [id]: { ...getEdit(id), ...data } }))
+  }
 
   const hasUnsaved = Object.keys(editMap).length > 0
-  const allLocked  = mergedAssignments.length > 0 && mergedAssignments.every(a => a.actualsLocked)
+  const pendingAssignments = mergedAssignments.filter(a => !a.actualsLocked && !isFutureShift(a.shiftDate))
+  const allLocked  = mergedAssignments.length > 0 && pendingAssignments.length === 0
 
   // ── Totals (for PWO-level update) ─────────────────────────────────────────
 
@@ -605,14 +630,16 @@ export function ShiftProductionEntry() {
         }
       }
 
+      const willAllBeLocked = mergedAssignments.every(a => a.actualsLocked || isFutureShift(a.shiftDate) || pendingAssignments.some(pending => pending.id === a.id))
+
       // Update PWO totals
       await updateDoc(doc(db, "clients", clientId, "process_work_orders_v2", selectedPwo.id), {
         totalProduced:    totals.produced,
         totalRawUsedKg:   Number(totals.rawUsed.toFixed(3)),
         totalLeftoverKg:  Number(totals.leftover.toFixed(3)),
-        actualsSubmittedAt:  now,
-        actualsSubmittedBy:  currentUser!.name,
-        status:              "completed",
+        actualsSubmittedAt:  willAllBeLocked ? now : selectedPwo.actualsSubmittedAt || "",
+        actualsSubmittedBy:  willAllBeLocked ? currentUser!.name : selectedPwo.actualsSubmittedBy || "",
+        status:              willAllBeLocked ? "completed" : selectedPwo.status,
         updatedAt:           serverTimestamp(),
       })
 
@@ -689,16 +716,22 @@ export function ShiftProductionEntry() {
           onChange={e => setSelectedPwoId(e.target.value)}
           className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-900 bg-white focus:ring-2 focus:ring-indigo-500 outline-none"
         >
-          <option value="">— Select a process work order —</option>
+          <option value="">— Select a pending process work order —</option>
           {[...pwos]
             .sort((a, b) => `${a.shiftDate}-${String(a.shift)}`.localeCompare(`${b.shiftDate}-${String(b.shift)}`))
-            .map(p => (
-              <option key={p.id} value={p.id}>
-                {p.processWoNumber} · {p.shiftDate} / {String(p.shift)} · Target: {p.targetParts} parts ·{" "}
-                {p.actualsSubmittedAt ? "✓ Submitted" : p.shiftDate > today ? "🔒 Future" : "Pending"}
-              </option>
-            ))}
+            .map(p => {
+              const entryState = getPwoEntryState(p)
+              const label = entryState === "submitted" ? "✓ Submitted" : entryState === "future" ? "🔒 Future" : "Pending"
+              return (
+                <option key={p.id} value={p.id} disabled={entryState !== "pending"}>
+                  {p.processWoNumber} · {p.shiftDate} / {String(p.shift)} · Target: {p.targetParts} parts · {label}
+                </option>
+              )
+            })}
         </select>
+        <p className="text-[10px] text-slate-400 mt-2">
+          Submitted SWOs are locked from the latest DB assignment status, so only pending shift-end actuals can be opened for entry.
+        </p>
 
         {/* PWO summary */}
         {selectedPwo && (
@@ -753,7 +786,7 @@ export function ShiftProductionEntry() {
           ))}
 
           {/* Totals bar */}
-          {!allLocked && mergedAssignments.some(a => !a.actualsLocked && !isFutureShift(a.shiftDate)) && (
+          {!allLocked && pendingAssignments.length > 0 && (
             <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
               <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-3">Shift Totals Preview</p>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
@@ -773,7 +806,7 @@ export function ShiftProductionEntry() {
           )}
 
           {/* Action bar */}
-          {!allLocked && mergedAssignments.some(a => !a.actualsLocked && !isFutureShift(a.shiftDate)) && (
+          {!allLocked && pendingAssignments.length > 0 && (
             <div className="sticky bottom-4 flex items-center gap-3 bg-white border border-slate-200 rounded-2xl p-3 shadow-xl">
               <div className="flex-1">
                 {saved && (
@@ -784,6 +817,11 @@ export function ShiftProductionEntry() {
                 {!saved && hasUnsaved && (
                   <span className="text-sm text-amber-700 font-semibold">
                     Unsaved changes — submit to lock in DB
+                  </span>
+                )}
+                {!saved && !hasUnsaved && pendingAssignments.length > 0 && (
+                  <span className="text-sm text-slate-500 font-semibold">
+                    Pending DB values loaded — submit when ready to lock
                   </span>
                 )}
               </div>
@@ -798,7 +836,7 @@ export function ShiftProductionEntry() {
               <button
                 type="button"
                 onClick={handleSubmit}
-                disabled={saving || !hasUnsaved}
+                disabled={saving || pendingAssignments.length === 0}
                 className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-black shadow-md disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 {saving ? <><Loader2 size={15} className="animate-spin"/> Saving…</> : <><Save size={15}/> Submit Shift Actuals</>}
