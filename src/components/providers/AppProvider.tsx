@@ -28,6 +28,14 @@ import { onAuthStateChange, signIn, signOut, fetchUserProfile, auth } from "@/li
 import * as fs from "@/lib/firestoreService"
 import { getIdToken } from "firebase/auth"
 
+function getErrorMessage(err: unknown, fallback: string) {
+  return err instanceof Error ? err.message : fallback
+}
+
+function getErrorCode(err: unknown) {
+  return typeof err === "object" && err !== null && "code" in err ? String(err.code) : ""
+}
+
 // ─── Context type ─────────────────────────────────────────────────────────────
 
 interface AppContextType {
@@ -214,8 +222,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
         try {
           profile = await fetchUserProfile(firebaseUser)
-        } catch (err: any) {
-          if (err?.code === "permission-denied") {
+        } catch (err: unknown) {
+          if (getErrorCode(err) === "permission-denied") {
             await new Promise(r => setTimeout(r, 300))
             profile = await fetchUserProfile(firebaseUser)
           } else {
@@ -267,8 +275,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
           // Silent handler for the rare permission-denied that still slips through.
           // Real errors (network, etc.) are still logged.
-          const onSnapError = (err: Error) => {
-            const code = (err as any)?.code ?? ""
+          const onSnapError = (err: Error & { code?: string }) => {
+            const code = err.code ?? ""
             if (!code.includes("permission-denied")) {
               console.error("Snapshot listener error:", err)
             }
@@ -378,8 +386,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return { success: false, error: json.error ?? "Failed to create user." }
       }
       return { success: true }
-    } catch (err: any) {
-      return { success: false, error: err?.message ?? "Failed to create user." }
+    } catch (err: unknown) {
+      return { success: false, error: getErrorMessage(err, "Failed to create user.") }
     }
   }, [clientId])
 

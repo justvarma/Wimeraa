@@ -363,10 +363,19 @@ export interface WoMachineAssignmentV2 {
   programName?: string
   partsCommitted: number
   producedQty: number
+  partsProduced?: number
+  rawMaterialUsedKg?: number
+  leftoverKg?: number
   rejectedQty: number
   reworkQty: number
   runtimeMinutes?: number
   downtimeMinutes?: number
+  shortcomingCategory?: ShortcomingCategory
+  shortcomingNotes?: string
+  operatorConfirmedBy?: string
+  operatorConfirmedAt?: string
+  actualsLocked?: boolean
+  draftSavedAt?: string
   qaStatus?: "pending" | "approved" | "rework" | "rejected"
   createdAt: string
   updatedAt?: string

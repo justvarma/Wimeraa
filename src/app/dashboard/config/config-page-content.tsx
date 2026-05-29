@@ -1,4 +1,5 @@
 "use client"
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { useEffect, useState } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
@@ -1026,7 +1027,7 @@ function RolesTab() {
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 border border-slate-200">
                 <h3 className="font-black text-slate-800 mb-2">Delete Custom Role</h3>
                 <p className="text-sm text-slate-600 mb-5">
-                  This will permanently remove this role definition. Users already assigned this role won't be affected
+                  This will permanently remove this role definition. Users already assigned this role won&apos;t be affected
                   — their permission level remains unchanged.
                 </p>
                 <div className="flex gap-3">
@@ -1199,6 +1200,7 @@ function ShiftsTab() {
 
   const createShift = async () => {
     const nextOrder = (displayShifts.at(-1)?.order ?? 0) + 1
+    // eslint-disable-next-line react-hooks/purity -- generated only after the Add Shift click handler runs.
     const id = `shift_${Date.now()}`
     setError("")
     setSuccess("")

@@ -443,12 +443,6 @@ Please deploy the latest firestore.rules or run the Next server so /api/qi-workf
   const isScopedToThisProcess = SCOPED_MAP[role] === process
   const isFullAccess = role === UserRole.QUALITY_INSPECTOR || role === UserRole.ADMIN || role === UserRole.FQI
   const canAccess = isFullAccess || isScopedToThisProcess
-  if (!canAccess) return (
-    <div className="flex flex-col items-center justify-center h-[60vh]">
-      <AlertCircle size={48} className="text-red-400 mb-4" />
-      <p className="text-slate-500 font-medium">Access restricted to Quality Inspectors.</p>
-    </div>
-  )
 
   // History records
   const historyRecords = useMemo(() =>
@@ -456,6 +450,13 @@ Please deploy the latest firestore.rules or run the Next server so /api/qi-workf
       .filter(i => i.process === process)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     [qiInspections, process])
+
+  if (!canAccess) return (
+    <div className="flex flex-col items-center justify-center h-[60vh]">
+      <AlertCircle size={48} className="text-red-400 mb-4" />
+      <p className="text-slate-500 font-medium">Access restricted to Quality Inspectors.</p>
+    </div>
+  )
 
   return (
     <div className="space-y-8 max-w-5xl">
