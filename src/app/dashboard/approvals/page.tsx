@@ -70,7 +70,7 @@ export default function ApprovalsPage() {
         <CheckCircle size={16} className="shrink-0 mt-0.5 text-emerald-600"/>
         <p>
           <strong>Approval authority:</strong> Only QI and FQI roles can approve or reject raw materials.
-          The Admin has view-only access to inventory — approvals are exclusively the QI team's responsibility.
+          The Admin has view-only access to inventory — approvals are exclusively the QI team&apos;s responsibility.
         </p>
       </div>
 

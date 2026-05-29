@@ -10,6 +10,10 @@ const blankForm = {
   role: UserRole.STOREKEEPER, plant: "Plant A", department: "Stores",
 }
 
+function getErrorMessage(err: unknown, fallback: string) {
+  return err instanceof Error ? err.message : fallback
+}
+
 export default function UsersPage() {
   const { currentUser, users, addUser, updateUser, deleteUser, roles } = useApp()
 
@@ -98,8 +102,8 @@ export default function UsersPage() {
         }
         setShowForm(false)
       }
-    } catch (err: any) {
-      setSaveError(err?.message ?? "An error occurred.")
+    } catch (err: unknown) {
+      setSaveError(getErrorMessage(err, "An error occurred."))
     } finally {
       setSaving(false)
     }

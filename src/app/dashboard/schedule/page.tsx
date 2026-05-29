@@ -48,14 +48,14 @@ export default function SchedulePage() {
   const canManage  = isAdmin
   const isViewOnly = isPDC || isFQIOrQI
 
-  const months = [...new Set(schedules.map(s => s.date.slice(0, 7)))].sort().reverse()
+  const months = useMemo(() => [...new Set(schedules.map(s => s.date.slice(0, 7)))].sort().reverse(), [schedules])
 
-  const visible = schedules.filter(s => {
+  const visible = useMemo(() => schedules.filter(s => {
     const q = search.toLowerCase()
     const matchSearch = s.partId.toLowerCase().includes(q) || s.partName.toLowerCase().includes(q)
     const matchMonth = !monthFilter || s.date.startsWith(monthFilter)
     return matchSearch && matchMonth
-  })
+  }), [monthFilter, schedules, search])
 
   const totalRequired = visible.reduce((sum, s) => sum + s.requiredQuantity, 0)
   const scheduleProgress = (scheduleId: string) => {

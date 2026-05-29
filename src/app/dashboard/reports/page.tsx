@@ -47,16 +47,6 @@ export default function ReportsPage() {
   const { currentUser, workOrders, processRecords, materials, qiInspections, fqiInspections } = useApp()
   const role = currentUser?.role as UserRole
 
-  if (!ALLOWED_ROLES.includes(role)) {
-    return (
-      <div className="flex flex-col items-center justify-center h-80 gap-4">
-        <ShieldAlert size={48} className="text-red-400"/>
-        <p className="text-lg font-bold text-slate-700">Access Denied</p>
-        <p className="text-sm text-slate-500">Reports are available to Admin and PDC roles only.</p>
-      </div>
-    )
-  }
-
   // Scoped process for PDC sub-roles; null = all processes (Admin + PDC Manager)
   const scopedProcess = PDC_PROCESS_MAP[role] ?? null
   const processes: ProcessStage[] = scopedProcess ? [scopedProcess] : ["die_casting", "coating", "cnc_vmc"]
@@ -101,6 +91,16 @@ export default function ReportsPage() {
     })
     return Array.from(map.values()).sort((a, b) => b.produced - a.produced)
   }, [filteredRecords])
+
+  if (!ALLOWED_ROLES.includes(role)) {
+    return (
+      <div className="flex flex-col items-center justify-center h-80 gap-4">
+        <ShieldAlert size={48} className="text-red-400"/>
+        <p className="text-lg font-bold text-slate-700">Access Denied</p>
+        <p className="text-sm text-slate-500">Reports are available to Admin and PDC roles only.</p>
+      </div>
+    )
+  }
 
   // FQI aggregate stats
   const fqiFinishedGoods = filteredFQI.reduce((s, f) => s + f.finishedGoodsCount, 0)
