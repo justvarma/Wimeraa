@@ -249,7 +249,9 @@ export interface PartMaster {
   partName: string
   materialRequired: string
   grade: string
-  quantityPerPart: number
+  bufferPercent: number
+  weightAfterDieCastingKg: number
+  weightAfterMachiningKg: number
 }
 
 export interface MonthlySchedule {
@@ -643,10 +645,10 @@ export const INITIAL_SCHEDULES: MonthlySchedule[] = [
 ]
 
 export const INITIAL_PART_MASTERS: PartMaster[] = [
-  { id: "re-pt-0062__default", partId: "RE-PT-0062", partName: "Engine Mount Bracket", materialRequired: "Aluminium", grade: "A", quantityPerPart: 1 },
-  { id: "re-pt-0047__default", partId: "RE-PT-0047", partName: "Gear Box Housing", materialRequired: "Aluminium", grade: "A", quantityPerPart: 1 },
-  { id: "re-pt-0035__default", partId: "RE-PT-0035", partName: "Crankcase Left", materialRequired: "Aluminium", grade: "A", quantityPerPart: 1 },
-  { id: "re-pt-0021__default", partId: "RE-PT-0021", partName: "Cylinder Head Cover", materialRequired: "Aluminium", grade: "A", quantityPerPart: 1 },
+  { id: "re-pt-0062__default", partId: "RE-PT-0062", partName: "Engine Mount Bracket", materialRequired: "Aluminium", grade: "A", bufferPercent: 2, weightAfterDieCastingKg: 1, weightAfterMachiningKg: 0.92 },
+  { id: "re-pt-0047__default", partId: "RE-PT-0047", partName: "Gear Box Housing", materialRequired: "Aluminium", grade: "A", bufferPercent: 2, weightAfterDieCastingKg: 1, weightAfterMachiningKg: 0.9 },
+  { id: "re-pt-0035__default", partId: "RE-PT-0035", partName: "Crankcase Left", materialRequired: "Aluminium", grade: "A", bufferPercent: 2, weightAfterDieCastingKg: 1, weightAfterMachiningKg: 0.9 },
+  { id: "re-pt-0021__default", partId: "RE-PT-0021", partName: "Cylinder Head Cover", materialRequired: "Aluminium", grade: "A", bufferPercent: 2, weightAfterDieCastingKg: 1, weightAfterMachiningKg: 0.9 },
 ]
 
 export const INITIAL_PTCS: PTC[] = [
