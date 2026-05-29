@@ -352,6 +352,9 @@ export interface ProcessWorkOrderV2 {
   totalLeftoverKg?: number
   qiCompletedAt?: string
   qiCompletedBy?: string
+  pdcApprovedAt?: string
+  pdcApprovedBy?: string
+  nextProcessWoId?: string
   shortcomingCategory?: ShortcomingCategory
   shortcomingNotes?: string
   createdAt: string
@@ -384,6 +387,14 @@ export interface WoMachineAssignmentV2 {
   qiInspectedBy?: string
   qiInspectedById?: string
   qiInspectedAt?: string
+  pdcApprovalStatus?: "pending" | "approved" | "rejected"
+  pdcApprovedBy?: string
+  pdcApprovedById?: string
+  pdcApprovedAt?: string
+  pdcRejectedBy?: string
+  pdcRejectedById?: string
+  pdcRejectedAt?: string
+  pdcRejectedReason?: string
   runtimeMinutes?: number
   downtimeMinutes?: number
   shortcomingCategory?: ShortcomingCategory

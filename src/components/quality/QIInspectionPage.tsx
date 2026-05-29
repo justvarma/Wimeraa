@@ -7,10 +7,8 @@ import {
   type WoMachineAssignmentV2, type ProcessWorkOrderV2,
 } from "@/lib/store"
 import { getShiftLabel } from "@/lib/shiftUtils"
-import { auth } from "@/lib/auth"
-import { buildStageSubWorkOrder, getNextProcess } from "@/lib/workflow"
 import {
-  Plus, Trash2, CheckCircle2, AlertTriangle, XCircle, ClipboardList,
+  Plus, Trash2, CheckCircle2, ClipboardList,
   Eye, ChevronDown, ChevronRight, AlertCircle, ShieldCheck, History,
 } from "lucide-react"
 
@@ -181,37 +179,13 @@ const PROCESS_LABEL: Record<ProcessStage, string> = {
   cnc_vmc: "CNC/VMC Machining",
 }
 
-// ─── BLANK FORM ───────────────────────────────────────────────────────────────
-interface FormState {
-  date: string
-  workOrderId: string
-  producedPartCount: string
-  goodPartCount: string
-  reworkCount: string
-  reworkEntries: ReworkEntry[]
-  rejectedCount: string
-  rejectionEntries: RejectionEntry[]
-}
-
+// ─── Machine-wise QI form state ──────────────────────────────────────────────
 interface MachineQiForm {
   goodPartCount: string
   reworkCount: string
   reworkEntries: ReworkEntry[]
   rejectedCount: string
   rejectionEntries: RejectionEntry[]
-}
-
-function blank(): FormState {
-  return {
-    date: new Date().toISOString().split("T")[0],
-    workOrderId: "",
-    producedPartCount: "",
-    goodPartCount: "",
-    reworkCount: "",
-    reworkEntries: [],
-    rejectedCount: "",
-    rejectionEntries: [],
-  }
 }
 
 const getAssignmentProduced = (assignment: Pick<WoMachineAssignmentV2, "partsProduced" | "producedQty">) =>
@@ -231,34 +205,18 @@ const blankMachineQiForm = (): MachineQiForm => ({
 // ─── MAIN ─────────────────────────────────────────────────────────────────────
 export function QIInspectionPage({ process }: { process: ProcessStage }) {
   const {
-    currentUser, workOrders, qiInspections, addQIInspection, updateWorkOrder, addWorkOrder, shifts,
+    currentUser, workOrders, qiInspections, addQIInspection, shifts,
     processWorkOrdersV2, woMachineAssignmentsV2, updateWoMachineAssignmentV2, updateProcessWorkOrderV2,
   } = useApp()
   const theme = THEME[process]
 
-  const [form, setForm] = useState<FormState>(blank())
-  const [errors, setErrors] = useState<Record<string, string>>({})
   const [submitted, setSubmitted] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
   const [showPrev, setShowPrev] = useState(true)
   const [showHistory, setShowHistory] = useState(false)
-  const [balanceTouched, setBalanceTouched] = useState(false)
-  const [submittedWorkOrderIds, setSubmittedWorkOrderIds] = useState<string[]>([])
   const [machineQiForms, setMachineQiForms] = useState<Record<string, MachineQiForm>>({})
   const [submittingMachineId, setSubmittingMachineId] = useState<string | null>(null)
 
   const prevInspections = usePrevInspections(process, qiInspections)
-
-  // Work orders for this process
-  const eligibleWOs = useMemo(() =>
-    workOrders.filter(wo =>
-      wo.process === process &&
-      wo.status === "awaiting_qi" &&
-      wo.targetPartNos > 0 &&
-      !submittedWorkOrderIds.includes(wo.id) &&
-      (!wo.assignedQiId || wo.assignedQiId === currentUser?.id || currentUser?.role === UserRole.ADMIN)
-    ).sort((a, b) => String(a.machine || "").localeCompare(String(b.machine || ""))),
-    [workOrders, process, submittedWorkOrderIds, currentUser])
 
   const processPwoById = useMemo(() => {
     const map = new Map<string, ProcessWorkOrderV2>()
@@ -274,14 +232,11 @@ export function QIInspectionPage({ process }: { process: ProcessStage }) {
         const pwo = processPwoById.get(assignment.processWoId)
         return Boolean(pwo) &&
           isProductionComplete(assignment) &&
-          !["approved", "rework", "rejected"].includes(assignment.qaStatus || "pending")
+          (!assignment.qiInspectedAt || assignment.pdcApprovalStatus === "rejected")
       })
       .sort((a, b) => `${a.shiftDate}-${String(a.shift)}-${a.machineName}`.localeCompare(`${b.shiftDate}-${String(b.shift)}-${b.machineName}`)),
     [woMachineAssignmentsV2, processPwoById])
 
-  const selectedWO = useMemo(() =>
-    eligibleWOs.find(wo => wo.id === form.workOrderId) ?? null,
-    [eligibleWOs, form.workOrderId])
 
   const getMachineQiForm = (assignment: WoMachineAssignmentV2): MachineQiForm => ({
     ...blankMachineQiForm(),
@@ -301,128 +256,6 @@ export function QIInspectionPage({ process }: { process: ProcessStage }) {
     }))
   }
 
-  const set = (k: keyof FormState, v: unknown) => {
-    setForm(f => ({ ...f, [k]: v }))
-    setErrors(e => {
-      const n = { ...e }
-      delete n[k]
-      if (["producedPartCount", "goodPartCount", "reworkCount", "rejectedCount"].includes(k)) delete n.balance
-      return n
-    })
-  }
-
-  // Derived counts
-  const produced = parseInt(form.producedPartCount) || 0
-  const good = parseInt(form.goodPartCount) || 0
-  const rework = parseInt(form.reworkCount) || 0
-  const rejected = parseInt(form.rejectedCount) || 0
-  const sumCheck = good + rework + rejected
-
-  const validate = (): boolean => {
-    const errs: Record<string, string> = {}
-    if (!form.date) errs.date = "Date is required"
-    if (!form.workOrderId) errs.workOrderId = "Work order is required"
-    if (!form.producedPartCount || produced <= 0) errs.producedPartCount = "Produced count is required"
-    if (!form.goodPartCount || good < 0) errs.goodPartCount = "Good count is required"
-    if (!form.reworkCount || rework < 0) errs.reworkCount = "Rework count is required"
-    if (!form.rejectedCount || rejected < 0) errs.rejectedCount = "Rejected count is required"
-    if (produced > 0 && sumCheck !== produced) errs.balance = `Good + Rework + Rejected must equal Produced (${sumCheck} ≠ ${produced})`
-    if (rework > 0 && form.reworkEntries.length === 0) errs.reworkEntries = "Rework reasons are required"
-    if (rework > 0) {
-      const rTotal = form.reworkEntries.reduce((s, e) => s + e.quantity, 0)
-      if (rTotal !== rework) errs.reworkEntries = `Rework reason quantities (${rTotal}) must equal rework count (${rework})`
-    }
-    if (rejected > 0 && form.rejectionEntries.length === 0) errs.rejectionEntries = "Rejection reasons are required"
-    if (rejected > 0) {
-      const rjTotal = form.rejectionEntries.reduce((s, e) => s + e.quantity, 0)
-      if (rjTotal !== rejected) errs.rejectionEntries = `Rejection reason quantities (${rjTotal}) must equal rejected count (${rejected})`
-    }
-    setErrors(errs)
-    return Object.keys(errs).length === 0
-  }
-
-  const submitWorkflowInBrowser = async (wo: NonNullable<typeof selectedWO>) => {
-    const qiRecord = {
-      process,
-      date: form.date,
-      masterId: wo.masterId,
-      partId: wo.partId,
-      partName: wo.partName,
-      shift: wo.shift as Shift,
-      machine: wo.machine,
-      producedPartCount: produced,
-      goodPartCount: good,
-      reworkCount: rework,
-      reworkEntries: form.reworkEntries,
-      rejectedCount: rejected,
-      rejectionEntries: form.rejectionEntries,
-      inspectedBy: currentUser!.name,
-      inspectedById: currentUser!.id,
-      workOrderId: wo.id,
-      operator: wo.operator,
-      isExternal: wo.isExternal,
-      vendorName: wo.vendorName,
-      vendorProductionDate: wo.vendorProductionDate,
-      vendorMachine: wo.vendorMachine,
-      vendorShift: wo.vendorShift,
-      assignedQiId: wo.assignedQiId,
-    }
-    const qiId = await addQIInspection(qiRecord)
-    const nextProcess = good > 0 ? getNextProcess(process) : null
-    const finalAcceptedQuantity = good > 0 && !nextProcess
-    const hasAcceptedQuantity = good > 0
-    const rootId = wo.rootWoId || wo.parentWoId || wo.id
-
-    await updateWorkOrder(wo.id, {
-      goodParts: good,
-      reworkParts: rework,
-      rejectedParts: rejected,
-      qiApproval: currentUser!.name,
-      status: hasAcceptedQuantity ? (finalAcceptedQuantity ? "finished_goods" : "completed") : "rejected",
-    })
-
-    if (hasAcceptedQuantity && nextProcess) {
-      await addWorkOrder(buildStageSubWorkOrder({
-        source: { ...wo, goodParts: good, reworkParts: rework, rejectedParts: rejected },
-        process: nextProcess,
-        createdBy: "System Workflow",
-        targetPartNos: good,
-        parentWoId: rootId,
-        originQiId: qiId,
-      }))
-    }
-
-    if (rework > 0) {
-      const existingReworks = workOrders.filter(w => w.parentWoId === rootId && w.woType === "rework")
-      await addWorkOrder(buildStageSubWorkOrder({
-        source: { ...wo, goodParts: good, reworkParts: rework, rejectedParts: rejected },
-        process,
-        createdBy: "System Workflow",
-        targetPartNos: rework,
-        parentWoId: rootId,
-        reworkCycleNumber: existingReworks.length + 1,
-        defectType: "rework",
-        originQiId: qiId,
-      }))
-    }
-
-    if (rejected > 0) {
-      const existingRejections = workOrders.filter(w => w.parentWoId === rootId && w.woType === "rejection")
-      await addWorkOrder({
-        ...buildStageSubWorkOrder({
-          source: { ...wo, goodParts: good, reworkParts: rework, rejectedParts: rejected },
-          process,
-          createdBy: "System Workflow",
-          targetPartNos: rejected,
-          parentWoId: rootId,
-          reworkCycleNumber: existingRejections.length + 1,
-          defectType: "rejection",
-          originQiId: qiId,
-        }),
-        acceptancePoints: "Rejected/NCR tracking WO — separated from accepted production for scrap analysis and reporting.",
-      })
-    }
-  }
 
   const submitMachineInspection = async (assignment: WoMachineAssignmentV2) => {
     if (!currentUser || submittingMachineId) return
@@ -474,6 +307,8 @@ export function QIInspectionPage({ process }: { process: ProcessStage }) {
         qiInspectedById: currentUser.id,
         qiInspectedAt: now,
         qaStatus,
+        pdcApprovalStatus: "pending",
+        pdcRejectedReason: "",
         updatedAt: now,
       })
 
@@ -484,6 +319,7 @@ export function QIInspectionPage({ process }: { process: ProcessStage }) {
         reworkParts: machineRework,
         rejectedParts: machineRejected,
         qaStatus,
+        pdcApprovalStatus: "pending" as const,
       } : item)
       const readySiblings = nextAssignments.filter(item => isProductionComplete(item))
       const allReadySiblingsClassified = readySiblings.length > 0 && readySiblings.every(item => ["approved", "rework", "rejected"].includes(item.qaStatus || "pending"))
@@ -533,80 +369,6 @@ export function QIInspectionPage({ process }: { process: ProcessStage }) {
       alert(err instanceof Error ? err.message : "Unable to submit machine-wise QI classification.")
     } finally {
       setSubmittingMachineId(null)
-    }
-  }
-
-  const handleSubmit = async () => {
-    if (submitting) return
-    setBalanceTouched(true)
-    if (!validate()) return
-
-    const selectedWorkOrderId = form.workOrderId
-    const wo = selectedWO
-    if (!wo) {
-      setErrors(e => ({
-        ...e,
-        workOrderId: "Selected work order is no longer awaiting QI. Please select it again.",
-      }))
-      return
-    }
-
-    setSubmitting(true)
-    setSubmittedWorkOrderIds(ids => ids.includes(wo.id) ? ids : [...ids, wo.id])
-    try {
-      const token = await auth.currentUser?.getIdToken()
-      if (!token) throw new Error("Not signed in.")
-
-      const res = await fetch("/api/qi-workflow", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          process,
-          date: form.date,
-          workOrderId: wo.id,
-          producedPartCount: produced,
-          goodPartCount: good,
-          reworkCount: rework,
-          reworkEntries: form.reworkEntries,
-          rejectedCount: rejected,
-          rejectionEntries: form.rejectionEntries,
-        }),
-      })
-      const responseText = await res.text()
-      let result: { error?: string } = {}
-      try {
-        result = responseText ? JSON.parse(responseText) as { error?: string } : {}
-      } catch {
-        result = { error: responseText }
-      }
-      if (!res.ok) {
-        if (res.status === 404) {
-          await submitWorkflowInBrowser(wo)
-        } else {
-          throw new Error(result.error || res.statusText || `Unable to submit QI workflow (${res.status}).`)
-        }
-      }
-
-      setSubmitted(true)
-      setTimeout(() => {
-        setSubmitted(false)
-        setForm(blank())
-        setBalanceTouched(false)
-      }, 3000)
-    } catch (err) {
-      setSubmittedWorkOrderIds(ids => ids.filter(id => id !== selectedWorkOrderId))
-      const message = err instanceof Error ? err.message : "Unable to submit QI inspection."
-      console.error(err)
-      alert(message.includes("Missing or insufficient permissions")
-        ? `${message}
-
-Please deploy the latest firestore.rules or run the Next server so /api/qi-workflow is available.`
-        : message)
-    } finally {
-      setSubmitting(false)
     }
   }
 
@@ -684,7 +446,7 @@ Please deploy the latest firestore.rules or run the Next server so /api/qi-workf
       {submitted && (
         <div className="flex items-center gap-3 bg-emerald-50 border-2 border-emerald-300 text-emerald-800 rounded-2xl px-6 py-4 font-bold animate-pulse">
           <CheckCircle2 size={22} />
-          Inspection record submitted successfully!
+          Machine QI report submitted to PDC for approval!
         </div>
       )}
 
@@ -693,8 +455,8 @@ Please deploy the latest firestore.rules or run the Next server so /api/qi-workf
         <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-3">
           <ShieldCheck size={20} className="text-emerald-600" />
           <div>
-            <h2 className="font-black text-slate-900">Machine-wise PDC Actuals Ready for QI</h2>
-            <p className="text-xs text-slate-500 mt-0.5">Classify each completed machine output into Good, Rework, and Rejected parts.</p>
+            <h2 className="font-black text-slate-900">Machine-wise QI Classification</h2>
+            <p className="text-xs text-slate-500 mt-0.5">Classify completed PDC machine output, then submit the report to the PDC subrole for approval.</p>
           </div>
           <span className={`ml-auto px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${theme.badge}`}>
             {machineAssignmentsReadyForQi.length} Pending
@@ -741,6 +503,12 @@ Please deploy the latest firestore.rules or run the Next server so /api/qi-workf
                       </div>
                     </div>
                   </div>
+
+                  {assignment.pdcApprovalStatus === "rejected" && assignment.pdcRejectedReason && (
+                    <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 font-bold">
+                      PDC rejected this report: {assignment.pdcRejectedReason}. Please correct and resubmit for approval.
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <Field label="Good Parts">
@@ -816,7 +584,7 @@ Please deploy the latest firestore.rules or run the Next server so /api/qi-workf
                       className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black px-5 py-2.5 rounded-xl transition shadow disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <ShieldCheck size={16} />
-                      {isSubmittingThisMachine ? "Saving..." : "Save Machine QI"}
+                      {isSubmittingThisMachine ? "Submitting..." : "Submit to PDC Approval"}
                     </button>
                   </div>
                 </div>
@@ -824,194 +592,6 @@ Please deploy the latest firestore.rules or run the Next server so /api/qi-workf
             })}
           </div>
         )}
-      </section>
-
-      {/* Inspection Form */}
-      <section className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-        <div className={`px-6 py-4 border-b border-slate-100 flex items-center gap-3`}>
-          <ShieldCheck size={20} className="text-blue-600" />
-          <h2 className="font-black text-slate-900">New Inspection Record</h2>
-          <span className={`ml-auto px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${theme.badge}`}>
-            {PROCESS_LABEL[process]}
-          </span>
-        </div>
-
-        <div className="p-6 space-y-6">
-          {/* Row 1: Date + WO */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <Field label="Inspection Date" error={errors.date}>
-              <input
-                type="date"
-                value={form.date}
-                onChange={e => set("date", e.target.value)}
-                className={inputCls}
-              />
-            </Field>
-            <Field label="Work Order (Master ID)" error={errors.workOrderId}>
-              <select
-                value={form.workOrderId}
-                onChange={e => set("workOrderId", e.target.value)}
-                className={inputCls}
-              >
-                <option value="">— Select Work Order —</option>
-                {eligibleWOs.map(wo => (
-                  <option key={wo.id} value={wo.id}>
-                    {wo.masterId} · {wo.partId} · {wo.partName}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          </div>
-
-          {/* Selected WO info */}
-          {selectedWO && (
-            <div className="bg-slate-50 border border-slate-200 rounded-xl px-5 py-4 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-              <div><p className="text-slate-400 font-black uppercase tracking-widest">Part ID</p><p className="font-bold text-slate-700">{selectedWO.partId}</p></div>
-              <div><p className="text-slate-400 font-black uppercase tracking-widest">Part Name</p><p className="font-bold text-slate-700">{selectedWO.partName}</p></div>
-              <div><p className="text-slate-400 font-black uppercase tracking-widest">Target</p><p className="font-bold text-slate-700">{selectedWO.targetPartNos} pcs</p></div>
-              <div><p className="text-slate-400 font-black uppercase tracking-widest">WO Status</p><p className="font-bold text-slate-700 capitalize">{selectedWO.status.replace("_", " ")}</p></div>
-              <div><p className="text-slate-400 font-black uppercase tracking-widest">Inherited Shift</p><p className="font-bold text-slate-700">{getShiftLabel(shifts, selectedWO.shift)}</p></div>
-              <div><p className="text-slate-400 font-black uppercase tracking-widest">Inherited Machine</p><p className="font-bold text-slate-700">{selectedWO.machine || "—"}</p></div>
-              <div><p className="text-slate-400 font-black uppercase tracking-widest">Operator</p><p className="font-bold text-slate-700">{selectedWO.operator || "—"}</p></div>
-              <div><p className="text-slate-400 font-black uppercase tracking-widest">PTC Code</p><p className="font-bold text-slate-700">{selectedWO.ptcId || "—"}</p></div>
-            </div>
-          )}
-
-          {/* Part counts */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-            <Field label="Produced Part Count" error={errors.producedPartCount}>
-              <input
-                type="number" min="0"
-                value={form.producedPartCount}
-                onChange={e => { set("producedPartCount", e.target.value); setBalanceTouched(false) }}
-                onBlur={() => setBalanceTouched(true)}
-                className={inputCls}
-                placeholder="Total produced"
-              />
-            </Field>
-            <Field label="Good Part Count" error={errors.goodPartCount}>
-              <input
-                type="number" min="0"
-                value={form.goodPartCount}
-                onChange={e => { set("goodPartCount", e.target.value); setBalanceTouched(false) }}
-                onBlur={() => setBalanceTouched(true)}
-                className={`${inputCls} border-emerald-300 focus:ring-emerald-400`}
-                placeholder="Accepted parts"
-              />
-            </Field>
-            <div className="space-y-5">
-              <Field label="Rework Count" error={errors.reworkCount}>
-                <input
-                  type="number" min="0"
-                  value={form.reworkCount}
-                  onChange={e => {
-                    set("reworkCount", e.target.value)
-                    setBalanceTouched(false)
-                    if (Number(e.target.value) === 0) set("reworkEntries", [])
-                  }}
-                  onBlur={() => setBalanceTouched(true)}
-                  className={`${inputCls} border-amber-300 focus:ring-amber-400`}
-                  placeholder="Rework parts"
-                />
-              </Field>
-            </div>
-          </div>
-
-          {/* Balance check */}
-          {produced > 0 && (
-            <div className={`rounded-xl px-5 py-3 flex items-center gap-3 text-sm font-bold ${
-              sumCheck === produced
-                ? "bg-emerald-50 border border-emerald-200 text-emerald-700"
-                : (balanceTouched || !!errors.balance)
-                  ? "bg-red-50 border border-red-200 text-red-700"
-                  : "bg-slate-50 border border-slate-200 text-slate-600"
-            }`}>
-              {sumCheck === produced
-                ? <><CheckCircle2 size={16} /> Parts balanced: {good} Good + {rework} Rework + {rejected} Rejected = {produced} Produced ✓</>
-                : (balanceTouched || !!errors.balance)
-                  ? <><AlertTriangle size={16} /> {errors.balance || `Good + Rework + Rejected must equal Produced (${sumCheck} ≠ ${produced})`}</>
-                  : <><ClipboardList size={16} /> Current total: {sumCheck} / {produced}</>
-              }
-            </div>
-          )}
-
-          {/* Rejected count (separate row for visual clarity) */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <Field label="Rejected Part Count" error={errors.rejectedCount}>
-              <input
-                type="number" min="0"
-                value={form.rejectedCount}
-                onChange={e => {
-                  set("rejectedCount", e.target.value)
-                  setBalanceTouched(false)
-                  if (Number(e.target.value) === 0) set("rejectionEntries", [])
-                }}
-                onBlur={() => setBalanceTouched(true)}
-                className={`${inputCls} border-red-300 focus:ring-red-400`}
-                placeholder="Rejected parts"
-              />
-            </Field>
-          </div>
-
-          {/* Rework reasons */}
-          {rework > 0 && (
-            <div className="border-2 border-amber-200 bg-amber-50 rounded-2xl p-5 space-y-3">
-              <div className="flex items-center gap-2">
-                <AlertTriangle size={16} className="text-amber-600" />
-                <p className="font-black text-amber-900 text-sm">Rework Reasons <span className="text-amber-600 font-bold">(Required — {rework} parts)</span></p>
-              </div>
-              <ReasonEditor
-                entries={form.reworkEntries}
-                onChange={e => set("reworkEntries", e)}
-                type="rework"
-                totalAllowed={rework}
-              />
-              {errors.reworkEntries && (
-                <p className="text-[10px] text-red-600 font-bold">{errors.reworkEntries}</p>
-              )}
-            </div>
-          )}
-
-          {/* Rejection reasons */}
-          {rejected > 0 && (
-            <div className="border-2 border-red-200 bg-red-50 rounded-2xl p-5 space-y-3">
-              <div className="flex items-center gap-2">
-                <XCircle size={16} className="text-red-600" />
-                <p className="font-black text-red-900 text-sm">Rejection Reasons <span className="text-red-600 font-bold">(Required — {rejected} parts)</span></p>
-              </div>
-              <ReasonEditor
-                entries={form.rejectionEntries}
-                onChange={e => set("rejectionEntries", e)}
-                type="rejection"
-                totalAllowed={rejected}
-              />
-              {errors.rejectionEntries && (
-                <p className="text-[10px] text-red-600 font-bold">{errors.rejectionEntries}</p>
-              )}
-            </div>
-          )}
-
-          {/* Submit */}
-          <div className="pt-2 flex items-center justify-between flex-wrap gap-4">
-            <button
-              type="button"
-              onClick={() => { setForm(blank()); setErrors({}); setBalanceTouched(false) }}
-              disabled={submitting}
-              className="text-sm font-bold text-slate-500 hover:text-slate-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Reset form
-            </button>
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={submitting}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-black px-6 py-3 rounded-xl transition shadow-lg shadow-blue-200 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <ShieldCheck size={18} />
-              {submitting ? "Submitting..." : "Submit Inspection"}
-            </button>
-          </div>
-        </div>
       </section>
 
       {/* History table */}

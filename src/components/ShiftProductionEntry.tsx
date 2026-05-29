@@ -16,7 +16,7 @@ import { useState, useEffect, useCallback, useMemo } from "react"
 import {
   CheckCircle2, ChevronDown, ChevronRight,
   RefreshCw, Settings2, Package, Zap, User, Calendar,
-  Save, Loader2, Info, Lock,
+  Save, Loader2, Info, Lock, XCircle,
 } from "lucide-react"
 import { useApp } from "@/components/providers/AppProvider"
 import {
@@ -24,10 +24,11 @@ import {
   type ProcessStage, type Shift,
 } from "@/lib/store"
 
+import { getNextProcess } from "@/lib/workflow"
 import { db } from "@/lib/firebase"
 import {
   collection, query, where, getDocs, updateDoc, addDoc,
-  doc, serverTimestamp,
+  doc, serverTimestamp, setDoc,
 } from "firebase/firestore"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -45,9 +46,9 @@ export type MachineAssignment = {
   partsCommitted: number
   producedQty: number
   partsProduced?: number
-  goodParts: number
-  reworkParts: number
-  rejectedParts: number
+  goodParts?: number
+  reworkParts?: number
+  rejectedParts?: number
   rawMaterialUsedKg: number
   leftoverKg: number
   downtimeMinutes: number
@@ -56,6 +57,11 @@ export type MachineAssignment = {
   operatorConfirmedBy: string
   operatorConfirmedAt: string
   actualsLocked: boolean
+  qiInspectedAt?: string
+  qiInspectedBy?: string
+  qaStatus?: "pending" | "approved" | "rework" | "rejected"
+  pdcApprovalStatus?: "pending" | "approved" | "rejected"
+  pdcRejectedReason?: string
 }
 
 export type ProcessWOV2 = {
@@ -83,6 +89,9 @@ export type ProcessWOV2 = {
   totalLeftoverKg?: number
   actualsSubmittedAt?: string
   actualsSubmittedBy?: string
+  pdcApprovedAt?: string
+  pdcApprovedBy?: string
+  nextProcessWoId?: string
 }
 
 // ─── Styling ──────────────────────────────────────────────────────────────────
@@ -440,6 +449,15 @@ export function ShiftProductionEntry() {
     return map
   }, [assignments])
 
+  const processPwoById = useMemo(() => new Map(pwos.map(pwo => [pwo.id, pwo])), [pwos])
+
+  const pdcReviewAssignments = useMemo(() => assignments.filter(assignment =>
+    Boolean(processPwoById.get(assignment.processWoId)) &&
+    isAssignmentComplete(assignment) &&
+    Boolean(assignment.qiInspectedAt) &&
+    (assignment.pdcApprovalStatus || "pending") === "pending"
+  ), [assignments, processPwoById])
+
   const getPwoEntryState = useCallback((pwo: ProcessWOV2) => {
     if (pwo.shiftDate > new Date().toISOString().split("T")[0]) return "future" as const
     const pwoAssignments = assignmentsByPwoId.get(pwo.id) ?? []
@@ -452,6 +470,8 @@ export function ShiftProductionEntry() {
   const [saving,      setSaving]      = useState(false)
   const [savingDraft, setSavingDraft] = useState(false)
   const [saved,       setSaved]       = useState(false)
+  const [pdcReviewingId, setPdcReviewingId] = useState<string | null>(null)
+  const [pdcRejectReasons, setPdcRejectReasons] = useState<Record<string, string>>({})
 
   // Reset edits when PWO changes, and clear a submitted/future SWO that is no longer enterable after DB refresh.
   useEffect(() => {
@@ -713,6 +733,127 @@ export function ShiftProductionEntry() {
     }
   }
 
+  const completePdcReviewForPwo = async (pwo: ProcessWOV2, now: string) => {
+    const nextProcess = getNextProcess(pwo.processType as ProcessStage)
+    const pwoAssignments = assignmentsByPwoId.get(pwo.id) ?? []
+    const totalGood = pwoAssignments.reduce((sum, assignment) => sum + Number(assignment.goodParts ?? 0), 0)
+
+    if (!nextProcess || totalGood <= 0) {
+      await updateDoc(doc(db, "clients", clientId, "process_work_orders_v2", pwo.id), {
+        status: "completed",
+        pdcApprovedAt: now,
+        pdcApprovedBy: currentUser!.name,
+        updatedAt: serverTimestamp(),
+      })
+      return
+    }
+
+    const existingNext = await getDocs(query(
+      collection(db, "clients", clientId, "process_work_orders_v2"),
+      where("rootWoId", "==", pwo.rootWoId),
+      where("processType", "==", nextProcess)
+    ))
+    const existingNextId = existingNext.docs[0]?.id
+    let nextProcessWoId = existingNextId || ""
+
+    if (!nextProcessWoId) {
+      const nextRef = doc(collection(db, "clients", clientId, "process_work_orders_v2"))
+      nextProcessWoId = nextRef.id
+      const nextRequiredKg = pwo.targetParts > 0
+        ? Number(((pwo.requiredQtyKg || 0) * (totalGood / pwo.targetParts)).toFixed(3))
+        : 0
+      await setDoc(nextRef, {
+        id: nextProcessWoId,
+        processWoNumber: `${pwo.processWoNumber}-${String(nextProcess).toUpperCase()}`,
+        parentWoId: pwo.parentWoId,
+        rootWoId: pwo.rootWoId,
+        processType: nextProcess,
+        status: "scheduled",
+        shiftDate: now.split("T")[0],
+        shift: "",
+        targetParts: totalGood,
+        requiredQtyKg: nextRequiredKg,
+        bufferPercent: pwo.bufferPercent || 0,
+        assignedQtyKg: 0,
+        takenQtyKg: 0,
+        leftoverQtyKg: 0,
+        shortcomingCategory: "none",
+        shortcomingNotes: `Auto-created after ${PROCESS_STAGE_LABELS[pwo.processType as ProcessStage]} PDC approval.`,
+        createdAt: now,
+        updatedAt: now,
+      })
+    }
+
+    await updateDoc(doc(db, "clients", clientId, "process_work_orders_v2", pwo.id), {
+      status: "qa_approved",
+      pdcApprovedAt: now,
+      pdcApprovedBy: currentUser!.name,
+      nextProcessWoId,
+      updatedAt: serverTimestamp(),
+    })
+  }
+
+  const handlePdcApprove = async (assignment: MachineAssignment) => {
+    if (!clientId || !currentUser || pdcReviewingId) return
+    const pwo = processPwoById.get(assignment.processWoId)
+    if (!pwo) return
+
+    setPdcReviewingId(assignment.id)
+    try {
+      const now = new Date().toISOString()
+      await updateDoc(doc(db, "clients", clientId, "wo_machine_assignments_v2", assignment.id), {
+        pdcApprovalStatus: "approved",
+        pdcApprovedBy: currentUser.name,
+        pdcApprovedById: currentUser.id,
+        pdcApprovedAt: now,
+        pdcRejectedReason: "",
+        updatedAt: serverTimestamp(),
+      })
+
+      const siblings = assignmentsByPwoId.get(assignment.processWoId) ?? []
+      const nextSiblings = siblings.map(item => item.id === assignment.id ? { ...item, pdcApprovalStatus: "approved" as const } : item)
+      const completeSiblings = nextSiblings.filter(item => isAssignmentComplete(item))
+      const allApproved = completeSiblings.length > 0 && completeSiblings.every(item => Boolean(item.qiInspectedAt) && item.pdcApprovalStatus === "approved")
+      if (allApproved) await completePdcReviewForPwo(pwo, now)
+
+      await reload()
+    } catch (e: unknown) {
+      alert("PDC approval failed: " + (e instanceof Error ? e.message : "Unknown error"))
+    } finally {
+      setPdcReviewingId(null)
+    }
+  }
+
+  const handlePdcReject = async (assignment: MachineAssignment) => {
+    if (!clientId || !currentUser || pdcReviewingId) return
+    const reason = (pdcRejectReasons[assignment.id] || "").trim()
+    if (!reason) {
+      alert("Enter a rejection reason before sending this report back to QI.")
+      return
+    }
+
+    setPdcReviewingId(assignment.id)
+    try {
+      const now = new Date().toISOString()
+      await updateDoc(doc(db, "clients", clientId, "wo_machine_assignments_v2", assignment.id), {
+        pdcApprovalStatus: "rejected",
+        pdcRejectedReason: reason,
+        pdcRejectedBy: currentUser.name,
+        pdcRejectedById: currentUser.id,
+        pdcRejectedAt: now,
+        qiInspectedAt: "",
+        qaStatus: "pending",
+        updatedAt: serverTimestamp(),
+      })
+      setPdcRejectReasons(prev => ({ ...prev, [assignment.id]: "" }))
+      await reload()
+    } catch (e: unknown) {
+      alert("PDC rejection failed: " + (e instanceof Error ? e.message : "Unknown error"))
+    } finally {
+      setPdcReviewingId(null)
+    }
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   if (!myProcess) {
@@ -752,6 +893,83 @@ export function ShiftProductionEntry() {
         <div className="p-4 bg-red-50 border border-red-200 rounded-2xl text-sm text-red-700">
           {error}
         </div>
+      )}
+
+      {/* PDC review queue for machine-wise QI reports */}
+      {pdcReviewAssignments.length > 0 && (
+        <section className="bg-white rounded-2xl border border-emerald-200 p-5 space-y-4">
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <h3 className="font-black text-slate-900">QI Reports Pending PDC Approval</h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Approve accepted QI classifications to move good parts to the next process, or reject with a reason to send it back to QI.
+              </p>
+            </div>
+            <span className="px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase tracking-wider border border-emerald-200">
+              {pdcReviewAssignments.length} Pending
+            </span>
+          </div>
+
+          <div className="space-y-3">
+            {pdcReviewAssignments.map(assignment => {
+              const pwo = processPwoById.get(assignment.processWoId)
+              const isReviewing = pdcReviewingId === assignment.id
+              return (
+                <div key={assignment.id} className="rounded-2xl border border-slate-200 p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div>
+                      <p className="font-black text-slate-900 text-sm">{assignment.machineName}</p>
+                      <p className="text-[10px] text-slate-500 mt-0.5">
+                        {pwo?.processWoNumber || assignment.processWoId} · Produced {getProducedCount(assignment)} · QI: {assignment.qiInspectedBy || "—"}
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                      <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2">
+                        <p className="text-[9px] font-black text-emerald-500 uppercase tracking-wider">Good</p>
+                        <p className="text-lg font-black text-emerald-700">{assignment.goodParts ?? 0}</p>
+                      </div>
+                      <div className="rounded-xl bg-amber-50 border border-amber-100 px-3 py-2">
+                        <p className="text-[9px] font-black text-amber-500 uppercase tracking-wider">Rework</p>
+                        <p className="text-lg font-black text-amber-700">{assignment.reworkParts ?? 0}</p>
+                      </div>
+                      <div className="rounded-xl bg-red-50 border border-red-100 px-3 py-2">
+                        <p className="text-[9px] font-black text-red-500 uppercase tracking-wider">Rejected</p>
+                        <p className="text-lg font-black text-red-700">{assignment.rejectedParts ?? 0}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <textarea
+                    rows={2}
+                    value={pdcRejectReasons[assignment.id] || ""}
+                    onChange={e => setPdcRejectReasons(prev => ({ ...prev, [assignment.id]: e.target.value }))}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-red-400 outline-none"
+                    placeholder="Required only when rejecting — explain what QI must correct…"
+                  />
+
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handlePdcReject(assignment)}
+                      disabled={isReviewing}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl border border-red-200 bg-red-50 text-red-700 text-sm font-black disabled:opacity-50"
+                    >
+                      <XCircle size={15}/> Reject to QI
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handlePdcApprove(assignment)}
+                      disabled={isReviewing}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-black disabled:opacity-50"
+                    >
+                      <CheckCircle2 size={15}/> Approve & Forward
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </section>
       )}
 
       {/* PWO selector */}
