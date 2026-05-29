@@ -344,6 +344,14 @@ export interface ProcessWorkOrderV2 {
   assignedQtyKg: number
   takenQtyKg: number
   leftoverQtyKg: number
+  totalProduced?: number
+  totalGood?: number
+  totalRework?: number
+  totalRejected?: number
+  totalRawUsedKg?: number
+  totalLeftoverKg?: number
+  qiCompletedAt?: string
+  qiCompletedBy?: string
   shortcomingCategory?: ShortcomingCategory
   shortcomingNotes?: string
   createdAt: string
@@ -368,6 +376,14 @@ export interface WoMachineAssignmentV2 {
   leftoverKg?: number
   rejectedQty: number
   reworkQty: number
+  goodParts?: number
+  reworkParts?: number
+  rejectedParts?: number
+  reworkEntries?: ReworkEntry[]
+  rejectionEntries?: RejectionEntry[]
+  qiInspectedBy?: string
+  qiInspectedById?: string
+  qiInspectedAt?: string
   runtimeMinutes?: number
   downtimeMinutes?: number
   shortcomingCategory?: ShortcomingCategory
@@ -748,6 +764,9 @@ export interface QIInspection {
   vendorMachine?: string
   vendorShift?: Shift | ""
   assignedQiId?: string
+  processWoId?: string
+  machineAssignmentId?: string
+  machineId?: string
   createdAt: string
 }
 
