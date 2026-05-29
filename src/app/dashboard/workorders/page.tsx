@@ -1162,8 +1162,11 @@ export default function WorkOrdersPage() {
   const v2NextWoNo      = `WO-${String(mainWorkOrdersV2.length + 1).padStart(3, "0")}`
   const v2NextProcessNo = `PWO-${String(processWorkOrdersV2.length + 1).padStart(3, "0")}`
   const v2ChosenProcessWO = processWorkOrdersV2.find(p => p.id === v2ProcessWoId)
-  const v2RequiredQtyKg = Number(v2ChosenProcessWO?.requiredQtyKg || v2SelectedSchedule?.requiredQuantityInKgs || 0)
-  const v2AssignedQtyKg = Number((v2RequiredQtyKg * (1 + Number(v2BufferPercent || 0) / 100)).toFixed(2))
+  const v2SelectedPartMaster = partMasters.find(p => p.id === v2SelectedSchedule?.partMasterId) ?? partMasters.find(p => p.partId === v2SelectedSchedule?.partId)
+  const v2ConfiguredBufferPercent = Number(v2BufferPercent || v2SelectedPartMaster?.bufferPercent || 0)
+  const v2RequiredQtyKg = Number(v2ChosenProcessWO?.requiredQtyKg || v2SelectedSchedule?.requiredQuantityInKgs ||
+    (v2SelectedPartMaster && v2SelectedSchedule ? (v2SelectedPartMaster.weightAfterDieCastingKg * Number(v2SelectedSchedule.requiredQuantity || 0)).toFixed(2) : 0))
+  const v2AssignedQtyKg = Number((v2RequiredQtyKg * (1 + v2ConfiguredBufferPercent / 100)).toFixed(2))
   const v2TakenQty      = Number(v2TakenQtyKg || 0)
   const v2AdditionalQty = Number((v2TakenQty - v2AssignedQtyKg).toFixed(2))
   const v2LeftoverQty   = Number((v2AssignedQtyKg - v2TakenQty).toFixed(2))
@@ -1410,7 +1413,7 @@ export default function WorkOrdersPage() {
     if (isProcessPDC && v2ChosenProcessWO) {
       await updateProcessWorkOrderV2(v2ChosenProcessWO.id, {
         shiftDate: effectiveShiftDate, shift: effectiveShift, targetParts: planned,
-        requiredQtyKg: v2RequiredQtyKg, bufferPercent: Number(v2BufferPercent || 0),
+        requiredQtyKg: v2RequiredQtyKg, bufferPercent: v2ConfiguredBufferPercent,
         assignedQtyKg: v2AssignedQtyKg, takenQtyKg: v2TakenQty, leftoverQtyKg: v2LeftoverQty,
         shortcomingCategory: v2Shortcoming as ShortcomingCategory,
         shortcomingNotes: v2Notes.trim(), updatedAt: new Date().toISOString().split("T")[0],
@@ -1445,7 +1448,7 @@ export default function WorkOrdersPage() {
       id: processId, processWoNumber: v2NextProcessNo, parentWoId: mainId, rootWoId: mainId,
       processType: "die_casting", status: "scheduled",
       shiftDate: effectiveShiftDate, shift: effectiveShift, targetParts: planned,
-      requiredQtyKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0), bufferPercent: 2,
+      requiredQtyKg: v2RequiredQtyKg, bufferPercent: v2ConfiguredBufferPercent,
       assignedQtyKg: v2AssignedQtyKg, takenQtyKg: v2TakenQty, leftoverQtyKg: v2LeftoverQty,
       shortcomingCategory: v2Shortcoming as ShortcomingCategory, shortcomingNotes: v2Notes.trim(),
       createdAt: new Date().toISOString().split("T")[0],
@@ -1454,7 +1457,7 @@ export default function WorkOrdersPage() {
       date: new Date().toISOString().split("T")[0],
       masterId: v2SelectedSchedule.id, partId: v2SelectedSchedule.partId,
       partName: v2SelectedSchedule.partName, process: "die_casting",
-      targetPartNos: planned, requiredQuantityKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0),
+      targetPartNos: planned, requiredQuantityKg: v2RequiredQtyKg,
       workOrderStartDate: v2StartDate, dueDate: v2EndDate, status: "draft",
       partsCompleted: 0, goodParts: 0, reworkParts: 0, rejectedParts: 0,
       scrapWeight: 0, inputWeightKg: 0, productionStarted: false,
@@ -1471,7 +1474,7 @@ export default function WorkOrdersPage() {
         date: new Date().toISOString().split("T")[0],
         masterId: v2SelectedSchedule.id, partId: v2SelectedSchedule.partId,
         partName: v2SelectedSchedule.partName, process: "die_casting",
-        targetPartNos: planned, requiredQuantityKg: Number(v2SelectedSchedule.requiredQuantityInKgs || 0),
+        targetPartNos: planned, requiredQuantityKg: v2RequiredQtyKg,
         workOrderStartDate: v2StartDate, dueDate: v2EndDate, status: "draft",
         partsCompleted: 0, goodParts: 0, reworkParts: 0, rejectedParts: 0,
         scrapWeight: 0, inputWeightKg: 0, productionStarted: false,
@@ -1602,7 +1605,7 @@ export default function WorkOrdersPage() {
                   </select>
                 </Field>
                 <Field label="Required Qty (KG)"><input className={cls} value={v2RequiredQtyKg || ""} readOnly/></Field>
-                <Field label="Buffer %"><input className={cls} value={v2BufferPercent} onChange={e=>setV2BufferPercent(e.target.value)} /></Field>
+                <Field label="Buffer %" hint={`Config default: ${v2SelectedPartMaster?.bufferPercent ?? 0}%`}><input className={cls} value={v2BufferPercent} onChange={e=>setV2BufferPercent(e.target.value)} /></Field>
                 <Field label="Acquired Qty (KG)"><input className={cls} value={v2TakenQtyKg} onChange={e=>setV2TakenQtyKg(e.target.value)} /></Field>
               </div>
               <div className="text-xs text-slate-700 p-2 rounded-lg bg-slate-50 border border-slate-200">
@@ -1738,11 +1741,15 @@ export default function WorkOrdersPage() {
               pm.grade === (wo.rawMaterialGrade || wo.materialGrade || "A")
           ) ?? partMasters.find(pm => pm.partId === wo.partId)
 
-          // requiredKg = stored value if present, else partMaster.quantityPerPart * target
+          // requiredKg = stored value if present, else use configured process weight per part.
+          const legacyQtyPerPart = (partMaster as { quantityPerPart?: number } | undefined)?.quantityPerPart || 0
+          const configuredWeightPerPart = partMaster
+            ? (wo.process === "cnc_vmc" ? partMaster.weightAfterMachiningKg : partMaster.weightAfterDieCastingKg) || legacyQtyPerPart
+            : 0
           const effectiveRequiredKg = wo.requiredQuantityKg > 0
             ? wo.requiredQuantityKg
             : (parentWO?.requiredQuantityKg ??
-               (partMaster ? +(partMaster.quantityPerPart * effectiveTarget).toFixed(2) : 0))
+               (configuredWeightPerPart > 0 ? +(configuredWeightPerPart * effectiveTarget).toFixed(2) : 0))
 
           const progress = effectiveTarget > 0 ? Math.round((wo.partsCompleted / effectiveTarget) * 100) : 0
           const isDraft  = wo.status === "draft"

@@ -12,11 +12,11 @@
  *    programName, operatorConfirmedBy) are written to DB on save.
  */
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import {
   CheckCircle2, ChevronDown, ChevronRight,
   RefreshCw, Settings2, Package, Zap, User, Calendar,
-  Save, Loader2, Info, Lock,
+  Save, Loader2, Info, Lock, XCircle,
 } from "lucide-react"
 import { useApp } from "@/components/providers/AppProvider"
 import {
@@ -24,10 +24,11 @@ import {
   type ProcessStage, type Shift,
 } from "@/lib/store"
 
+import { getNextProcess } from "@/lib/workflow"
 import { db } from "@/lib/firebase"
 import {
   collection, query, where, getDocs, updateDoc, addDoc,
-  doc, serverTimestamp,
+  doc, serverTimestamp, setDoc,
 } from "firebase/firestore"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -45,9 +46,9 @@ export type MachineAssignment = {
   partsCommitted: number
   producedQty: number
   partsProduced?: number
-  goodParts: number
-  reworkParts: number
-  rejectedParts: number
+  goodParts?: number
+  reworkParts?: number
+  rejectedParts?: number
   rawMaterialUsedKg: number
   leftoverKg: number
   downtimeMinutes: number
@@ -56,6 +57,11 @@ export type MachineAssignment = {
   operatorConfirmedBy: string
   operatorConfirmedAt: string
   actualsLocked: boolean
+  qiInspectedAt?: string
+  qiInspectedBy?: string
+  qaStatus?: "pending" | "approved" | "rework" | "rejected"
+  pdcApprovalStatus?: "pending" | "approved" | "rejected"
+  pdcRejectedReason?: string
 }
 
 export type ProcessWOV2 = {
@@ -83,6 +89,9 @@ export type ProcessWOV2 = {
   totalLeftoverKg?: number
   actualsSubmittedAt?: string
   actualsSubmittedBy?: string
+  pdcApprovedAt?: string
+  pdcApprovedBy?: string
+  nextProcessWoId?: string
 }
 
 // ─── Styling ──────────────────────────────────────────────────────────────────
@@ -102,6 +111,15 @@ function Field({ label, req, hint, children }: {
     </div>
   )
 }
+
+const getProducedCount = (assignment: Pick<MachineAssignment, "partsProduced" | "producedQty">) =>
+  Number(assignment.partsProduced ?? assignment.producedQty ?? 0)
+
+const getRemainingParts = (assignment: Pick<MachineAssignment, "partsCommitted" | "partsProduced" | "producedQty">) =>
+  Math.max(0, Number(assignment.partsCommitted || 0) - getProducedCount(assignment))
+
+const isAssignmentComplete = (assignment: Pick<MachineAssignment, "partsCommitted" | "partsProduced" | "producedQty">) =>
+  getRemainingParts(assignment) === 0
 
 // ─── Data hook ────────────────────────────────────────────────────────────────
 
@@ -187,7 +205,11 @@ function MachineRow({
   isFuture: boolean
 }) {
   const [open, setOpen] = useState(!isLocked)
+  const isOpen = open && !isLocked
 
+  const savedProduced = getProducedCount(assignment)
+  const remainingParts = Math.max(0, assignment.partsCommitted - edit.partsProduced)
+  const hasSavedShortfall = assignment.actualsLocked && savedProduced > 0 && savedProduced < assignment.partsCommitted
   const used      = edit.rawMaterialUsedKg ?? 0
   const leftover  = Number((perMachineAssignedKg - used).toFixed(3))
   const overUsed  = used > perMachineAssignedKg
@@ -217,13 +239,14 @@ function MachineRow({
             Op: <span className="font-semibold text-slate-600">{assignment.operatorName || "Unassigned"}</span>
             · Committed: <span className="font-semibold">{assignment.partsCommitted} parts</span>
             · Shift: <span className="font-semibold">{assignment.shiftDate} / {assignment.shift}</span>
+            {hasSavedShortfall && <span className="ml-2 text-amber-600 font-bold">· {assignment.partsCommitted - savedProduced} parts still pending</span>}
             {isFuture && <span className="ml-2 text-amber-600 font-bold">· Can only fill on/after shift date</span>}
           </p>
         </div>
-        {open ? <ChevronDown size={15} className="text-slate-400 shrink-0"/> : <ChevronRight size={15} className="text-slate-400 shrink-0"/>}
+        {isOpen ? <ChevronDown size={15} className="text-slate-400 shrink-0"/> : <ChevronRight size={15} className="text-slate-400 shrink-0"/>}
       </button>
 
-      {open && !isFuture && (
+      {isOpen && !isFuture && (
         <div className="px-4 pb-4 space-y-4 border-t border-slate-100">
 
           {/* Program view — read-only */}
@@ -244,9 +267,13 @@ function MachineRow({
               Parts Produced
             </p>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Parts Produced" req hint="Total count from this machine this shift">
+              <Field
+                label="Parts Produced"
+                req
+                hint={hasSavedShortfall ? `Already submitted ${savedProduced}; enter the new total after completing the remaining ${assignment.partsCommitted - savedProduced}.` : "Total count from this machine this shift"}
+              >
                 <input
-                  type="number" min="0"
+                  type="number" min={hasSavedShortfall ? savedProduced : 0} max={assignment.partsCommitted}
                   value={edit.partsProduced === 0 && !isLocked ? "" : edit.partsProduced}
                   onChange={e => onChange({ partsProduced: Number(e.target.value) })}
                   className={cls}
@@ -257,6 +284,11 @@ function MachineRow({
                 <div className="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-xs">
                   <p className="text-slate-400 font-bold uppercase tracking-wider text-[9px]">Committed</p>
                   <p className="text-lg font-black text-slate-800">{assignment.partsCommitted}</p>
+                  {hasSavedShortfall && (
+                    <p className="text-blue-600 font-bold text-[10px] mt-0.5">
+                      {savedProduced} saved · {remainingParts} remaining
+                    </p>
+                  )}
                   {edit.partsProduced > 0 && edit.partsProduced < assignment.partsCommitted && (
                     <p className="text-amber-600 font-bold text-[10px] mt-0.5">
                       ⚠ {assignment.partsCommitted - edit.partsProduced} short
@@ -407,23 +439,54 @@ export function ShiftProductionEntry() {
   const [selectedPwoId, setSelectedPwoId] = useState<string>("")
   const selectedPwo = pwos.find(p => p.id === selectedPwoId)
 
+  const assignmentsByPwoId = useMemo(() => {
+    const map = new Map<string, MachineAssignment[]>()
+    for (const assignment of assignments) {
+      const existing = map.get(assignment.processWoId) ?? []
+      existing.push(assignment)
+      map.set(assignment.processWoId, existing)
+    }
+    return map
+  }, [assignments])
+
+  const processPwoById = useMemo(() => new Map(pwos.map(pwo => [pwo.id, pwo])), [pwos])
+
+  const pdcReviewAssignments = useMemo(() => assignments.filter(assignment =>
+    Boolean(processPwoById.get(assignment.processWoId)) &&
+    isAssignmentComplete(assignment) &&
+    Boolean(assignment.qiInspectedAt) &&
+    (assignment.pdcApprovalStatus || "pending") === "pending"
+  ), [assignments, processPwoById])
+
+  const getPwoEntryState = useCallback((pwo: ProcessWOV2) => {
+    if (pwo.shiftDate > new Date().toISOString().split("T")[0]) return "future" as const
+    const pwoAssignments = assignmentsByPwoId.get(pwo.id) ?? []
+    if (pwoAssignments.length === 0) return "pending" as const
+    return pwoAssignments.some(assignment => !isAssignmentComplete(assignment)) ? "pending" as const : "submitted" as const
+  }, [assignmentsByPwoId])
+
   // editMap: machineAssignment.id → partial overrides
   const [editMap, setEditMap] = useState<Record<string, MachineRowEdit>>({})
   const [saving,      setSaving]      = useState(false)
   const [savingDraft, setSavingDraft] = useState(false)
   const [saved,       setSaved]       = useState(false)
+  const [pdcReviewingId, setPdcReviewingId] = useState<string | null>(null)
+  const [pdcRejectReasons, setPdcRejectReasons] = useState<Record<string, string>>({})
 
-  // Reset edits when PWO changes
+  // Reset edits when PWO changes, and clear a submitted/future SWO that is no longer enterable after DB refresh.
   useEffect(() => {
     queueMicrotask(() => {
+      if (selectedPwo && getPwoEntryState(selectedPwo) !== "pending") {
+        setSelectedPwoId("")
+      }
       setEditMap({})
       setSaved(false)
     })
-  }, [selectedPwoId])
+  }, [getPwoEntryState, selectedPwo, selectedPwoId])
 
   // ── Build merged assignment list ──────────────────────────────────────────
 
-  const baseAssignments = assignments.filter(a => a.processWoId === selectedPwoId)
+  const baseAssignments = assignmentsByPwoId.get(selectedPwoId) ?? []
 
   let mergedAssignments: MachineAssignment[] = baseAssignments.map(a => ({ ...a }))
 
@@ -472,32 +535,51 @@ export function ShiftProductionEntry() {
   // ── Edit helpers ──────────────────────────────────────────────────────────
 
   const getEdit = (id: string): MachineRowEdit => {
+    const assignment = mergedAssignments.find(ma => ma.id === id)
     const defaults: MachineRowEdit = {
-      partsProduced: 0,
-      rawMaterialUsedKg: 0,
-      downtimeMinutes: 0,
-      shortcomingCategory: "none",
-      shortcomingNotes: "",
-      operatorConfirmedBy: "",
-      programId: "",
-      programName: "",
+      partsProduced: assignment ? getProducedCount(assignment) : 0,
+      rawMaterialUsedKg: Number(assignment?.rawMaterialUsedKg ?? 0),
+      downtimeMinutes: Number(assignment?.downtimeMinutes ?? 0),
+      shortcomingCategory: assignment?.shortcomingCategory || "none",
+      shortcomingNotes: assignment?.shortcomingNotes || "",
+      operatorConfirmedBy: assignment?.operatorConfirmedBy || "",
+      programId: assignment?.programId || "",
+      programName: assignment?.programName || "",
     }
     return { ...defaults, ...(editMap[id] ?? {}) }
   }
 
-  const handleChange = (id: string, data: Partial<MachineRowEdit>) =>
-    setEditMap(prev => ({ ...prev, [id]: { ...getEdit(id), ...data } }))
+  const handleChange = (id: string, data: Partial<MachineRowEdit>) => {
+    const assignment = mergedAssignments.find(ma => ma.id === id)
+    if (!assignment || isAssignmentComplete(assignment) || isFutureShift(assignment.shiftDate)) return
+
+    const safeData = { ...data }
+    if (safeData.partsProduced !== undefined) {
+      const minProduced = assignment.actualsLocked ? getProducedCount(assignment) : 0
+      safeData.partsProduced = Math.min(assignment.partsCommitted, Math.max(minProduced, safeData.partsProduced))
+    }
+    if (assignment.actualsLocked && safeData.rawMaterialUsedKg !== undefined) {
+      safeData.rawMaterialUsedKg = Math.max(Number(assignment.rawMaterialUsedKg ?? 0), safeData.rawMaterialUsedKg)
+    }
+    if (assignment.actualsLocked && safeData.downtimeMinutes !== undefined) {
+      safeData.downtimeMinutes = Math.max(Number(assignment.downtimeMinutes ?? 0), safeData.downtimeMinutes)
+    }
+
+    setEditMap(prev => ({ ...prev, [id]: { ...getEdit(id), ...safeData } }))
+  }
 
   const hasUnsaved = Object.keys(editMap).length > 0
-  const allLocked  = mergedAssignments.length > 0 && mergedAssignments.every(a => a.actualsLocked)
+  const pendingAssignments = mergedAssignments.filter(a => !isAssignmentComplete(a) && !isFutureShift(a.shiftDate))
+  const allLocked  = mergedAssignments.length > 0 && pendingAssignments.length === 0
 
   // ── Totals (for PWO-level update) ─────────────────────────────────────────
 
   const totals = mergedAssignments.reduce((acc, a) => {
     const e = getEdit(a.id)
-    const produced = a.actualsLocked ? (a.partsProduced ?? a.producedQty ?? 0) : e.partsProduced
-    const used     = a.actualsLocked ? (a.rawMaterialUsedKg ?? 0)              : e.rawMaterialUsedKg
-    const down     = a.actualsLocked ? (a.downtimeMinutes ?? 0)                : e.downtimeMinutes
+    const rowIsComplete = isAssignmentComplete(a)
+    const produced = rowIsComplete ? getProducedCount(a)          : e.partsProduced
+    const used     = rowIsComplete ? (a.rawMaterialUsedKg ?? 0)   : e.rawMaterialUsedKg
+    const down     = rowIsComplete ? (a.downtimeMinutes ?? 0)     : e.downtimeMinutes
     const left     = Number((perMachineKg - used).toFixed(3))
     return {
       produced:  acc.produced  + produced,
@@ -511,9 +593,13 @@ export function ShiftProductionEntry() {
 
   const validateBeforeSubmit = (): string | null => {
     for (const ma of mergedAssignments) {
-      if (ma.actualsLocked) continue
+      if (isAssignmentComplete(ma)) continue
       if (isFutureShift(ma.shiftDate)) continue
       const e = getEdit(ma.id)
+      const savedProduced = getProducedCount(ma)
+      if (ma.actualsLocked && e.partsProduced <= savedProduced) {
+        return `Enter the remaining ${ma.partsCommitted - savedProduced} parts for machine: ${ma.machineName}`
+      }
       if (!e.operatorConfirmedBy.trim()) return `Enter operator confirmation for machine: ${ma.machineName}`
       if (e.partsProduced < ma.partsCommitted && (e.shortcomingCategory === "none" || !e.shortcomingNotes.trim())) {
         return `Provide shortage reason + details for machine: ${ma.machineName} (produced ${e.partsProduced} of ${ma.partsCommitted})`
@@ -530,7 +616,7 @@ export function ShiftProductionEntry() {
     try {
       const now = new Date().toISOString()
       for (const ma of mergedAssignments) {
-        if (ma.actualsLocked || isFutureShift(ma.shiftDate)) continue
+        if (isAssignmentComplete(ma) || isFutureShift(ma.shiftDate)) continue
         const e = getEdit(ma.id)
         if (!Object.keys(editMap).includes(ma.id)) continue
         const payload = {
@@ -575,7 +661,7 @@ export function ShiftProductionEntry() {
     try {
       const now = new Date().toISOString()
       for (const ma of mergedAssignments) {
-        if (ma.actualsLocked || isFutureShift(ma.shiftDate)) continue
+        if (isAssignmentComplete(ma) || isFutureShift(ma.shiftDate)) continue
         const e = getEdit(ma.id)
         const leftoverKg = Number((perMachineKg - e.rawMaterialUsedKg).toFixed(3))
         const payload = {
@@ -590,7 +676,7 @@ export function ShiftProductionEntry() {
           operatorConfirmedAt: now,
           programId:           e.programId,
           programName:         e.programName || ma.programName || "",
-          actualsLocked:       true,
+          actualsLocked:       e.partsProduced >= ma.partsCommitted,
           updatedAt:           serverTimestamp(),
         }
         if (String(ma.id).startsWith("tmp-")) {
@@ -605,24 +691,33 @@ export function ShiftProductionEntry() {
         }
       }
 
+      const willAllBeLocked = mergedAssignments.every(a => {
+        if (isFutureShift(a.shiftDate)) return true
+        if (isAssignmentComplete(a)) return true
+        const e = getEdit(a.id)
+        return e.partsProduced >= a.partsCommitted
+      })
+
       // Update PWO totals
       await updateDoc(doc(db, "clients", clientId, "process_work_orders_v2", selectedPwo.id), {
         totalProduced:    totals.produced,
         totalRawUsedKg:   Number(totals.rawUsed.toFixed(3)),
         totalLeftoverKg:  Number(totals.leftover.toFixed(3)),
-        actualsSubmittedAt:  now,
-        actualsSubmittedBy:  currentUser!.name,
-        status:              "completed",
+        actualsSubmittedAt:  willAllBeLocked ? now : "",
+        actualsSubmittedBy:  willAllBeLocked ? currentUser!.name : "",
+        status:              willAllBeLocked ? "completed" : "in_progress",
         updatedAt:           serverTimestamp(),
       })
 
-      // Update legacy WO
+      // Update legacy WO with only the newly added production count. Existing DB actuals are cumulative.
+      const previousProducedTotal = mergedAssignments.reduce((sum, assignment) => sum + getProducedCount(assignment), 0)
+      const producedDelta = Math.max(0, totals.produced - previousProducedTotal)
       const legacyWO = workOrders.find(
         w => w.id === selectedPwo.rootWoId || w.id === selectedPwo.parentWoId
       )
-      if (legacyWO) {
+      if (legacyWO && producedDelta > 0) {
         updateWorkOrder(legacyWO.id, {
-          partsCompleted: (legacyWO.partsCompleted ?? 0) + totals.produced,
+          partsCompleted: (legacyWO.partsCompleted ?? 0) + producedDelta,
           status: "in_progress",
         })
       }
@@ -635,6 +730,127 @@ export function ShiftProductionEntry() {
       alert("Save failed: " + (e instanceof Error ? e.message : "Unknown error"))
     } finally {
       setSaving(false)
+    }
+  }
+
+  const completePdcReviewForPwo = async (pwo: ProcessWOV2, now: string) => {
+    const nextProcess = getNextProcess(pwo.processType as ProcessStage)
+    const pwoAssignments = assignmentsByPwoId.get(pwo.id) ?? []
+    const totalGood = pwoAssignments.reduce((sum, assignment) => sum + Number(assignment.goodParts ?? 0), 0)
+
+    if (!nextProcess || totalGood <= 0) {
+      await updateDoc(doc(db, "clients", clientId, "process_work_orders_v2", pwo.id), {
+        status: "completed",
+        pdcApprovedAt: now,
+        pdcApprovedBy: currentUser!.name,
+        updatedAt: serverTimestamp(),
+      })
+      return
+    }
+
+    const existingNext = await getDocs(query(
+      collection(db, "clients", clientId, "process_work_orders_v2"),
+      where("rootWoId", "==", pwo.rootWoId),
+      where("processType", "==", nextProcess)
+    ))
+    const existingNextId = existingNext.docs[0]?.id
+    let nextProcessWoId = existingNextId || ""
+
+    if (!nextProcessWoId) {
+      const nextRef = doc(collection(db, "clients", clientId, "process_work_orders_v2"))
+      nextProcessWoId = nextRef.id
+      const nextRequiredKg = pwo.targetParts > 0
+        ? Number(((pwo.requiredQtyKg || 0) * (totalGood / pwo.targetParts)).toFixed(3))
+        : 0
+      await setDoc(nextRef, {
+        id: nextProcessWoId,
+        processWoNumber: `${pwo.processWoNumber}-${String(nextProcess).toUpperCase()}`,
+        parentWoId: pwo.parentWoId,
+        rootWoId: pwo.rootWoId,
+        processType: nextProcess,
+        status: "scheduled",
+        shiftDate: now.split("T")[0],
+        shift: "",
+        targetParts: totalGood,
+        requiredQtyKg: nextRequiredKg,
+        bufferPercent: pwo.bufferPercent || 0,
+        assignedQtyKg: 0,
+        takenQtyKg: 0,
+        leftoverQtyKg: 0,
+        shortcomingCategory: "none",
+        shortcomingNotes: `Auto-created after ${PROCESS_STAGE_LABELS[pwo.processType as ProcessStage]} PDC approval.`,
+        createdAt: now,
+        updatedAt: now,
+      })
+    }
+
+    await updateDoc(doc(db, "clients", clientId, "process_work_orders_v2", pwo.id), {
+      status: "qa_approved",
+      pdcApprovedAt: now,
+      pdcApprovedBy: currentUser!.name,
+      nextProcessWoId,
+      updatedAt: serverTimestamp(),
+    })
+  }
+
+  const handlePdcApprove = async (assignment: MachineAssignment) => {
+    if (!clientId || !currentUser || pdcReviewingId) return
+    const pwo = processPwoById.get(assignment.processWoId)
+    if (!pwo) return
+
+    setPdcReviewingId(assignment.id)
+    try {
+      const now = new Date().toISOString()
+      await updateDoc(doc(db, "clients", clientId, "wo_machine_assignments_v2", assignment.id), {
+        pdcApprovalStatus: "approved",
+        pdcApprovedBy: currentUser.name,
+        pdcApprovedById: currentUser.id,
+        pdcApprovedAt: now,
+        pdcRejectedReason: "",
+        updatedAt: serverTimestamp(),
+      })
+
+      const siblings = assignmentsByPwoId.get(assignment.processWoId) ?? []
+      const nextSiblings = siblings.map(item => item.id === assignment.id ? { ...item, pdcApprovalStatus: "approved" as const } : item)
+      const completeSiblings = nextSiblings.filter(item => isAssignmentComplete(item))
+      const allApproved = completeSiblings.length > 0 && completeSiblings.every(item => Boolean(item.qiInspectedAt) && item.pdcApprovalStatus === "approved")
+      if (allApproved) await completePdcReviewForPwo(pwo, now)
+
+      await reload()
+    } catch (e: unknown) {
+      alert("PDC approval failed: " + (e instanceof Error ? e.message : "Unknown error"))
+    } finally {
+      setPdcReviewingId(null)
+    }
+  }
+
+  const handlePdcReject = async (assignment: MachineAssignment) => {
+    if (!clientId || !currentUser || pdcReviewingId) return
+    const reason = (pdcRejectReasons[assignment.id] || "").trim()
+    if (!reason) {
+      alert("Enter a rejection reason before sending this report back to QI.")
+      return
+    }
+
+    setPdcReviewingId(assignment.id)
+    try {
+      const now = new Date().toISOString()
+      await updateDoc(doc(db, "clients", clientId, "wo_machine_assignments_v2", assignment.id), {
+        pdcApprovalStatus: "rejected",
+        pdcRejectedReason: reason,
+        pdcRejectedBy: currentUser.name,
+        pdcRejectedById: currentUser.id,
+        pdcRejectedAt: now,
+        qiInspectedAt: "",
+        qaStatus: "pending",
+        updatedAt: serverTimestamp(),
+      })
+      setPdcRejectReasons(prev => ({ ...prev, [assignment.id]: "" }))
+      await reload()
+    } catch (e: unknown) {
+      alert("PDC rejection failed: " + (e instanceof Error ? e.message : "Unknown error"))
+    } finally {
+      setPdcReviewingId(null)
     }
   }
 
@@ -679,6 +895,83 @@ export function ShiftProductionEntry() {
         </div>
       )}
 
+      {/* PDC review queue for machine-wise QI reports */}
+      {pdcReviewAssignments.length > 0 && (
+        <section className="bg-white rounded-2xl border border-emerald-200 p-5 space-y-4">
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <h3 className="font-black text-slate-900">QI Reports Pending PDC Approval</h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Approve accepted QI classifications to move good parts to the next process, or reject with a reason to send it back to QI.
+              </p>
+            </div>
+            <span className="px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase tracking-wider border border-emerald-200">
+              {pdcReviewAssignments.length} Pending
+            </span>
+          </div>
+
+          <div className="space-y-3">
+            {pdcReviewAssignments.map(assignment => {
+              const pwo = processPwoById.get(assignment.processWoId)
+              const isReviewing = pdcReviewingId === assignment.id
+              return (
+                <div key={assignment.id} className="rounded-2xl border border-slate-200 p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div>
+                      <p className="font-black text-slate-900 text-sm">{assignment.machineName}</p>
+                      <p className="text-[10px] text-slate-500 mt-0.5">
+                        {pwo?.processWoNumber || assignment.processWoId} · Produced {getProducedCount(assignment)} · QI: {assignment.qiInspectedBy || "—"}
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                      <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2">
+                        <p className="text-[9px] font-black text-emerald-500 uppercase tracking-wider">Good</p>
+                        <p className="text-lg font-black text-emerald-700">{assignment.goodParts ?? 0}</p>
+                      </div>
+                      <div className="rounded-xl bg-amber-50 border border-amber-100 px-3 py-2">
+                        <p className="text-[9px] font-black text-amber-500 uppercase tracking-wider">Rework</p>
+                        <p className="text-lg font-black text-amber-700">{assignment.reworkParts ?? 0}</p>
+                      </div>
+                      <div className="rounded-xl bg-red-50 border border-red-100 px-3 py-2">
+                        <p className="text-[9px] font-black text-red-500 uppercase tracking-wider">Rejected</p>
+                        <p className="text-lg font-black text-red-700">{assignment.rejectedParts ?? 0}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <textarea
+                    rows={2}
+                    value={pdcRejectReasons[assignment.id] || ""}
+                    onChange={e => setPdcRejectReasons(prev => ({ ...prev, [assignment.id]: e.target.value }))}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-red-400 outline-none"
+                    placeholder="Required only when rejecting — explain what QI must correct…"
+                  />
+
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handlePdcReject(assignment)}
+                      disabled={isReviewing}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl border border-red-200 bg-red-50 text-red-700 text-sm font-black disabled:opacity-50"
+                    >
+                      <XCircle size={15}/> Reject to QI
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handlePdcApprove(assignment)}
+                      disabled={isReviewing}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-black disabled:opacity-50"
+                    >
+                      <CheckCircle2 size={15}/> Approve & Forward
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
+
       {/* PWO selector */}
       <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
         <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
@@ -689,16 +982,22 @@ export function ShiftProductionEntry() {
           onChange={e => setSelectedPwoId(e.target.value)}
           className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-900 bg-white focus:ring-2 focus:ring-indigo-500 outline-none"
         >
-          <option value="">— Select a process work order —</option>
+          <option value="">— Select a pending process work order —</option>
           {[...pwos]
             .sort((a, b) => `${a.shiftDate}-${String(a.shift)}`.localeCompare(`${b.shiftDate}-${String(b.shift)}`))
-            .map(p => (
-              <option key={p.id} value={p.id}>
-                {p.processWoNumber} · {p.shiftDate} / {String(p.shift)} · Target: {p.targetParts} parts ·{" "}
-                {p.actualsSubmittedAt ? "✓ Submitted" : p.shiftDate > today ? "🔒 Future" : "Pending"}
-              </option>
-            ))}
+            .map(p => {
+              const entryState = getPwoEntryState(p)
+              const label = entryState === "submitted" ? "✓ Submitted" : entryState === "future" ? "🔒 Future" : "Pending"
+              return (
+                <option key={p.id} value={p.id} disabled={entryState !== "pending"}>
+                  {p.processWoNumber} · {p.shiftDate} / {String(p.shift)} · Target: {p.targetParts} parts · {label}
+                </option>
+              )
+            })}
         </select>
+        <p className="text-[10px] text-slate-400 mt-2">
+          Submitted SWOs are locked from the latest DB assignment status, so only pending shift-end actuals can be opened for entry.
+        </p>
 
         {/* PWO summary */}
         {selectedPwo && (
@@ -747,13 +1046,13 @@ export function ShiftProductionEntry() {
               perMachineAssignedKg={perMachineKg}
               edit={getEdit(ma.id)}
               onChange={data => handleChange(ma.id, data)}
-              isLocked={!!ma.actualsLocked}
+              isLocked={isAssignmentComplete(ma)}
               isFuture={isFutureShift(ma.shiftDate)}
             />
           ))}
 
           {/* Totals bar */}
-          {!allLocked && mergedAssignments.some(a => !a.actualsLocked && !isFutureShift(a.shiftDate)) && (
+          {!allLocked && pendingAssignments.length > 0 && (
             <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
               <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-3">Shift Totals Preview</p>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
@@ -773,7 +1072,7 @@ export function ShiftProductionEntry() {
           )}
 
           {/* Action bar */}
-          {!allLocked && mergedAssignments.some(a => !a.actualsLocked && !isFutureShift(a.shiftDate)) && (
+          {!allLocked && pendingAssignments.length > 0 && (
             <div className="sticky bottom-4 flex items-center gap-3 bg-white border border-slate-200 rounded-2xl p-3 shadow-xl">
               <div className="flex-1">
                 {saved && (
@@ -784,6 +1083,11 @@ export function ShiftProductionEntry() {
                 {!saved && hasUnsaved && (
                   <span className="text-sm text-amber-700 font-semibold">
                     Unsaved changes — submit to lock in DB
+                  </span>
+                )}
+                {!saved && !hasUnsaved && pendingAssignments.length > 0 && (
+                  <span className="text-sm text-slate-500 font-semibold">
+                    Pending DB values loaded — submit when ready to lock
                   </span>
                 )}
               </div>
@@ -798,7 +1102,7 @@ export function ShiftProductionEntry() {
               <button
                 type="button"
                 onClick={handleSubmit}
-                disabled={saving || !hasUnsaved}
+                disabled={saving || pendingAssignments.length === 0}
                 className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-black shadow-md disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 {saving ? <><Loader2 size={15} className="animate-spin"/> Saving…</> : <><Save size={15}/> Submit Shift Actuals</>}
@@ -903,24 +1207,24 @@ export function MachineAssignmentDropdown({
       </p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         {assignments.map(a => {
-          const produced = a.partsProduced ?? a.producedQty ?? 0
+          const produced = getProducedCount(a)
+          const remaining = getRemainingParts(a)
+          const complete = remaining === 0
           return (
-            <div key={a.id} className={`rounded-lg border p-2 ${a.actualsLocked ? "border-emerald-200 bg-emerald-50/40" : "border-slate-200 bg-white"}`}>
+            <div key={a.id} className={`rounded-lg border p-2 ${complete ? "border-emerald-200 bg-emerald-50/40" : "border-amber-200 bg-amber-50/40"}`}>
               <div className="flex items-center justify-between">
                 <p className="text-[10px] font-black text-slate-800">{a.machineName}</p>
-                {a.actualsLocked && <span className="text-[9px] text-emerald-700 font-bold">✓ Locked</span>}
+                {complete ? (
+                  <span className="text-[9px] text-emerald-700 font-bold">✓ Complete</span>
+                ) : (
+                  <span className="text-[9px] text-amber-700 font-bold">⏳ {remaining} pending</span>
+                )}
               </div>
               {a.programName && <p className="text-[10px] text-indigo-700 font-semibold">Program: {a.programName}</p>}
-              {a.actualsLocked ? (
-                <>
-                  <p className="text-[10px] text-slate-700">Produced: <strong>{produced}</strong> / {a.partsCommitted}</p>
-                  <p className="text-[10px] text-slate-700">Raw Used: {a.rawMaterialUsedKg ?? 0} KG · Leftover: {a.leftoverKg ?? 0} KG</p>
-                  {a.downtimeMinutes > 0 && <p className="text-[10px] text-slate-500">Downtime: {a.downtimeMinutes} min</p>}
-                  <p className="text-[10px] text-slate-400">Op: {a.operatorConfirmedBy || "—"}</p>
-                </>
-              ) : (
-                <p className="text-[10px] text-amber-600 font-semibold">⏳ Pending shift actuals</p>
-              )}
+              <p className="text-[10px] text-slate-700">Produced: <strong>{produced}</strong> / {a.partsCommitted}</p>
+              <p className="text-[10px] text-slate-700">Raw Used: {a.rawMaterialUsedKg ?? 0} KG · Leftover: {a.leftoverKg ?? 0} KG</p>
+              {a.downtimeMinutes > 0 && <p className="text-[10px] text-slate-500">Downtime: {a.downtimeMinutes} min</p>}
+              <p className="text-[10px] text-slate-400">Op: {a.operatorConfirmedBy || "—"}</p>
             </div>
           )
         })}
