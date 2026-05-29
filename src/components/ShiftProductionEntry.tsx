@@ -103,6 +103,15 @@ function Field({ label, req, hint, children }: {
   )
 }
 
+const getProducedCount = (assignment: Pick<MachineAssignment, "partsProduced" | "producedQty">) =>
+  Number(assignment.partsProduced ?? assignment.producedQty ?? 0)
+
+const getRemainingParts = (assignment: Pick<MachineAssignment, "partsCommitted" | "partsProduced" | "producedQty">) =>
+  Math.max(0, Number(assignment.partsCommitted || 0) - getProducedCount(assignment))
+
+const isAssignmentComplete = (assignment: Pick<MachineAssignment, "partsCommitted" | "partsProduced" | "producedQty">) =>
+  getRemainingParts(assignment) === 0
+
 // ─── Data hook ────────────────────────────────────────────────────────────────
 
 function useShiftData(clientId: string, processType: ProcessStage | null) {
@@ -187,7 +196,11 @@ function MachineRow({
   isFuture: boolean
 }) {
   const [open, setOpen] = useState(!isLocked)
+  const isOpen = open && !isLocked
 
+  const savedProduced = getProducedCount(assignment)
+  const remainingParts = Math.max(0, assignment.partsCommitted - edit.partsProduced)
+  const hasSavedShortfall = assignment.actualsLocked && savedProduced > 0 && savedProduced < assignment.partsCommitted
   const used      = edit.rawMaterialUsedKg ?? 0
   const leftover  = Number((perMachineAssignedKg - used).toFixed(3))
   const overUsed  = used > perMachineAssignedKg
@@ -217,13 +230,14 @@ function MachineRow({
             Op: <span className="font-semibold text-slate-600">{assignment.operatorName || "Unassigned"}</span>
             · Committed: <span className="font-semibold">{assignment.partsCommitted} parts</span>
             · Shift: <span className="font-semibold">{assignment.shiftDate} / {assignment.shift}</span>
+            {hasSavedShortfall && <span className="ml-2 text-amber-600 font-bold">· {assignment.partsCommitted - savedProduced} parts still pending</span>}
             {isFuture && <span className="ml-2 text-amber-600 font-bold">· Can only fill on/after shift date</span>}
           </p>
         </div>
-        {open ? <ChevronDown size={15} className="text-slate-400 shrink-0"/> : <ChevronRight size={15} className="text-slate-400 shrink-0"/>}
+        {isOpen ? <ChevronDown size={15} className="text-slate-400 shrink-0"/> : <ChevronRight size={15} className="text-slate-400 shrink-0"/>}
       </button>
 
-      {open && !isFuture && (
+      {isOpen && !isFuture && (
         <div className="px-4 pb-4 space-y-4 border-t border-slate-100">
 
           {/* Program view — read-only */}
@@ -244,9 +258,13 @@ function MachineRow({
               Parts Produced
             </p>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Parts Produced" req hint="Total count from this machine this shift">
+              <Field
+                label="Parts Produced"
+                req
+                hint={hasSavedShortfall ? `Already submitted ${savedProduced}; enter the new total after completing the remaining ${assignment.partsCommitted - savedProduced}.` : "Total count from this machine this shift"}
+              >
                 <input
-                  type="number" min="0"
+                  type="number" min={hasSavedShortfall ? savedProduced : 0} max={assignment.partsCommitted}
                   value={edit.partsProduced === 0 && !isLocked ? "" : edit.partsProduced}
                   onChange={e => onChange({ partsProduced: Number(e.target.value) })}
                   className={cls}
@@ -257,6 +275,11 @@ function MachineRow({
                 <div className="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-xs">
                   <p className="text-slate-400 font-bold uppercase tracking-wider text-[9px]">Committed</p>
                   <p className="text-lg font-black text-slate-800">{assignment.partsCommitted}</p>
+                  {hasSavedShortfall && (
+                    <p className="text-blue-600 font-bold text-[10px] mt-0.5">
+                      {savedProduced} saved · {remainingParts} remaining
+                    </p>
+                  )}
                   {edit.partsProduced > 0 && edit.partsProduced < assignment.partsCommitted && (
                     <p className="text-amber-600 font-bold text-[10px] mt-0.5">
                       ⚠ {assignment.partsCommitted - edit.partsProduced} short
@@ -421,7 +444,7 @@ export function ShiftProductionEntry() {
     if (pwo.shiftDate > new Date().toISOString().split("T")[0]) return "future" as const
     const pwoAssignments = assignmentsByPwoId.get(pwo.id) ?? []
     if (pwoAssignments.length === 0) return "pending" as const
-    return pwoAssignments.some(assignment => !assignment.actualsLocked) ? "pending" as const : "submitted" as const
+    return pwoAssignments.some(assignment => !isAssignmentComplete(assignment)) ? "pending" as const : "submitted" as const
   }, [assignmentsByPwoId])
 
   // editMap: machineAssignment.id → partial overrides
@@ -494,7 +517,7 @@ export function ShiftProductionEntry() {
   const getEdit = (id: string): MachineRowEdit => {
     const assignment = mergedAssignments.find(ma => ma.id === id)
     const defaults: MachineRowEdit = {
-      partsProduced: Number(assignment?.partsProduced ?? assignment?.producedQty ?? 0),
+      partsProduced: assignment ? getProducedCount(assignment) : 0,
       rawMaterialUsedKg: Number(assignment?.rawMaterialUsedKg ?? 0),
       downtimeMinutes: Number(assignment?.downtimeMinutes ?? 0),
       shortcomingCategory: assignment?.shortcomingCategory || "none",
@@ -508,21 +531,35 @@ export function ShiftProductionEntry() {
 
   const handleChange = (id: string, data: Partial<MachineRowEdit>) => {
     const assignment = mergedAssignments.find(ma => ma.id === id)
-    if (assignment?.actualsLocked || (assignment && isFutureShift(assignment.shiftDate))) return
-    setEditMap(prev => ({ ...prev, [id]: { ...getEdit(id), ...data } }))
+    if (!assignment || isAssignmentComplete(assignment) || isFutureShift(assignment.shiftDate)) return
+
+    const safeData = { ...data }
+    if (safeData.partsProduced !== undefined) {
+      const minProduced = assignment.actualsLocked ? getProducedCount(assignment) : 0
+      safeData.partsProduced = Math.min(assignment.partsCommitted, Math.max(minProduced, safeData.partsProduced))
+    }
+    if (assignment.actualsLocked && safeData.rawMaterialUsedKg !== undefined) {
+      safeData.rawMaterialUsedKg = Math.max(Number(assignment.rawMaterialUsedKg ?? 0), safeData.rawMaterialUsedKg)
+    }
+    if (assignment.actualsLocked && safeData.downtimeMinutes !== undefined) {
+      safeData.downtimeMinutes = Math.max(Number(assignment.downtimeMinutes ?? 0), safeData.downtimeMinutes)
+    }
+
+    setEditMap(prev => ({ ...prev, [id]: { ...getEdit(id), ...safeData } }))
   }
 
   const hasUnsaved = Object.keys(editMap).length > 0
-  const pendingAssignments = mergedAssignments.filter(a => !a.actualsLocked && !isFutureShift(a.shiftDate))
+  const pendingAssignments = mergedAssignments.filter(a => !isAssignmentComplete(a) && !isFutureShift(a.shiftDate))
   const allLocked  = mergedAssignments.length > 0 && pendingAssignments.length === 0
 
   // ── Totals (for PWO-level update) ─────────────────────────────────────────
 
   const totals = mergedAssignments.reduce((acc, a) => {
     const e = getEdit(a.id)
-    const produced = a.actualsLocked ? (a.partsProduced ?? a.producedQty ?? 0) : e.partsProduced
-    const used     = a.actualsLocked ? (a.rawMaterialUsedKg ?? 0)              : e.rawMaterialUsedKg
-    const down     = a.actualsLocked ? (a.downtimeMinutes ?? 0)                : e.downtimeMinutes
+    const rowIsComplete = isAssignmentComplete(a)
+    const produced = rowIsComplete ? getProducedCount(a)          : e.partsProduced
+    const used     = rowIsComplete ? (a.rawMaterialUsedKg ?? 0)   : e.rawMaterialUsedKg
+    const down     = rowIsComplete ? (a.downtimeMinutes ?? 0)     : e.downtimeMinutes
     const left     = Number((perMachineKg - used).toFixed(3))
     return {
       produced:  acc.produced  + produced,
@@ -536,9 +573,13 @@ export function ShiftProductionEntry() {
 
   const validateBeforeSubmit = (): string | null => {
     for (const ma of mergedAssignments) {
-      if (ma.actualsLocked) continue
+      if (isAssignmentComplete(ma)) continue
       if (isFutureShift(ma.shiftDate)) continue
       const e = getEdit(ma.id)
+      const savedProduced = getProducedCount(ma)
+      if (ma.actualsLocked && e.partsProduced <= savedProduced) {
+        return `Enter the remaining ${ma.partsCommitted - savedProduced} parts for machine: ${ma.machineName}`
+      }
       if (!e.operatorConfirmedBy.trim()) return `Enter operator confirmation for machine: ${ma.machineName}`
       if (e.partsProduced < ma.partsCommitted && (e.shortcomingCategory === "none" || !e.shortcomingNotes.trim())) {
         return `Provide shortage reason + details for machine: ${ma.machineName} (produced ${e.partsProduced} of ${ma.partsCommitted})`
@@ -555,7 +596,7 @@ export function ShiftProductionEntry() {
     try {
       const now = new Date().toISOString()
       for (const ma of mergedAssignments) {
-        if (ma.actualsLocked || isFutureShift(ma.shiftDate)) continue
+        if (isAssignmentComplete(ma) || isFutureShift(ma.shiftDate)) continue
         const e = getEdit(ma.id)
         if (!Object.keys(editMap).includes(ma.id)) continue
         const payload = {
@@ -600,7 +641,7 @@ export function ShiftProductionEntry() {
     try {
       const now = new Date().toISOString()
       for (const ma of mergedAssignments) {
-        if (ma.actualsLocked || isFutureShift(ma.shiftDate)) continue
+        if (isAssignmentComplete(ma) || isFutureShift(ma.shiftDate)) continue
         const e = getEdit(ma.id)
         const leftoverKg = Number((perMachineKg - e.rawMaterialUsedKg).toFixed(3))
         const payload = {
@@ -615,7 +656,7 @@ export function ShiftProductionEntry() {
           operatorConfirmedAt: now,
           programId:           e.programId,
           programName:         e.programName || ma.programName || "",
-          actualsLocked:       true,
+          actualsLocked:       e.partsProduced >= ma.partsCommitted,
           updatedAt:           serverTimestamp(),
         }
         if (String(ma.id).startsWith("tmp-")) {
@@ -630,26 +671,33 @@ export function ShiftProductionEntry() {
         }
       }
 
-      const willAllBeLocked = mergedAssignments.every(a => a.actualsLocked || isFutureShift(a.shiftDate) || pendingAssignments.some(pending => pending.id === a.id))
+      const willAllBeLocked = mergedAssignments.every(a => {
+        if (isFutureShift(a.shiftDate)) return true
+        if (isAssignmentComplete(a)) return true
+        const e = getEdit(a.id)
+        return e.partsProduced >= a.partsCommitted
+      })
 
       // Update PWO totals
       await updateDoc(doc(db, "clients", clientId, "process_work_orders_v2", selectedPwo.id), {
         totalProduced:    totals.produced,
         totalRawUsedKg:   Number(totals.rawUsed.toFixed(3)),
         totalLeftoverKg:  Number(totals.leftover.toFixed(3)),
-        actualsSubmittedAt:  willAllBeLocked ? now : selectedPwo.actualsSubmittedAt || "",
-        actualsSubmittedBy:  willAllBeLocked ? currentUser!.name : selectedPwo.actualsSubmittedBy || "",
-        status:              willAllBeLocked ? "completed" : selectedPwo.status,
+        actualsSubmittedAt:  willAllBeLocked ? now : "",
+        actualsSubmittedBy:  willAllBeLocked ? currentUser!.name : "",
+        status:              willAllBeLocked ? "completed" : "in_progress",
         updatedAt:           serverTimestamp(),
       })
 
-      // Update legacy WO
+      // Update legacy WO with only the newly added production count. Existing DB actuals are cumulative.
+      const previousProducedTotal = mergedAssignments.reduce((sum, assignment) => sum + getProducedCount(assignment), 0)
+      const producedDelta = Math.max(0, totals.produced - previousProducedTotal)
       const legacyWO = workOrders.find(
         w => w.id === selectedPwo.rootWoId || w.id === selectedPwo.parentWoId
       )
-      if (legacyWO) {
+      if (legacyWO && producedDelta > 0) {
         updateWorkOrder(legacyWO.id, {
-          partsCompleted: (legacyWO.partsCompleted ?? 0) + totals.produced,
+          partsCompleted: (legacyWO.partsCompleted ?? 0) + producedDelta,
           status: "in_progress",
         })
       }
@@ -780,7 +828,7 @@ export function ShiftProductionEntry() {
               perMachineAssignedKg={perMachineKg}
               edit={getEdit(ma.id)}
               onChange={data => handleChange(ma.id, data)}
-              isLocked={!!ma.actualsLocked}
+              isLocked={isAssignmentComplete(ma)}
               isFuture={isFutureShift(ma.shiftDate)}
             />
           ))}
@@ -941,24 +989,24 @@ export function MachineAssignmentDropdown({
       </p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         {assignments.map(a => {
-          const produced = a.partsProduced ?? a.producedQty ?? 0
+          const produced = getProducedCount(a)
+          const remaining = getRemainingParts(a)
+          const complete = remaining === 0
           return (
-            <div key={a.id} className={`rounded-lg border p-2 ${a.actualsLocked ? "border-emerald-200 bg-emerald-50/40" : "border-slate-200 bg-white"}`}>
+            <div key={a.id} className={`rounded-lg border p-2 ${complete ? "border-emerald-200 bg-emerald-50/40" : "border-amber-200 bg-amber-50/40"}`}>
               <div className="flex items-center justify-between">
                 <p className="text-[10px] font-black text-slate-800">{a.machineName}</p>
-                {a.actualsLocked && <span className="text-[9px] text-emerald-700 font-bold">✓ Locked</span>}
+                {complete ? (
+                  <span className="text-[9px] text-emerald-700 font-bold">✓ Complete</span>
+                ) : (
+                  <span className="text-[9px] text-amber-700 font-bold">⏳ {remaining} pending</span>
+                )}
               </div>
               {a.programName && <p className="text-[10px] text-indigo-700 font-semibold">Program: {a.programName}</p>}
-              {a.actualsLocked ? (
-                <>
-                  <p className="text-[10px] text-slate-700">Produced: <strong>{produced}</strong> / {a.partsCommitted}</p>
-                  <p className="text-[10px] text-slate-700">Raw Used: {a.rawMaterialUsedKg ?? 0} KG · Leftover: {a.leftoverKg ?? 0} KG</p>
-                  {a.downtimeMinutes > 0 && <p className="text-[10px] text-slate-500">Downtime: {a.downtimeMinutes} min</p>}
-                  <p className="text-[10px] text-slate-400">Op: {a.operatorConfirmedBy || "—"}</p>
-                </>
-              ) : (
-                <p className="text-[10px] text-amber-600 font-semibold">⏳ Pending shift actuals</p>
-              )}
+              <p className="text-[10px] text-slate-700">Produced: <strong>{produced}</strong> / {a.partsCommitted}</p>
+              <p className="text-[10px] text-slate-700">Raw Used: {a.rawMaterialUsedKg ?? 0} KG · Leftover: {a.leftoverKg ?? 0} KG</p>
+              {a.downtimeMinutes > 0 && <p className="text-[10px] text-slate-500">Downtime: {a.downtimeMinutes} min</p>}
+              <p className="text-[10px] text-slate-400">Op: {a.operatorConfirmedBy || "—"}</p>
             </div>
           )
         })}
