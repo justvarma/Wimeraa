@@ -57,6 +57,7 @@ export type MachineAssignment = {
   operatorConfirmedBy: string
   operatorConfirmedAt: string
   actualsLocked: boolean
+  draftSavedAt?: string
   qiInspectedAt?: string
   qiInspectedBy?: string
   qaStatus?: "pending" | "approved" | "rework" | "rejected"
@@ -419,7 +420,7 @@ function MachineRow({
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export function ShiftProductionEntry() {
-  const { currentUser, workOrders, updateWorkOrder } = useApp()
+  const { currentUser, workOrders, updateWorkOrder, shifts } = useApp()
   const role = currentUser?.role as UserRole
 
   const myProcess: ProcessStage | null =
@@ -451,6 +452,25 @@ export function ShiftProductionEntry() {
 
   const processPwoById = useMemo(() => new Map(pwos.map(pwo => [pwo.id, pwo])), [pwos])
 
+  // ── Date/shift gate: actuals unlock only after the scheduled shift starts. ──
+
+  const getShiftStartAt = useCallback((shiftDate: string, shiftId: Shift | string) => {
+    const shiftConfig = shifts.find(shift => shift.id === shiftId)
+    const startTime = shiftConfig?.startTime || "00:00"
+    const startAt = new Date(`${shiftDate}T${startTime}:00`)
+    if (shiftConfig?.startNextDay) startAt.setDate(startAt.getDate() + 1)
+    return startAt
+  }, [shifts])
+
+  const hasShiftStarted = useCallback((shiftDate: string, shiftId: Shift | string) => {
+    return new Date() >= getShiftStartAt(shiftDate, shiftId)
+  }, [getShiftStartAt])
+
+  const getShiftStartLabel = useCallback((shiftDate: string, shiftId: Shift | string) => {
+    const shiftConfig = shifts.find(shift => shift.id === shiftId)
+    return `${shiftDate} ${shiftConfig?.startTime || "00:00"}`
+  }, [shifts])
+
   const pdcReviewAssignments = useMemo(() => assignments.filter(assignment =>
     Boolean(processPwoById.get(assignment.processWoId)) &&
     isAssignmentComplete(assignment) &&
@@ -459,11 +479,12 @@ export function ShiftProductionEntry() {
   ), [assignments, processPwoById])
 
   const getPwoEntryState = useCallback((pwo: ProcessWOV2) => {
-    if (pwo.shiftDate > new Date().toISOString().split("T")[0]) return "future" as const
+    if (pwo.status === "paused") return "paused" as const
+    if (!hasShiftStarted(pwo.shiftDate, pwo.shift)) return "future" as const
     const pwoAssignments = assignmentsByPwoId.get(pwo.id) ?? []
     if (pwoAssignments.length === 0) return "pending" as const
     return pwoAssignments.some(assignment => !isAssignmentComplete(assignment)) ? "pending" as const : "submitted" as const
-  }, [assignmentsByPwoId])
+  }, [assignmentsByPwoId, hasShiftStarted])
 
   // editMap: machineAssignment.id → partial overrides
   const [editMap, setEditMap] = useState<Record<string, MachineRowEdit>>({})
@@ -520,11 +541,50 @@ export function ShiftProductionEntry() {
     }
   }
 
-  // ── Date gate: is today on or after the shift date? ───────────────────────
+  // Auto-submit complete saved drafts once their scheduled shift has arrived.
+  useEffect(() => {
+    if (!clientId || !currentUser?.name) return
+    const dueDrafts = assignments.filter(a =>
+      Boolean(a.draftSavedAt) &&
+      !a.actualsLocked &&
+      hasShiftStarted(a.shiftDate, a.shift) &&
+      isAssignmentComplete(a)
+    )
+    if (dueDrafts.length === 0) return
 
-  const today = new Date().toISOString().split("T")[0]
+    const autoSubmitDrafts = async () => {
+      const now = new Date().toISOString()
+      const affectedPwoIds = new Set(dueDrafts.map(a => a.processWoId))
+      for (const assignment of dueDrafts) {
+        await updateDoc(doc(db, "clients", clientId, "wo_machine_assignments_v2", assignment.id), {
+          operatorConfirmedAt: assignment.operatorConfirmedAt || now,
+          actualsLocked: true,
+          updatedAt: serverTimestamp(),
+        })
+      }
+      for (const processWoId of affectedPwoIds) {
+        const pwoAssignments = assignments.filter(a => a.processWoId === processWoId)
+        const allLocked = pwoAssignments.every(a => a.actualsLocked || dueDrafts.some(d => d.id === a.id))
+        if (allLocked) {
+          const produced = pwoAssignments.reduce((sum, a) => sum + getProducedCount(a), 0)
+          const rawUsed = pwoAssignments.reduce((sum, a) => sum + Number(a.rawMaterialUsedKg || 0), 0)
+          const leftover = pwoAssignments.reduce((sum, a) => sum + Number(a.leftoverKg || 0), 0)
+          await updateDoc(doc(db, "clients", clientId, "process_work_orders_v2", processWoId), {
+            totalProduced: produced,
+            totalRawUsedKg: Number(rawUsed.toFixed(3)),
+            totalLeftoverKg: Number(leftover.toFixed(3)),
+            actualsSubmittedAt: now,
+            actualsSubmittedBy: "Auto-submit from saved draft",
+            status: "completed",
+            updatedAt: serverTimestamp(),
+          })
+        }
+      }
+      await reload()
+    }
 
-  const isFutureShift = (shiftDate: string) => shiftDate > today
+    void autoSubmitDrafts()
+  }, [assignments, clientId, currentUser?.name, hasShiftStarted, reload])
 
   // ── Per-machine KG allocation ─────────────────────────────────────────────
 
@@ -551,7 +611,7 @@ export function ShiftProductionEntry() {
 
   const handleChange = (id: string, data: Partial<MachineRowEdit>) => {
     const assignment = mergedAssignments.find(ma => ma.id === id)
-    if (!assignment || isAssignmentComplete(assignment) || isFutureShift(assignment.shiftDate)) return
+    if (!assignment || isAssignmentComplete(assignment) || !hasShiftStarted(assignment.shiftDate, assignment.shift)) return
 
     const safeData = { ...data }
     if (safeData.partsProduced !== undefined) {
@@ -569,7 +629,7 @@ export function ShiftProductionEntry() {
   }
 
   const hasUnsaved = Object.keys(editMap).length > 0
-  const pendingAssignments = mergedAssignments.filter(a => !isAssignmentComplete(a) && !isFutureShift(a.shiftDate))
+  const pendingAssignments = mergedAssignments.filter(a => !isAssignmentComplete(a) && hasShiftStarted(a.shiftDate, a.shift))
   const allLocked  = mergedAssignments.length > 0 && pendingAssignments.length === 0
 
   // ── Totals (for PWO-level update) ─────────────────────────────────────────
@@ -594,7 +654,7 @@ export function ShiftProductionEntry() {
   const validateBeforeSubmit = (): string | null => {
     for (const ma of mergedAssignments) {
       if (isAssignmentComplete(ma)) continue
-      if (isFutureShift(ma.shiftDate)) continue
+      if (!hasShiftStarted(ma.shiftDate, ma.shift)) continue
       const e = getEdit(ma.id)
       const savedProduced = getProducedCount(ma)
       if (ma.actualsLocked && e.partsProduced <= savedProduced) {
@@ -616,7 +676,7 @@ export function ShiftProductionEntry() {
     try {
       const now = new Date().toISOString()
       for (const ma of mergedAssignments) {
-        if (isAssignmentComplete(ma) || isFutureShift(ma.shiftDate)) continue
+        if (isAssignmentComplete(ma) || !hasShiftStarted(ma.shiftDate, ma.shift)) continue
         const e = getEdit(ma.id)
         if (!Object.keys(editMap).includes(ma.id)) continue
         const payload = {
@@ -661,7 +721,7 @@ export function ShiftProductionEntry() {
     try {
       const now = new Date().toISOString()
       for (const ma of mergedAssignments) {
-        if (isAssignmentComplete(ma) || isFutureShift(ma.shiftDate)) continue
+        if (isAssignmentComplete(ma) || !hasShiftStarted(ma.shiftDate, ma.shift)) continue
         const e = getEdit(ma.id)
         const leftoverKg = Number((perMachineKg - e.rawMaterialUsedKg).toFixed(3))
         const payload = {
@@ -692,7 +752,7 @@ export function ShiftProductionEntry() {
       }
 
       const willAllBeLocked = mergedAssignments.every(a => {
-        if (isFutureShift(a.shiftDate)) return true
+        if (!hasShiftStarted(a.shiftDate, a.shift)) return true
         if (isAssignmentComplete(a)) return true
         const e = getEdit(a.id)
         return e.partsProduced >= a.partsCommitted
@@ -987,7 +1047,7 @@ export function ShiftProductionEntry() {
             .sort((a, b) => `${a.shiftDate}-${String(a.shift)}`.localeCompare(`${b.shiftDate}-${String(b.shift)}`))
             .map(p => {
               const entryState = getPwoEntryState(p)
-              const label = entryState === "submitted" ? "✓ Submitted" : entryState === "future" ? "🔒 Future" : "Pending"
+              const label = entryState === "submitted" ? "✓ Submitted" : entryState === "paused" ? "⏸ Paused" : entryState === "future" ? "🔒 Future" : "Pending"
               return (
                 <option key={p.id} value={p.id} disabled={entryState !== "pending"}>
                   {p.processWoNumber} · {p.shiftDate} / {String(p.shift)} · Target: {p.targetParts} parts · {label}
@@ -1019,12 +1079,12 @@ export function ShiftProductionEntry() {
         )}
 
         {/* Future shift notice */}
-        {selectedPwo && selectedPwo.shiftDate > today && (
+        {selectedPwo && !hasShiftStarted(selectedPwo.shiftDate, selectedPwo.shift) && (
           <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
             <Lock size={14} className="shrink-0 mt-0.5"/>
             <span>
-              This shift is scheduled for <strong>{selectedPwo.shiftDate}</strong>.
-              Actuals can only be filled on or after the shift date.
+              This shift starts at <strong>{getShiftStartLabel(selectedPwo.shiftDate, selectedPwo.shift)}</strong>.
+              Actuals can only be filled once this exact date and shift time has arrived.
             </span>
           </div>
         )}
@@ -1047,7 +1107,7 @@ export function ShiftProductionEntry() {
               edit={getEdit(ma.id)}
               onChange={data => handleChange(ma.id, data)}
               isLocked={isAssignmentComplete(ma)}
-              isFuture={isFutureShift(ma.shiftDate)}
+              isFuture={!hasShiftStarted(ma.shiftDate, ma.shift)}
             />
           ))}
 
