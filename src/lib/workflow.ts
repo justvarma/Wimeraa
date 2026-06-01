@@ -22,7 +22,8 @@ export function hasOpenMachineAssignment(workOrders: WorkOrder[], machine: strin
     wo.machine === machine &&
     wo.status !== "completed" &&
     wo.status !== "finished_goods" &&
-    wo.status !== "rejected"
+    wo.status !== "rejected" &&
+    wo.status !== "paused"
   )
 }
 

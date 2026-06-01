@@ -256,7 +256,8 @@ export interface PartMaster {
 
 export interface MonthlySchedule {
   id: string; serialNumber: number; partMasterId?: string; partId: string; partName: string
-  requiredQuantity: number; requiredQuantityInKgs?: number; date: string; submittedById: string; createdAt: string
+  requiredQuantity: number; requiredQuantityInKgs?: number; reservedQuantity?: number
+  issuedQuantityKg?: number; balanceQuantity?: number; date: string; submittedById: string; createdAt: string
 }
 
 // PDC = Process Dispatch Code — created by Admin/PTC Manager, one per process+shift+date
@@ -278,7 +279,7 @@ export interface DailyProductionEntry {
 //   "not_started" → process PTC has filled all details, ready to start
 //   "in_progress" → at least one production record exists
 //   "completed"   → target met
-export type WOStatus = "draft" | "not_started" | "in_progress" | "awaiting_qi" | "completed" | "rejected" | "finished_goods"
+export type WOStatus = "draft" | "not_started" | "paused" | "in_progress" | "awaiting_qi" | "completed" | "rejected" | "finished_goods"
 
 // ─── Phase 1 (New WO Architecture) ──────────────────────────────────────────
 // NOTE: These types are introduced incrementally so UI/Firestore migration can
@@ -294,6 +295,7 @@ export type WoLifecycleStatus =
   | "completed"
   | "closed"
   | "cancelled"
+  | "paused"
 
 export type ProcessWoType = "die_casting" | "trimming" | "shot_blasting" | "machining" | "packing"
 

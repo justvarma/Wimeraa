@@ -1,5 +1,5 @@
 "use client"
-import { useState, useMemo } from "react"
+import { useMemo, useState } from "react"
 import { useApp } from "@/components/providers/AppProvider"
 import { MachineAssignmentDropdown } from "@/components/ShiftProductionEntry"
 import {
@@ -40,6 +40,7 @@ const statusStyle = (s: string) =>
   s === "completed"      ? "bg-emerald-100 text-emerald-800" :
   s === "awaiting_qi"    ? "bg-violet-100 text-violet-800" :
   s === "rejected"       ? "bg-red-100 text-red-800" :
+  s === "paused"         ? "bg-amber-200 text-amber-900" :
   s === "in_progress"    ? "bg-blue-100 text-blue-800" :
   s === "not_started"    ? "bg-amber-100 text-amber-800" :
   s === "draft"          ? "bg-slate-100 text-slate-600" : "bg-slate-100 text-slate-600"
@@ -50,6 +51,7 @@ const statusLabel = (s: string) =>
   s === "in_progress"    ? "In Progress" :
   s === "awaiting_qi"    ? "Awaiting QI Validation" :
   s === "rejected"       ? "Rejected — Rework Required" :
+  s === "paused"         ? "Paused — Machines Released" :
   s === "finished_goods" ? "Finished Goods" : "Completed"
 
 const processColor = (p: ProcessStage) =>
@@ -528,14 +530,25 @@ function Phase2Form({ wo, onClose, onSave }: {
   wo: WorkOrder; onClose: () => void; onSave: (data: Partial<WorkOrder>) => void
 }) {
   const {
-    materials, users, ptcs, shifts, workOrders, machines, programs,
+    materials, users, ptcs, shifts, workOrders, machines, programs, partMasters,
     processWorkOrdersV2, mainWorkOrdersV2, woMachineAssignmentsV2,
   } = useApp()
 
   const [window, setWindow] = useState<1 | 2>(1)
 
   const shiftOptions     = getSelectableShiftOptions(shifts, wo.shift)
-  const approvedMats     = materials.filter(m => m.status === "approved")
+  const matchingPartMasters = partMasters.filter(pm =>
+    (pm.partId === wo.partId || pm.partName === wo.partName)
+  )
+  const selectedPartMaster = matchingPartMasters[0]
+  const approvedMats     = materials.filter(m => {
+    if (m.status !== "approved") return false
+    if (matchingPartMasters.length === 0) return false
+    return matchingPartMasters.some(pm =>
+      pm.materialRequired.toLowerCase() === m.material.toLowerCase() &&
+      pm.grade.toLowerCase() === m.rawMaterialGrade.toLowerCase()
+    )
+  })
   const processMachines  = machines.filter(m => m.process === wo.process && m.status === "active")
   const validPDCs        = ptcs.filter(p => p.process === wo.process)
   const processPrograms  = (programs as ProgramOption[]).filter(
@@ -554,12 +567,10 @@ function Phase2Form({ wo, onClose, onSave }: {
   const [rawMaterialId,  setRawMaterialId]  = useState(wo.rawMaterialId  || "")
   const [materialGrade,  setMaterialGrade]  = useState(wo.materialGrade  || "")
   const [claimPartsQty,  setClaimPartsQty]  = useState<number>(wo.actualTarget || wo.targetPartNos)
-  const [requiredQtyKg,  setRequiredQtyKg]  = useState<number>(wo.requiredQuantityKg || 0)
-  const [bufferPercent,  setBufferPercent]  = useState<number>(2)
-  const [acquiredQtyKg,  setAcquiredQtyKg]  = useState<number>(wo.requiredQuantityKg || 0)
-  const [partPerCycle,   setPartPerCycle]   = useState<number>(wo.partPerCycle || 1)
-  const [weightPerPart,  setWeightPerPart]  = useState<number>(wo.weightPerPart || 0)
-  const [ptcId,          setPtcId]          = useState(wo.ptcId || (validPDCs[0]?.id || ""))
+  const bufferPercent = wo.bufferPercent ?? selectedPartMaster?.bufferPercent ?? 2
+  const partPerCycle = wo.partPerCycle || 1
+  const weightPerPart = wo.weightPerPart || selectedPartMaster?.weightAfterDieCastingKg || 0
+  const ptcId = wo.ptcId || (validPDCs[0]?.id || "")
   const [isExternal,     setIsExternal]     = useState(wo.isExternal || false)
   const [vendorId,       setVendorId]       = useState(wo.vendorId || "")
   const [vendorName,     setVendorName]     = useState(wo.vendorName || "")
@@ -580,20 +591,21 @@ const [machineProgramMap, setMachineProgramMap] = useState<Record<string, { prog
 
   const selectedMat     = approvedMats.find(m => m.id === rawMaterialId)
   const availableKg     = selectedMat ? selectedMat.receivedQuantity - (selectedMat.usedQuantity || 0) : 0
-  const stockShortfall  = availableKg < wo.requiredQuantityKg
 
   const selectedProgram = processPrograms.find(p => p.id === selectedProgramId)
-  const kgPerPartConfig = selectedProgram?.rawMaterialKgPerPart || weightPerPart || 0
+  const kgPerPartConfig = selectedPartMaster?.weightAfterDieCastingKg || selectedProgram?.rawMaterialKgPerPart || weightPerPart || 0
   const configDerivedKg = Number((claimPartsQty * kgPerPartConfig).toFixed(3))
+  const derivedAssignedQtyKg = Number((configDerivedKg * (1 + bufferPercent / 100)).toFixed(2))
+  const stockShortfall  = rawMaterialId ? availableKg < derivedAssignedQtyKg : false
 
+  const assignedQtyKg   = derivedAssignedQtyKg
   const maxPartsFromStock = (kgPerPartConfig > 0 && availableKg > 0)
-    ? Math.floor(availableKg / kgPerPartConfig)
+    ? Math.floor(availableKg / (kgPerPartConfig * (1 + bufferPercent / 100)))
     : null
   const partsExceedStock = kgPerPartConfig > 0 && rawMaterialId
-    ? claimPartsQty * kgPerPartConfig > availableKg
+    ? assignedQtyKg > availableKg
     : false
-
-  const assignedQtyKg   = Number((requiredQtyKg * (1 + bufferPercent / 100)).toFixed(2))
+  const acquiredQtyKg = assignedQtyKg
   const additionalQtyKgRaw    = Number((acquiredQtyKg - assignedQtyKg).toFixed(2))
   const additionalQtyKg       = Math.max(0, additionalQtyKgRaw)
   const acquiredBelowAssigned = acquiredQtyKg < assignedQtyKg
@@ -603,13 +615,17 @@ const [machineProgramMap, setMachineProgramMap] = useState<Record<string, { prog
 
   const occupiedMachineIds = new Set(
     woMachineAssignmentsV2
-      .filter(a => a.shiftDate === shiftDate && a.shift === selectedShift)
+      .filter(a => {
+        if (a.shiftDate !== shiftDate || a.shift !== selectedShift) return false
+        const linkedPwo = processWorkOrdersV2.find(p => p.id === a.processWoId)
+        return linkedPwo?.status !== "paused"
+      })
       .map(a => a.machineId)
   )
   const legacyOccupiedNames = new Set(
     workOrders
       .filter(w => w.id !== wo.id && w.machine && w.date === shiftDate && w.shift === selectedShift &&
-        !["completed","finished_goods","rejected"].includes(w.status))
+        !["completed","finished_goods","rejected","paused"].includes(w.status))
       .flatMap(w => w.machine.split(",").map(s => s.trim()).filter(Boolean))
   )
   const isMachineOccupied = (m: typeof machines[0]) =>
@@ -630,7 +646,7 @@ const [machineProgramMap, setMachineProgramMap] = useState<Record<string, { prog
   }
 
   const w1Valid = rawMaterialId && !stockShortfall && !partsExceedStock
-    && claimPartsQty > 0 && requiredQtyKg > 0 && ptcId
+    && matchingPartMasters.length > 0 && claimPartsQty > 0 && configDerivedKg > 0 && ptcId
     && !acquiredBelowAssigned && !acquiredExceedsStock
 
   const handleSubmit = () => {
@@ -660,16 +676,16 @@ const [machineProgramMap, setMachineProgramMap] = useState<Record<string, { prog
       partPerCycle,
       weightPerPart,
       actualOutputKg:  autoOutputKg,
-      inputWeightKg:   wo.requiredQuantityKg,
+      inputWeightKg:   assignedQtyKg,
       machineProducedMap: machinePartsMap,
       machineProgramAssignment: machineProgramMap,
       acceptancePoints: [
         "As per configured QI checkpoints",
-        `Req:${requiredQtyKg}kg Buffer:${bufferPercent}% Assigned:${assignedQtyKg}kg Acquired:${acquiredQtyKg}kg Additional:${additionalQtyKg}kg Leftover:${leftoverQtyKg}kg`,
+        `Req:${configDerivedKg}kg Buffer:${bufferPercent}% Assigned:${assignedQtyKg}kg Acquired:${acquiredQtyKg}kg Additional:${additionalQtyKg}kg Leftover:${leftoverQtyKg}kg`,
         `MachineParts:${JSON.stringify(machinePartsMap)}`,
         notes ? `Notes:${notes}` : "",
       ].filter(Boolean).join(" | "),
-      requiredQtyKg,
+      requiredQtyKg: configDerivedKg,
       bufferPercent,
       assignedQtyKg,
       takenQtyKg:      acquiredQtyKg,
@@ -768,16 +784,27 @@ const [machineProgramMap, setMachineProgramMap] = useState<Record<string, { prog
               <p className="text-[10px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
                 <Package size={11}/> Raw Material Selection
               </p>
+              <Field label="Required Part (from Part Master)" req hint="Materials below are filtered by this part + material + grade master data">
+                <select value={selectedPartMaster?.id || ""} disabled className={readOnlyCls}>
+                  {selectedPartMaster ? (
+                    <option value={selectedPartMaster.id}>
+                      {selectedPartMaster.partName} · {selectedPartMaster.materialRequired} · Grade {selectedPartMaster.grade}
+                    </option>
+                  ) : (
+                    <option value="">No matching part master found for {wo.partId}</option>
+                  )}
+                </select>
+              </Field>
               <Field label="Approved Material Stock" req>
                 <select required value={rawMaterialId} onChange={e => {
                   const mat = approvedMats.find(m => m.id === e.target.value)
                   setRawMaterialId(e.target.value)
                   setMaterialGrade(mat?.rawMaterialGrade || "")
                 }} className={selectCls}>
-                  <option value="">— Select approved material —</option>
+                  <option value="">— Select approved material for this part/material/grade —</option>
                   {approvedMats.map(m => (
                     <option key={m.id} value={m.id}>
-                      Grade {m.rawMaterialGrade} · {m.rawMaterialId} · {(m.receivedQuantity-(m.usedQuantity||0)).toFixed(1)} KG available
+                      {m.material} · Grade {m.rawMaterialGrade} · {m.rawMaterialId} · {(m.receivedQuantity-(m.usedQuantity||0)).toFixed(1)} KG available
                     </option>
                   ))}
                 </select>
@@ -785,17 +812,22 @@ const [machineProgramMap, setMachineProgramMap] = useState<Record<string, { prog
               {rawMaterialId && (
                 <div className={`p-3 rounded-xl text-xs font-medium border ${stockShortfall ? "bg-red-50 border-red-200 text-red-700" : "bg-emerald-50 border-emerald-200 text-emerald-700"}`}>
                   Available: <strong>{availableKg.toFixed(1)} KG</strong> ·
-                  Required (WO): <strong>{wo.requiredQuantityKg} KG</strong> ·
+                  Required with buffer: <strong>{assignedQtyKg} KG</strong> ·
                   Grade: <strong>{selectedMat?.rawMaterialGrade}</strong>
                   {stockShortfall ? " — ⚠ INSUFFICIENT STOCK" : " — ✓ Stock OK"}
                 </div>
               )}
+              {matchingPartMasters.length === 0 && (
+                <div className="p-2.5 rounded-lg text-xs font-bold border bg-red-50 border-red-200 text-red-700">
+                  No part master row exists for this SWO part. Add part, material and grade in Config → Part Master before claiming inventory.
+                </div>
+              )}
               {rawMaterialId && kgPerPartConfig > 0 && (
                 <div className={`p-2.5 rounded-lg text-xs font-medium border ${partsExceedStock ? "bg-red-50 border-red-200 text-red-700" : "bg-teal-50 border-teal-200 text-teal-700"}`}>
-                  At <strong>{kgPerPartConfig} KG/part</strong> → this stock supports up to <strong>{maxPartsFromStock} parts</strong>.
+                  At <strong>{kgPerPartConfig} KG/part</strong> plus <strong>{bufferPercent}%</strong> buffer → this stock supports up to <strong>{maxPartsFromStock} parts</strong>.
                   {partsExceedStock
-                    ? ` ⚠ Claimed ${claimPartsQty} parts needs ${(claimPartsQty * kgPerPartConfig).toFixed(2)} KG but only ${availableKg.toFixed(2)} KG available. Reduce claimed parts or select a larger material batch.`
-                    : ` ✓ Claimed ${claimPartsQty} parts requires ${(claimPartsQty * kgPerPartConfig).toFixed(2)} KG — within stock.`}
+                    ? ` ⚠ Claimed ${claimPartsQty} parts needs ${assignedQtyKg.toFixed(2)} KG but only ${availableKg.toFixed(2)} KG available. Reduce claimed parts or select a larger material batch.`
+                    : ` ✓ Claimed ${claimPartsQty} parts requires ${assignedQtyKg.toFixed(2)} KG — within stock.`}
                 </div>
               )}
             </div>
@@ -806,60 +838,45 @@ const [machineProgramMap, setMachineProgramMap] = useState<Record<string, { prog
               </p>
 
               <div className="grid grid-cols-2 gap-4">
-                <Field label="Parts I Will Produce (Claim)" req hint="How many of the total target you are committing to">
+                <Field label="Required Parts" req hint="Number of parts selected for this SWO material claim">
                   <input
                     type="number" required min="1"
                     max={maxPartsFromStock ?? wo.targetPartNos}
                     value={claimPartsQty}
-                    onChange={e => {
-                      const v = Number(e.target.value)
-                      setClaimPartsQty(v)
-                      if (kgPerPartConfig > 0) setRequiredQtyKg(Number((v * kgPerPartConfig).toFixed(3)))
-                    }}
+                    onChange={e => setClaimPartsQty(Number(e.target.value))}
                     className={`${cls} ${partsExceedStock ? "border-red-400 focus:ring-red-400" : ""}`}
                   />
                   {partsExceedStock && rawMaterialId && (
                     <p className="text-[10px] text-red-600 font-bold mt-1">
-                      ⚠ Max {maxPartsFromStock} parts from current stock. Reduce claim or select a larger material batch.
+                      ⚠ Max {maxPartsFromStock} parts from current stock after buffer. Reduce claim or select a larger material batch.
                     </p>
                   )}
                 </Field>
-                <Field label="Required Qty (KG)" req hint="Auto-filled from configured KG/part when available">
-                  {kgPerPartConfig > 0 ? (
-                    <input readOnly value={requiredQtyKg} className={readOnlyCls}/>
-                  ) : (
-                    <input type="number" required min="0.1" step="0.01" value={requiredQtyKg}
-                      onChange={e => setRequiredQtyKg(Number(e.target.value))} className={cls}
-                      placeholder="Enter manually (no program rate)"/>
-                  )}
+                <Field label="After Die Casting Weight / Part (KG)" req hint="View-only from Config → Part Master">
+                  <input readOnly value={kgPerPartConfig || ""} className={readOnlyCls}/>
                 </Field>
               </div>
 
               {kgPerPartConfig > 0 && (
                 <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800">
-                  Config rate: <strong>{kgPerPartConfig} KG/part</strong> → Auto Required: <strong>{configDerivedKg} KG</strong> for {claimPartsQty} parts
+                  Part Master: <strong>{kgPerPartConfig} KG/part after die casting</strong> × {claimPartsQty} parts = <strong>{configDerivedKg} KG</strong> before buffer
                 </div>
               )}
 
               <div className="grid grid-cols-2 gap-4">
-                <Field label="Buffer %" req hint="CRV buffer added on top of required qty">
-                  <input type="number" required min="0" step="0.1" value={bufferPercent}
-                    onChange={e => setBufferPercent(Number(e.target.value))} className={cls}/>
+                <Field label="Buffer %" req hint="View-only default from Part Master; included in the claim quantity">
+                  <input readOnly value={bufferPercent} className={readOnlyCls}/>
                 </Field>
-                <Field label="Assigned Qty (KG)" hint="Required + Buffer — auto-calculated">
+                <Field label="Quantity Required / Assigned (KG)" hint="(Parts × after die casting weight) + buffer — auto-calculated">
                   <input readOnly value={assignedQtyKg} className={readOnlyCls}/>
                 </Field>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                <Field label="Acquired Qty (KG)" req hint="How much you physically took from inventory (must be ≥ Assigned and ≤ available stock)">
+                <Field label="Taken Qty (KG)" req hint="Auto-derived claim quantity taken from inventory">
                   <input
-                    type="number" required
-                    min={assignedQtyKg}
-                    max={rawMaterialId ? availableKg : undefined}
-                    step="0.01" value={acquiredQtyKg}
-                    onChange={e => setAcquiredQtyKg(Number(e.target.value))}
-                    className={`${cls} ${acquiredBelowAssigned || acquiredExceedsStock ? "border-red-400 focus:ring-red-400" : ""}`}
+                    readOnly value={acquiredQtyKg}
+                    className={`${readOnlyCls} ${acquiredBelowAssigned || acquiredExceedsStock ? "border-red-400 focus:ring-red-400" : ""}`}
                   />
                   {acquiredBelowAssigned && (
                     <p className="text-[10px] text-red-600 font-bold mt-1">
@@ -880,7 +897,7 @@ const [machineProgramMap, setMachineProgramMap] = useState<Record<string, { prog
 
               <div className="grid grid-cols-5 text-center gap-1">
                 {[
-                  { label: "Required",  value: `${requiredQtyKg} KG`,  color: "bg-slate-100 text-slate-700" },
+                  { label: "Required",  value: `${configDerivedKg} KG`,  color: "bg-slate-100 text-slate-700" },
                   { label: "Buffer",    value: `${bufferPercent}%`,     color: "bg-blue-50 text-blue-700" },
                   { label: "Assigned",  value: `${assignedQtyKg} KG`,  color: "bg-indigo-50 text-indigo-700" },
                   { label: "Acquired",  value: `${acquiredQtyKg} KG`,  color: acquiredBelowAssigned ? "bg-red-50 text-red-700" : "bg-teal-50 text-teal-700" },
@@ -926,7 +943,7 @@ const [machineProgramMap, setMachineProgramMap] = useState<Record<string, { prog
               <div className="grid grid-cols-4 gap-2 text-xs">
                 {[
                   ["Claim",     `${claimPartsQty} nos`],
-                  ["Required",  `${requiredQtyKg} KG`],
+                  ["Required",  `${configDerivedKg} KG`],
                   ["Acquired",  `${acquiredQtyKg} KG`],
                   ["Leftover",  `${leftoverQtyKg} KG`],
                 ].map(([k,v]) => (
@@ -1106,7 +1123,7 @@ const [machineProgramMap, setMachineProgramMap] = useState<Record<string, { prog
 export default function WorkOrdersPage() {
   const {
     currentUser, workOrders, shifts, partMasters, addWorkOrder, updateWorkOrder, deleteWorkOrder,
-    deductMaterial, schedules, machines, mainWorkOrdersV2, processWorkOrdersV2,
+    deductMaterial, schedules, updateSchedule, machines, mainWorkOrdersV2, processWorkOrdersV2,
     woMachineAssignmentsV2, addMainWorkOrderV2, addProcessWorkOrderV2,
     updateProcessWorkOrderV2, addWoMachineAssignmentV2, addWoAuditLog,
   } = useApp()
@@ -1266,8 +1283,9 @@ export default function WorkOrdersPage() {
 
   const handlePhase2Save = async (data: Partial<WorkOrder>) => {
     if (!phase2WO) return
-    if (data.rawMaterialId && phase2WO.requiredQuantityKg > 0) {
-      const ok = await deductMaterial(data.rawMaterialId, phase2WO.requiredQuantityKg)
+    const materialClaimKg = Number(data.takenQtyKg || data.assignedQtyKg || data.requiredQtyKg || phase2WO.requiredQuantityKg || 0)
+    if (data.rawMaterialId && materialClaimKg > 0) {
+      const ok = await deductMaterial(data.rawMaterialId, materialClaimKg)
       if (!ok) {
         alert(`Stock deduction failed — insufficient inventory for Grade ${data.materialGrade}.`)
         return
@@ -1279,6 +1297,15 @@ export default function WorkOrdersPage() {
       phase2CompletedBy: currentUser!.name,
       phase2CompletedAt: new Date().toISOString().split("T")[0],
     })
+
+    const linkedSchedule = schedules.find(s => s.id === phase2WO.masterId)
+    if (linkedSchedule) {
+      await updateSchedule(linkedSchedule.id, {
+        reservedQuantity: (linkedSchedule.reservedQuantity || 0) + Number(data.actualTarget || phase2WO.targetPartNos || 0),
+        issuedQuantityKg: Number(((linkedSchedule.issuedQuantityKg || 0) + materialClaimKg).toFixed(3)),
+        balanceQuantity: Math.max(0, Number(linkedSchedule.requiredQuantity || 0) - ((linkedSchedule.reservedQuantity || 0) + Number(data.actualTarget || phase2WO.targetPartNos || 0))),
+      })
+    }
 
     const machineMap = data.machineProducedMap || {}
     const machineIds = Object.keys(machineMap)
@@ -1325,11 +1352,25 @@ export default function WorkOrdersPage() {
     setPhase2WO(null)
   }
 
-  const canDeleteWO   = (wo: WorkOrder) => (isPDCManager || isAdmin) && (wo.status === "draft" || wo.status === "not_started")
-  const canEditPhase1 = (wo: WorkOrder) => (isPDCManager || isAdmin) && (wo.status === "draft" || wo.status === "not_started")
+  const canDeleteWO   = (wo: WorkOrder) => (isPDCManager || isAdmin) && (wo.status === "draft" || wo.status === "not_started" || wo.status === "paused")
+  const canEditPhase1 = (wo: WorkOrder) => (isPDCManager || isAdmin) && (wo.status === "draft" || wo.status === "not_started" || wo.status === "paused")
   const canFillPhase2 = (wo: WorkOrder) => {
     const isProcessStageWO = wo.woType === "stage" || wo.woType === "rework" || wo.woType === "rejection"
-    return wo.status === "draft" && isProcessStageWO && (isAdmin || (isProcessPDC && wo.process === myProcess))
+    return (wo.status === "draft" || wo.status === "paused") && isProcessStageWO && (isAdmin || (isProcessPDC && wo.process === myProcess))
+  }
+
+  const handleTogglePause = async (wo: WorkOrder) => {
+    const nextStatus = wo.status === "paused" ? "not_started" : "paused"
+    await updateWorkOrder(wo.id, {
+      status: nextStatus,
+      notes: [wo.notes, nextStatus === "paused" ? "SWO paused; machines released for priority work." : "SWO resumed."].filter(Boolean).join(" | "),
+    })
+    if (wo.processWoId) {
+      await updateProcessWorkOrderV2(wo.processWoId, {
+        status: nextStatus === "paused" ? "paused" : "scheduled",
+        updatedAt: new Date().toISOString().split("T")[0],
+      })
+    }
   }
 
   const handleDeleteWODeep = async (wo: WorkOrder) => {
@@ -1893,6 +1934,13 @@ export default function WorkOrdersPage() {
                       title={isPDCManager || isAdmin ? "Open WO V2 Execution Window" : "Edit Work Order"}
                     >
                       <Edit2 size={15}/>
+                    </button>
+                  )}
+                  {(isAdmin || isPDCManager || (isProcessPDC && wo.process === myProcess)) && ["not_started", "in_progress", "paused"].includes(wo.status) && (
+                    <button onClick={() => handleTogglePause(wo)}
+                      className="px-2.5 py-1.5 text-amber-700 hover:text-amber-900 hover:bg-amber-50 border border-amber-200 rounded-lg text-xs font-black"
+                      title={wo.status === "paused" ? "Resume SWO" : "Pause SWO and release machines"}>
+                      {wo.status === "paused" ? "Resume" : "Pause"}
                     </button>
                   )}
                   {canDeleteWO(wo) && (

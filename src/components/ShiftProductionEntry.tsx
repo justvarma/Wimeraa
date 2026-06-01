@@ -57,6 +57,7 @@ export type MachineAssignment = {
   operatorConfirmedBy: string
   operatorConfirmedAt: string
   actualsLocked: boolean
+  draftSavedAt?: string
   qiInspectedAt?: string
   qiInspectedBy?: string
   qaStatus?: "pending" | "approved" | "rework" | "rejected"
@@ -459,6 +460,7 @@ export function ShiftProductionEntry() {
   ), [assignments, processPwoById])
 
   const getPwoEntryState = useCallback((pwo: ProcessWOV2) => {
+    if (pwo.status === "paused") return "paused" as const
     if (pwo.shiftDate > new Date().toISOString().split("T")[0]) return "future" as const
     const pwoAssignments = assignmentsByPwoId.get(pwo.id) ?? []
     if (pwoAssignments.length === 0) return "pending" as const
@@ -524,7 +526,52 @@ export function ShiftProductionEntry() {
 
   const today = new Date().toISOString().split("T")[0]
 
-  const isFutureShift = (shiftDate: string) => shiftDate > today
+  const isFutureShift = useCallback((shiftDate: string) => shiftDate > today, [today])
+
+  // Auto-submit complete saved drafts once their scheduled day has arrived.
+  useEffect(() => {
+    if (!clientId || !currentUser?.name) return
+    const dueDrafts = assignments.filter(a =>
+      Boolean(a.draftSavedAt) &&
+      !a.actualsLocked &&
+      !isFutureShift(a.shiftDate) &&
+      isAssignmentComplete(a)
+    )
+    if (dueDrafts.length === 0) return
+
+    const autoSubmitDrafts = async () => {
+      const now = new Date().toISOString()
+      const affectedPwoIds = new Set(dueDrafts.map(a => a.processWoId))
+      for (const assignment of dueDrafts) {
+        await updateDoc(doc(db, "clients", clientId, "wo_machine_assignments_v2", assignment.id), {
+          operatorConfirmedAt: assignment.operatorConfirmedAt || now,
+          actualsLocked: true,
+          updatedAt: serverTimestamp(),
+        })
+      }
+      for (const processWoId of affectedPwoIds) {
+        const pwoAssignments = assignments.filter(a => a.processWoId === processWoId)
+        const allLocked = pwoAssignments.every(a => a.actualsLocked || dueDrafts.some(d => d.id === a.id))
+        if (allLocked) {
+          const produced = pwoAssignments.reduce((sum, a) => sum + getProducedCount(a), 0)
+          const rawUsed = pwoAssignments.reduce((sum, a) => sum + Number(a.rawMaterialUsedKg || 0), 0)
+          const leftover = pwoAssignments.reduce((sum, a) => sum + Number(a.leftoverKg || 0), 0)
+          await updateDoc(doc(db, "clients", clientId, "process_work_orders_v2", processWoId), {
+            totalProduced: produced,
+            totalRawUsedKg: Number(rawUsed.toFixed(3)),
+            totalLeftoverKg: Number(leftover.toFixed(3)),
+            actualsSubmittedAt: now,
+            actualsSubmittedBy: "Auto-submit from saved draft",
+            status: "completed",
+            updatedAt: serverTimestamp(),
+          })
+        }
+      }
+      await reload()
+    }
+
+    void autoSubmitDrafts()
+  }, [assignments, clientId, currentUser?.name, isFutureShift, reload])
 
   // ── Per-machine KG allocation ─────────────────────────────────────────────
 
@@ -987,7 +1034,7 @@ export function ShiftProductionEntry() {
             .sort((a, b) => `${a.shiftDate}-${String(a.shift)}`.localeCompare(`${b.shiftDate}-${String(b.shift)}`))
             .map(p => {
               const entryState = getPwoEntryState(p)
-              const label = entryState === "submitted" ? "✓ Submitted" : entryState === "future" ? "🔒 Future" : "Pending"
+              const label = entryState === "submitted" ? "✓ Submitted" : entryState === "paused" ? "⏸ Paused" : entryState === "future" ? "🔒 Future" : "Pending"
               return (
                 <option key={p.id} value={p.id} disabled={entryState !== "pending"}>
                   {p.processWoNumber} · {p.shiftDate} / {String(p.shift)} · Target: {p.targetParts} parts · {label}
