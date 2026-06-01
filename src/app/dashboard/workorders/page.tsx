@@ -1209,7 +1209,7 @@ export default function WorkOrdersPage() {
       const matchStatus  = statusFilter  === "all" || w.status  === statusFilter
       const matchProcess = processFilter === "all" || w.process === processFilter
       const matchRole = !myProcess || (
-        w.process === myProcess && (w.status === "draft" || w.status === "rejected")
+        w.process === myProcess && ["draft", "not_started", "in_progress", "paused", "rejected"].includes(w.status)
       )
       if (w.parentWoId && !liveWoIds.has(w.parentWoId)) return false
       return matchStatus && matchProcess && matchRole
@@ -1356,7 +1356,7 @@ export default function WorkOrdersPage() {
   const canEditPhase1 = (wo: WorkOrder) => (isPDCManager || isAdmin) && (wo.status === "draft" || wo.status === "not_started" || wo.status === "paused")
   const canFillPhase2 = (wo: WorkOrder) => {
     const isProcessStageWO = wo.woType === "stage" || wo.woType === "rework" || wo.woType === "rejection"
-    return (wo.status === "draft" || wo.status === "paused") && isProcessStageWO && (isAdmin || (isProcessPDC && wo.process === myProcess))
+    return wo.status === "draft" && isProcessStageWO && (isAdmin || (isProcessPDC && wo.process === myProcess))
   }
 
   const handleTogglePause = async (wo: WorkOrder) => {
@@ -1732,7 +1732,7 @@ export default function WorkOrdersPage() {
           <p className="text-[11px] font-black text-slate-500 uppercase tracking-wider">Status</p>
           <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-900 bg-white">
             <option value="all">All Status</option>
-            {["draft","not_started","in_progress","awaiting_qi","completed","rejected","finished_goods"].map(s =>
+            {["draft","not_started","paused","in_progress","awaiting_qi","completed","rejected","finished_goods"].map(s =>
               <option key={s} value={s}>{statusLabel(s as WOStatus)}</option>)}
           </select>
         </div>
@@ -1936,11 +1936,11 @@ export default function WorkOrdersPage() {
                       <Edit2 size={15}/>
                     </button>
                   )}
-                  {(isAdmin || isPDCManager || (isProcessPDC && wo.process === myProcess)) && ["not_started", "in_progress", "paused"].includes(wo.status) && (
+                  {(isAdmin || isPDCManager || (isProcessPDC && wo.process === myProcess)) && ["draft", "not_started", "in_progress", "paused"].includes(wo.status) && (
                     <button onClick={() => handleTogglePause(wo)}
                       className="px-2.5 py-1.5 text-amber-700 hover:text-amber-900 hover:bg-amber-50 border border-amber-200 rounded-lg text-xs font-black"
                       title={wo.status === "paused" ? "Resume SWO" : "Pause SWO and release machines"}>
-                      {wo.status === "paused" ? "Resume" : "Pause"}
+                      {wo.status === "paused" ? "▶ Resume SWO" : "⏸ Pause SWO"}
                     </button>
                   )}
                   {canDeleteWO(wo) && (
